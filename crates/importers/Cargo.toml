@@ -1,0 +1,20 @@
+[package]
+name = "portolano-importers"
+description = "Import and export of external connection formats for Portolano"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+portolano-core-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+# WP9 (importers)
+csv.workspace = true
+roxmltree.workspace = true
+tempfile.workspace = true

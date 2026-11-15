@@ -1,0 +1,44 @@
+[package]
+name = "portolano"
+description = "Portolano: personal remote-connection manager"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "portolano_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "portolano"
+path = "src/main.rs"
+
+[dependencies]
+portolano-core-model.workspace = true
+portolano-vault.workspace = true
+portolano-session-term.workspace = true
+portolano-session-rdp.workspace = true
+portolano-session-vnc.workspace = true
+portolano-importers.workspace = true
+tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+secrecy.workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[lints.cargo]
+# The RDP and VNC crates are wired by their work packages (WP6, WP7).
+unused_dependencies = "allow"
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,65 @@
+# cargo-deny policy for Portolano. CI runs `cargo deny check` (see .github/workflows/ci.yml).
+# Run it locally with `cargo install cargo-deny --locked` and `cargo deny check`.
+
+[graph]
+# The shipped platforms are macOS and Windows; the Linux dependencies (gtk, webkit2gtk) are in
+# the lockfile only because the workspace also compiles on Linux for CI. They are still checked.
+all-features = false
+
+[advisories]
+# Vulnerabilities and unsound/unmaintained notices of the RustSec database.
+#
+# "Unmaintained" notices are enforced for crates the workspace depends on directly. The ones
+# that exist today are transitive, have no upgrade path from here and are not vulnerabilities:
+# `atomic-polyfill` (sspi > winscard > iso7816 > heapless), `pin-utils` (sspi > async-dnssd)
+# and `proc-macro-error` (the Linux-only gtk stack of Tauri, never shipped). They are still
+# listed as warnings by `cargo deny check`; revisit when IronRDP/sspi and Tauri move on.
+unmaintained = "workspace"
+ignore = [
+    # RUSTSEC-2023-0071: Marvin attack, a timing side channel in RSA PKCS#1 v1.5 *decryption*
+    # in the `rsa` crate. There is no fixed release of `rsa` in the 0.10 release-candidate line
+    # that `russh` (SSH), `ssh-key`, `picky` and `sspi` (IronRDP/CredSSP) pull in.
+    #
+    # What it affects here: Portolano is a client and never decrypts RSA messages with a
+    # private key it holds; the `rsa` code is reached only to SIGN with a user's RSA SSH key
+    # (and for RSA operations of the authentication libraries), where a remote attacker would
+    # need a very large number of precisely timed observations of the signing operation.
+    # It is not exploitable through the network surface of this application as designed.
+    #
+    # Remove this entry as soon as russh / ssh-key / picky / sspi depend on a patched `rsa`
+    # (track the upstream releases); `cargo deny check` then stays green without it.
+    { id = "RUSTSEC-2023-0071", reason = "rsa has no fixed release in the rc line used by russh/ssh-key/picky/sspi; client-side signing only, see the comment above" },
+]
+
+[licenses]
+# Portolano is MIT licensed: only permissive and file-level-copyleft (MPL-2.0) licences are
+# accepted. No GPL, AGPL or LGPL dependency may enter the tree.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "MPL-2.0",
+    "0BSD",
+    "BSL-1.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+# Duplicate versions come from IronRDP/sspi (older RustCrypto generation) next to the newer
+# generation used by the vault: a size and maintenance point, not a vulnerability.
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+# Everything comes from crates.io: no git dependencies, no other registry.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

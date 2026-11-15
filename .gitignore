@@ -1,0 +1,50 @@
+# Rust
+target/
+
+# Node
+node_modules/
+dist/
+.pnpm-store/
+
+# Tauri
+**/src-tauri/gen/
+
+# Secrets and local config
+.env
+.env.*
+*.pem
+*.key
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Working notes kept on the maintainer's machine, not part of the repository
+PIANO_TECNICO.md
+dev/TOOLCHAIN.md
+
+# User data that must never be committed by accident (the app keeps these in the OS data
+# folder; they only appear here when a data directory is pointed at the working tree)
+vault.bin
+vault.bin.tmp
+known_hosts
+known_hosts.tmp
+connections.json
+connections.json.*
+rdp_known_certs
+vnc_known_certs
+vnc_unencrypted_hosts
+*.rdp
+!crates/importers/tests/fixtures/**/*.rdp
+
+# Dev test servers: generated credentials and keys
+dev/keys/
+
+# Local footprint snapshots and agent scratch space
+.footprint/
+.tmp/
+
+# Local preview configuration for the assistant
+.claude/

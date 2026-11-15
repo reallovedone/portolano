@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mrng:Connections xmlns:mrng="http://mremoteng.org" Name="Connections" FullFileEncryption="true" Protected="synthetic-check" ConfVersion="2.8">
+  <Node Name="lab-ssh" Type="Connection" Hostname="lab01.example.org" Protocol="SSH2" Port="22" />
+</mrng:Connections>

@@ -1,0 +1,155 @@
+/* Global base styles. All values come from design/tokens.css; nothing is hard-coded here. */
+@import "./lib/design/tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+html {
+  font-family: var(--font-sans);
+  /* The root size is the base size so rem/em keep their scale. */
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  background: var(--surface-content);
+  color: var(--text-primary);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* The application chrome is not selectable; content and fields opt back in below. */
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* Text stays selectable where people read or edit it. */
+input,
+textarea,
+select,
+[contenteditable="true"],
+.selectable,
+.xterm {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+::selection {
+  background: var(--text-selection-bg);
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin-block: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  margin: 0;
+}
+
+button,
+select,
+summary,
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+label {
+  cursor: default;
+}
+
+/* Fields show the text cursor; disabled ones do not. */
+input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"]),
+textarea {
+  cursor: text;
+}
+
+:disabled {
+  cursor: default;
+}
+
+a {
+  color: var(--text-link);
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+}
+
+/* Visible focus ring for keyboard users; pointer focus stays quiet. */
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Thin, overlay-like scrollbars on both engines. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+  background-clip: content-box;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}

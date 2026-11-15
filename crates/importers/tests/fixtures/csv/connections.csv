@@ -1,0 +1,9 @@
+name,protocol,host,port,username,folder,tags,notes,url
+db01,ssh,db01.example.org,22,alice,Prod/DB,prod;db,"primary, read-write",
+desk01,rdp,10.0.0.5,3390,ops,Prod,,"says ""hi""",
+"web, portal",web,,,,Prod/Web,public,,https://portal.example.org/app
+legacy,telnet,sw01.example.org,23,,Legacy,,,
+intranet,https,intranet.example.org,,,,,,
+vnc01,vnc,vnc01.example.org,,,Lab,,,
+,ssh,nameless.example.org,,,,,,
+bad,ssh,,,,,,,

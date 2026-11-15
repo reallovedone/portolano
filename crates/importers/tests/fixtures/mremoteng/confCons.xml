@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mrng:Connections xmlns:mrng="http://mremoteng.org" Name="Connections" Export="false" EncryptionEngine="AES" BlockCipherMode="GCM" BlockSize="128" KdfIterations="1000" FullFileEncryption="false" Protected="false" ConfVersion="2.8">
+  <Node Name="Lab" Type="Container" Descr="Lab machines" Expanded="true">
+    <Node Name="lab-ssh" Type="Connection" Descr="Build host" Hostname="lab01.example.org" Protocol="SSH2" Port="22" Username="root" Password="not-a-real-password" Domain="" />
+    <Node Name="lab-rdp" Type="Connection" Hostname="10.0.1.20" Protocol="RDP" Port="3389" Username="admin" Domain="LAB" Password="not-a-real-password" />
+    <Node Name="Nested" Type="Container">
+      <Node Name="lab-vnc" Type="Connection" Hostname="10.0.1.30" Protocol="VNC" Port="5900" Username="" />
+    </Node>
+  </Node>
+  <Node Name="wiki" Type="Connection" Hostname="wiki.example.org" Protocol="HTTPS" Port="443" Username="" />
+  <Node Name="intranet" Type="Connection" Hostname="intranet.example.org" Protocol="HTTP" Port="8080" />
+  <Node Name="old-telnet" Type="Connection" Hostname="old.example.org" Protocol="Telnet" Port="23" />
+  <Node Name="no-host" Type="Connection" Hostname="" Protocol="SSH2" Port="22" />
+  <Node Name="bad-port" Type="Connection" Hostname="bp.example.org" Protocol="SSH2" Port="abc" />
+</mrng:Connections>
