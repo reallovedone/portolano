@@ -1,0 +1,9 @@
+PasswordAuthentication yes
+PubkeyAuthentication yes
+KbdInteractiveAuthentication no
+UsePAM no
+PermitRootLogin no
+# Tests abandon some connections mid-handshake on purpose; without these limits sshd
+# drops new connections when the suite is run several times within two minutes.
+MaxStartups 200:30:400
+LoginGraceTime 20

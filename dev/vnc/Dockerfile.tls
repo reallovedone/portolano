@@ -1,0 +1,14 @@
+# Test-only VNC server with VeNCrypt (TLS with a server certificate). Same base layers as
+# ./Dockerfile (so they are shared), plus openssl to create the throwaway certificate.
+FROM debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tigervnc-standalone-server tigervnc-tools openbox xterm x11-utils procps \
+ && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+ && rm -rf /var/lib/apt/lists/*
+RUN useradd -m -s /bin/bash tester
+COPY entrypoint-tls.sh /entrypoint-tls.sh
+RUN chmod +x /entrypoint-tls.sh
+EXPOSE 5900
+ENTRYPOINT ["/entrypoint-tls.sh"]

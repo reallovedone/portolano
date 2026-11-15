@@ -1,0 +1,36 @@
+[Bookmarks]
+SubRep=
+ImgNum=41
+gateway=#109#0%gw01.example.org%22%ops%%-1%-1%%%%%0%0%0%%%-1%0%0%0%%1080%%0%0%1%%0%%%%0%-1%-1%0%%#MobaFont%10%0%0%-1%15#0# #-1
+
+[Bookmarks_1]
+SubRep=Prod\Web
+ImgNum=42
+web-ssh=#109#0%web01.example.org%%deploy%%-1%-1%%%%%0%0%0%%%-1%0%0%0%%1080%%0%0%1%%0%%%%0%-1%-1%0%%#MobaFont%10%0%0%-1%15#0# #-1
+web-rdp=#91#4%win-web01.example.org%3390%EXAMPLE\alice%0%0%0%0%-1%0%0%-1%%%%%0%0%%-1%%-1%-1%0%-1%0%-1%0%0%0%0%#MobaFont%10%0%0%-1%15#0# #-1
+web-vnc=#37#5%vnc-web01.example.org%5901%%%-1%-1#MobaFont%10#0# #-1
+
+[Bookmarks_2]
+SubRep=Prod\Legacy
+ImgNum=42
+old-telnet=#109#1%switch01.example.org%23%admin%%-1#MobaFont%10#0# #-1
+serial-x=#109#7%COM3%%%-1#MobaFont%10#0# #-1
+Password=not-a-real-password
+
+[Bookmarks_3]
+SubRep=Prod\Web\Frontend\Edge
+ImgNum=41
+edge01.example.org (.\alice)=#91#4%edge01.example.org%3389%.\alice%0%0%0%0%-1%0%0%-1%%%%%0%0%%-1%%-1%-1%0%-1%0%-1%0%0%0%0%#MobaFont%10%0%0%-1%15#0# #-1
+desk01.example.org ([Team admins])=#91#4%desk01.example.org%3389%[Team admins]%0%0%0%0%-1%0%0%-1%%%%%0%0%%-1%%-1%-1%0%-1%0%-1%0%0%0%0%#MobaFont%10%0%0%-1%15#0# #-1
+password-vault=#109#0%vault01.example.org%22%ops%%-1%-1%%%%%0%0%0%%%-1%0%0%0%%1080%%0%0%1%%0%%%%0%-1%-1%0%%#MobaFont%10%0%0%-1%15#0# #-1
+
+[Misc]
+ignored=#109#0%misc.example.org%22%nobody
+
+[Passwords]
+alice@gw01=not-a-real-password
+
+[Bookmarks_4]
+SubRep=Lab
+ImgNum=41
+no-host=#109#0%%22%ops%%-1%-1%%%%%0%0%0%%%-1%0%0%0%%1080%%0%0%1%%0%%%%0%-1%-1%0%%#MobaFont%10%0%0%-1%15#0# #-1

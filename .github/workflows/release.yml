@@ -1,0 +1,289 @@
+name: Release
+
+# Builds the installers and attaches them to a DRAFT GitHub Release.
+#
+# - Push a tag `vX.Y.Z` (it must match the version in the project files, see
+#   docs/RELEASING.md): installers are built and a draft release is created for review.
+# - Run it by hand (workflow_dispatch) for a dry run: installers are built and kept as
+#   workflow artifacts for 14 days, nothing is published and no release is created.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# A release run is never cancelled half way.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Read-only by default. Only the `publish` job below gets `contents: write`.
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "26"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ---------------------------------------------------------------------------------------
+  # 1. Fail early, before spending any runner minutes on the builds, if the tag and the
+  #    version numbers in the repository disagree.
+  # ---------------------------------------------------------------------------------------
+  verify:
+    name: Check tag and versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compare the tag with Cargo.toml, tauri.conf.json and both package.json files
+        id: check
+        env:
+          # Empty on a manual (dry-run) start: then only the files are compared with each other.
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: python3 .github/scripts/check-version.py "$TAG"
+
+  # ---------------------------------------------------------------------------------------
+  # 2. One build per platform. These jobs only need to read the repository.
+  # ---------------------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.label }}
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon. Native build on the (arm64) macos-latest runner.
+          - label: macos-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg   # `app` is kept so the signature can be inspected after the build
+            bundle_dir: dmg
+            pattern: "*.dmg"
+            out_suffix: macos-aarch64.dmg
+            lipo_arch: arm64
+          # Intel Mac. Cross-compiled on the arm64 runner (Apple's toolchain builds both).
+          # Two separate disk images were chosen over one "universal" binary: smaller
+          # downloads, and a failure in one architecture does not hide the other.
+          - label: macos-x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg   # `app` is kept so the signature can be inspected after the build
+            bundle_dir: dmg
+            pattern: "*.dmg"
+            out_suffix: macos-x86_64.dmg
+            lipo_arch: x86_64
+          - label: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            bundle_dir: nsis
+            pattern: "*-setup.exe"
+            out_suffix: windows-x64-setup.exe
+            lipo_arch: ""
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Rust toolchain
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          rustup toolchain install stable --profile minimal --target "$TARGET" --no-self-update
+          rustup default stable
+          rustc --version
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          cache: true
+          cache_dependency_path: |
+            pnpm-lock.yaml
+            ui/pnpm-lock.yaml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # The root install provides the Tauri CLI; the UI has its own lockfile.
+      - name: Install JavaScript dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --dir ui install --frozen-lockfile
+
+      # Optional code signing -------------------------------------------------------------
+      # The project has no Apple Developer ID and no Windows certificate, so nothing is
+      # signed with a real identity. On macOS, `bundle.macOS.signingIdentity = "-"` in
+      # src-tauri/tauri.conf.json gives the app an ad-hoc signature (required for the binary
+      # to run on Apple Silicon at all).
+      #
+      # To sign and notarise later, add the secrets below to the repository and uncomment
+      # this step. It is written so that it does nothing when a secret is missing. Do NOT put
+      # the secrets directly in the build step's `env:`: Tauri treats an EMPTY
+      # APPLE_SIGNING_IDENTITY / APPLE_CERTIFICATE as "set" and would fail the build.
+      # Environment variables override the "-" in tauri.conf.json.
+      #
+      # - name: Enable macOS signing and notarisation (optional)
+      #   if: runner.os == 'macOS'
+      #   env:
+      #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}               # base64 of the .p12
+      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      #     APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}     # "Developer ID Application: Name (TEAMID)"
+      #     APPLE_ID: ${{ secrets.APPLE_ID }}                                 # notarisation
+      #     APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}                     # app-specific password
+      #     APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      #   run: |
+      #     if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+      #       {
+      #         echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+      #         echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+      #         echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+      #       } >> "$GITHUB_ENV"
+      #       if [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+      #         { echo "APPLE_ID=$APPLE_ID"; echo "APPLE_PASSWORD=$APPLE_PASSWORD"; echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"; } >> "$GITHUB_ENV"
+      #       fi
+      #     else
+      #       echo "No Apple signing secrets: building with the ad-hoc signature."
+      #     fi
+      #
+      # Windows: set `bundle.windows.signCommand` (or `certificateThumbprint`) in tauri.conf.json
+      # and add the matching secrets in the same conditional way. See docs/RELEASING.md.
+
+      - name: Build the installer
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLES: ${{ matrix.bundles }}
+        # `--locked`: the build must use exactly the dependencies in Cargo.lock.
+        run: pnpm exec tauri build --target "$TARGET" --bundles "$BUNDLES" -- --locked
+
+      - name: Verify the macOS bundle (signature, architecture, minimum system)
+        if: runner.os == 'macOS'
+        env:
+          TARGET: ${{ matrix.target }}
+          EXPECTED_ARCH: ${{ matrix.lipo_arch }}
+        run: |
+          app="target/${TARGET}/release/bundle/macos/Portolano.app"
+          test -d "$app" || { echo "::error::$app not found"; find "target/${TARGET}/release/bundle" -maxdepth 2; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dvv "$app" 2>&1 | grep -E '^(Identifier|Format|Signature|Authority|TeamIdentifier|CodeDirectory)' || true
+          arch="$(lipo -archs "$app/Contents/MacOS/portolano")"
+          echo "Architectures: $arch"
+          [ "$arch" = "$EXPECTED_ARCH" ] || { echo "::error::expected architecture '$EXPECTED_ARCH', got '$arch'"; exit 1; }
+          echo "LSMinimumSystemVersion: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")"
+
+      - name: Collect the installer under a clear name
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          BUNDLE_DIR: ${{ matrix.bundle_dir }}
+          PATTERN: ${{ matrix.pattern }}
+          OUT_SUFFIX: ${{ matrix.out_suffix }}
+        run: |
+          shopt -s nullglob
+          files=("target/${TARGET}/release/bundle/${BUNDLE_DIR}"/$PATTERN)
+          if [ "${#files[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one '$PATTERN' in target/${TARGET}/release/bundle/${BUNDLE_DIR}, found ${#files[@]}"
+            find "target/${TARGET}/release/bundle" -maxdepth 3
+            exit 1
+          fi
+          mkdir -p release-files
+          cp "${files[0]}" "release-files/Portolano-${VERSION}-${OUT_SUFFIX}"
+          ls -l release-files
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installer-${{ matrix.label }}
+          path: release-files/*
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------------------
+  # 3. Gather the installers and compute the SHA-256 checksums (runs on dry runs too).
+  # ---------------------------------------------------------------------------------------
+  package:
+    name: Checksums
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download the installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: installer-*
+          merge-multiple: true
+          path: release-files
+
+      - name: Write SHA256SUMS.txt
+        working-directory: release-files
+        run: |
+          sha256sum -- Portolano-* > ../SHA256SUMS.txt
+          mv ../SHA256SUMS.txt SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          ls -l
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: release-files/*
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------------------
+  # 4. Create the DRAFT release (tag pushes only). The only job with write access; it runs
+  #    no repository code and does not check the repository out.
+  # ---------------------------------------------------------------------------------------
+  publish:
+    name: Create the draft release
+    if: github.ref_type == 'tag'
+    needs: [verify, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: release-files
+
+      - name: Create (or update) the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          shopt -s nullglob
+          files=(release-files/*)
+          [ "${#files[@]}" -gt 0 ] || { echo "::error::no release files"; exit 1; }
+
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # A re-run: only replace the files, and only while the release is still a draft.
+            is_draft="$(gh release view "$TAG" --json isDraft --jq .isDraft)"
+            [ "$is_draft" = "true" ] || { echo "::error::release $TAG is already published; refusing to modify it"; exit 1; }
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            flags=(--draft --verify-tag --title "Portolano ${VERSION}" --generate-notes)
+            [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+            gh release create "$TAG" "${flags[@]}" \
+              --notes "These builds are **not signed** (no Apple Developer ID, no Windows certificate), so macOS and Windows will warn the first time you open them. See the Download section of the README for the exact steps. Check the files against \`SHA256SUMS.txt\`." \
+              "${files[@]}"
+          fi

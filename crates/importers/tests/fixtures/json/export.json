@@ -1,0 +1,11 @@
+{
+  "format": "portolano-export",
+  "version": 1,
+  "nodes": [
+    {"type":"folder","id":"00000000-0000-0000-0000-000000000001","parentId":null,"name":"Prod","credential":{"type":"id","id":"00000000-0000-0000-0000-0000000000aa"}},
+    {"type":"connection","id":"00000000-0000-0000-0000-000000000002","parentId":"00000000-0000-0000-0000-000000000001","name":"bastion","host":"bastion.example.org","port":null,"credential":{"type":"inherit"},"username":"alice","tags":["prod"],"notes":"","options":{"type":"ssh","jumpHost":null,"keepaliveSecs":30}},
+    {"type":"connection","id":"00000000-0000-0000-0000-000000000003","parentId":"00000000-0000-0000-0000-000000000001","name":"db01","host":"db01.example.org","port":2222,"credential":{"type":"none"},"username":null,"tags":[],"notes":"","options":{"type":"ssh","jumpHost":"00000000-0000-0000-0000-000000000002","keepaliveSecs":null}},
+    {"type":"connection","id":"00000000-0000-0000-0000-000000000004","parentId":null,"name":"web","host":"web.example.org","port":null,"credential":{"type":"none"},"username":null,"tags":[],"notes":"","options":{"type":"web","url":"https://web.example.org","isolatedProfile":false}},
+    {"type":"connection","id":"00000000-0000-0000-0000-000000000005","parentId":null,"name":"edge","host":"edge.example.org","port":null,"credential":{"type":"none"},"username":null,"tags":[],"notes":"","options":{"type":"ssh","jumpHost":"00000000-0000-0000-0000-0000000000ff","keepaliveSecs":null}}
+  ]
+}

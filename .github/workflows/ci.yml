@@ -1,0 +1,264 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same pull request supersedes the running checks. Runs on `main`
+# are never cancelled, so every commit on `main` keeps a complete result.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Default for every job: read-only. No job here needs more, and this workflow uses no
+# secrets, so pull requests from forks run with exactly the same (read-only) rights.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "10"
+  NODE_VERSION: "26"
+
+defaults:
+  run:
+    shell: bash
+
+# Layout (see docs/RELEASING.md for the reasoning):
+#
+# - `linux`   : cheap and fast. fmt, clippy and tests on Linux, plus the UI checks (which are
+#               platform independent). Linux is NOT a supported platform of the app, but the
+#               workspace is written to compile there: the platform-specific code has an explicit
+#               fallback for "neither macOS nor Windows" (src-tauri/src/commands/web/session.rs).
+#               If a future change breaks that, move clippy/test to the macOS job and keep
+#               only fmt + UI here.
+# - `macos`   : the platform the app is developed on. clippy (warnings are errors) and tests, so
+#               the `cfg(target_os = "macos")` code is linted and tested on every change.
+# - `windows` : the `cfg(windows)` code has never been compiled before this workflow existed.
+#               `cargo check` is blocking; clippy and tests are informational until the first
+#               green run (then remove `continue-on-error`).
+#
+# - `deny`    : `cargo deny check` (RustSec advisories, licences, duplicate and unknown sources;
+#               policy in deny.toml) and `pnpm audit` of the production JavaScript dependencies.
+#               cargo-deny is built from source at a pinned version (no third-party action).
+#               It needs the network (advisory database, npm registry) and no secrets.
+#
+# Integration tests that need the Docker SSH/RDP/VNC servers (dev/docker-compose.yml) skip
+# themselves when the servers are unreachable. This first version deliberately does NOT start
+# those servers in CI, so they are skipped here; run `bash dev/check.sh` locally for them.
+#
+# Tauri embeds the web UI at compile time (`frontendDist: ../ui/dist`), so the UI is built
+# BEFORE any cargo command that compiles the `portolano` crate.
+
+jobs:
+  linux:
+    name: Linux (fmt, clippy, tests, UI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy --no-self-update
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+      - name: Install Linux system packages for Tauri
+        # The Tauri 2 prerequisites for Linux (only needed here to compile and test).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          # The version comes from the "packageManager" field of package.json.
+          cache: true
+          cache_dependency_path: ui/pnpm-lock.yaml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install UI dependencies
+        run: pnpm --dir ui install --frozen-lockfile
+
+      - name: UI type check
+        run: pnpm --dir ui check
+
+      - name: UI tests
+        run: pnpm --dir ui test
+
+      - name: UI build
+        run: pnpm --dir ui build
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          # Only `main` writes the cache; pull requests restore it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --locked
+
+  macos:
+    name: macOS (clippy, tests, UI build)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --no-self-update
+          rustup default stable
+          rustc --version
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          cache: true
+          cache_dependency_path: ui/pnpm-lock.yaml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build the UI
+        run: |
+          pnpm --dir ui install --frozen-lockfile
+          pnpm --dir ui build
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --locked
+
+  windows:
+    name: Windows (check, clippy, tests, UI build)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --no-self-update
+          rustup default stable
+          rustc --version
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          cache: true
+          cache_dependency_path: ui/pnpm-lock.yaml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build the UI
+        run: |
+          pnpm --dir ui install --frozen-lockfile
+          pnpm --dir ui build
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # Blocking: proves the `cfg(windows)` code compiles, tests included.
+      - name: cargo check
+        run: cargo check --workspace --all-targets --locked
+
+      # Informational until the first green run on Windows; then drop `continue-on-error`.
+      - name: cargo clippy (informational)
+        continue-on-error: true
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo test (informational)
+        continue-on-error: true
+        run: cargo test --workspace --locked
+
+  deny:
+    name: Dependencies (cargo deny, pnpm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # Pinned and locked: the tool that judges the dependencies is itself reproducible.
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.20.2 --locked
+
+      - name: cargo deny check
+        run: cargo deny --locked check
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          cache: true
+          cache_dependency_path: ui/pnpm-lock.yaml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Production dependencies only: the known low-severity advisory of a build-time
+      # development dependency (deepmerge, no patched release) does not ship in the app.
+      - name: pnpm audit (production dependencies)
+        run: |
+          pnpm audit --prod
+          pnpm --dir ui audit --prod

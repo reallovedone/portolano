@@ -1,0 +1,20 @@
+{
+  "name": "portolano",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Portolano: personal remote-connection manager (Tauri 2 + Svelte 5)",
+  "packageManager": "pnpm@12.18.0",
+  "scripts": {
+    "ui:install": "pnpm --dir ui install",
+    "dev": "bash dev/run.sh tauri dev",
+    "dev:mock": "pnpm --dir ui dev:mock",
+    "build": "bash dev/run.sh tauri build --no-bundle",
+    "check": "bash dev/check.sh",
+    "dev:servers:up": "bash dev/servers.sh up",
+    "dev:servers:down": "bash dev/servers.sh down",
+    "tauri": "bash dev/run.sh tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

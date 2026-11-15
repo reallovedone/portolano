@@ -1,0 +1,90 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core-model",
+    "crates/vault",
+    "crates/session-term",
+    "crates/session-rdp",
+    "crates/session-vnc",
+    "crates/importers",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+license = "MIT"
+repository = "https://github.com/reallovedone/portolano"
+
+[workspace.dependencies]
+# Internal crates
+portolano-core-model = { path = "crates/core-model" }
+portolano-vault = { path = "crates/vault" }
+portolano-session-term = { path = "crates/session-term" }
+portolano-session-rdp = { path = "crates/session-rdp" }
+portolano-session-vnc = { path = "crates/session-vnc" }
+portolano-importers = { path = "crates/importers" }
+
+# External
+tauri = { version = "=2.12.5", features = ["unstable"] }
+tauri-build = { version = "=2.7.4" }
+tauri-plugin-dialog = { version = "=2.7.3" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.29.2", features = ["v4", "serde"] }
+dirs = "7.0.0"
+secrecy = { version = "0.10.3", features = ["serde"] }
+zeroize = "1.9.1"
+
+# WP3 (vault)
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize"] }
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc", "zeroize"] }
+getrandom = "0.4.3"
+tempfile = "3.27.0"
+
+# WP9 (importers)
+csv = "1.4.0"
+roxmltree = "0.21.2"
+
+# WP6 (RDP): IronRDP split crates (the `ironrdp` meta-crate does not resolve)
+ironrdp-connector = "0.12"
+ironrdp-session = "0.13"
+ironrdp-tokio = { version = "0.12", features = ["reqwest"] }
+ironrdp-tls = { version = "0.3", features = ["rustls"] }
+ironrdp-input = "0.9"
+ironrdp-graphics = "0.11"
+ironrdp-pdu = "0.11"
+ironrdp-displaycontrol = "0.10"
+ironrdp-dvc = "0.10"
+ironrdp-svc = "0.10"
+ironrdp-core = "0.3"
+x509-cert = "0.3"
+sha2 = "0.10"
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "aws_lc_rs"] }
+
+# WP5 (terminal and SSH)
+russh = "=0.65.1"
+portable-pty = "=0.9.0"
+
+# WP7 (VNC): RFB is implemented in-crate; DES for VNC authentication, zlib for ZRLE
+des = "0.9"
+flate2 = "1.1"
+# WP10b (VeNCrypt): the same TLS stack the RDP crates already pull in (aws-lc-rs provider)
+tokio-rustls = { version = "0.26", default-features = false, features = ["tls12", "aws_lc_rs"] }
+
+# Optimise dependencies in development builds too. Our own crates stay unoptimised so
+# rebuilding after an edit is quick, but protocol libraries (RDP decoding above all) are
+# many times slower without optimisation and made remote desktops stutter under `pnpm dev`.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Overflow checks stay on in release builds: sizes and offsets come from remote servers, and a
+# wrapped value must stop the session (a panic) rather than silently corrupt a calculation.
+[profile.release]
+overflow-checks = true
