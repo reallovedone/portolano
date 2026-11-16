@@ -47,6 +47,9 @@ allow = [
     "MPL-2.0",
     "0BSD",
     "BSL-1.0",
+    # Licence of `webpki-root-certs` (Mozilla root certificates), pulled in by
+    # tauri-plugin-updater via reqwest/rustls-platform-verifier.
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 

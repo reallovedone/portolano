@@ -57,7 +57,9 @@ export type Call =
   | { fn: "unencryptedDecision"; allow: boolean }
   | { fn: "forgetCertificate" }
   | { fn: "credential"; username: string; saveToVault: boolean }
-  | { fn: "credentialCancel" };
+  | { fn: "credentialCancel" }
+  | { fn: "clipboardSave" }
+  | { fn: "clipboardCancel" };
 
 export function recordingApi(options: { delayMs?: number } = {}): { api: FbApi; calls: Call[] } {
   const calls: Call[] = [];
@@ -94,6 +96,13 @@ export function recordingApi(options: { delayMs?: number } = {}): { api: FbApi; 
     },
     async credentialCancel() {
       calls.push({ fn: "credentialCancel" });
+    },
+    async clipboardSave() {
+      calls.push({ fn: "clipboardSave" });
+      return true;
+    },
+    async clipboardCancel() {
+      calls.push({ fn: "clipboardCancel" });
     },
   };
   return { api, calls };

@@ -221,7 +221,8 @@ impl Draft {
     ///
     /// - every credential reference becomes `None` (never `Inherit` from the folder the import
     ///   lands in, never an id of a vault the file knows nothing about);
-    /// - "do not verify the server certificate" and "allow without NLA" are switched off;
+    /// - "do not verify the server certificate", "allow without NLA" and "share the clipboard"
+    ///   are switched off;
     /// - a local shell with a custom program, arguments or working directory is not imported
     ///   (it would run that program when opened). A plain local shell is fine.
     ///
@@ -230,6 +231,7 @@ impl Draft {
         let mut credentials: Vec<String> = Vec::new();
         let mut ignore_cert: Vec<String> = Vec::new();
         let mut without_nla: Vec<String> = Vec::new();
+        let mut clipboard: Vec<String> = Vec::new();
         let mut programs: Vec<String> = Vec::new();
 
         for node in &mut self.nodes {
@@ -249,8 +251,12 @@ impl Draft {
                         ConnectionOptions::Rdp {
                             ignore_cert: ignore,
                             allow_without_nla: without,
+                            share_clipboard: share,
                             ..
                         } => {
+                            if std::mem::take(share) {
+                                clipboard.push(c.name.clone());
+                            }
                             if std::mem::take(ignore) {
                                 ignore_cert.push(c.name.clone());
                             }
@@ -324,6 +330,15 @@ impl Draft {
                 "RDP connection",
                 "allowed connections without NLA: the option was turned off",
                 "allowed connections without NLA: the option was turned off",
+            );
+            self.warn(None, message);
+        }
+        if !clipboard.is_empty() {
+            let message = grouped(
+                &clipboard,
+                "RDP connection",
+                "shared the clipboard with the remote desktop: the option was turned off",
+                "shared the clipboard with the remote desktop: the option was turned off",
             );
             self.warn(None, message);
         }

@@ -28,6 +28,7 @@ ironrdp-displaycontrol.workspace = true
 ironrdp-dvc.workspace = true
 ironrdp-svc.workspace = true
 ironrdp-core.workspace = true
+ironrdp-cliprdr.workspace = true
 x509-cert.workspace = true
 sha2.workspace = true
 tokio-rustls.workspace = true

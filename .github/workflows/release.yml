@@ -1,11 +1,17 @@
 name: Release
 
-# Builds the installers and attaches them to a DRAFT GitHub Release.
+# Builds the installers, the signed auto-update packages and `latest.json`, and attaches
+# them to a DRAFT GitHub Release.
 #
 # - Push a tag `vX.Y.Z` (it must match the version in the project files, see
-#   docs/RELEASING.md): installers are built and a draft release is created for review.
-# - Run it by hand (workflow_dispatch) for a dry run: installers are built and kept as
+#   docs/RELEASING.md): everything is built and a draft release is created for review.
+# - Run it by hand (workflow_dispatch) for a dry run: everything is built and kept as
 #   workflow artifacts for 14 days, nothing is published and no release is created.
+#
+# The update packages are signed with the Tauri updater key (secrets TAURI_SIGNING_PRIVATE_KEY
+# and TAURI_SIGNING_PRIVATE_KEY_PASSWORD). That key has nothing to do with Apple or Windows
+# code signing. The builds fail early without it, dry runs included, because
+# `bundle.createUpdaterArtifacts` makes `tauri build` require it.
 on:
   push:
     tags: ["v*"]
@@ -73,6 +79,12 @@ jobs:
             pattern: "*.dmg"
             out_suffix: macos-aarch64.dmg
             lipo_arch: arm64
+            # Update package: Portolano.app.tar.gz (same name on both architectures, so renamed).
+            archive_pattern: "*.app.tar.gz"
+            archive_suffix: macos-aarch64.app.tar.gz
+            sig_dir: macos
+            sig_pattern: "*.app.tar.gz.sig"
+            sig_suffix: macos-aarch64.app.tar.gz.sig
           # Intel Mac. Cross-compiled on the arm64 runner (Apple's toolchain builds both).
           # Two separate disk images were chosen over one "universal" binary: smaller
           # downloads, and a failure in one architecture does not hide the other.
@@ -84,6 +96,12 @@ jobs:
             pattern: "*.dmg"
             out_suffix: macos-x86_64.dmg
             lipo_arch: x86_64
+            # Update package: Portolano.app.tar.gz (same name on both architectures, so renamed).
+            archive_pattern: "*.app.tar.gz"
+            archive_suffix: macos-x86_64.app.tar.gz
+            sig_dir: macos
+            sig_pattern: "*.app.tar.gz.sig"
+            sig_suffix: macos-x86_64.app.tar.gz.sig
           - label: windows-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -92,6 +110,13 @@ jobs:
             pattern: "*-setup.exe"
             out_suffix: windows-x64-setup.exe
             lipo_arch: ""
+            # Tauri v2 reuses the NSIS installer as the update package: only its signature
+            # is extra, and `latest.json` points at the installer itself.
+            archive_pattern: ""
+            archive_suffix: ""
+            sig_dir: nsis
+            sig_pattern: "*-setup.exe.sig"
+            sig_suffix: windows-x64-setup.exe.sig
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -163,12 +188,24 @@ jobs:
       # Windows: set `bundle.windows.signCommand` (or `certificateThumbprint`) in tauri.conf.json
       # and add the matching secrets in the same conditional way. See docs/RELEASING.md.
 
-      - name: Build the installer
+      # The updater signing key is exposed to this step only. Never `echo` it or turn on
+      # `set -x` here. Tauri reads it from the environment (`.env` files are not used).
+      - name: Build the installer and the signed update package
         env:
           TARGET: ${{ matrix.target }}
           BUNDLES: ${{ matrix.bundles }}
-        # `--locked`: the build must use exactly the dependencies in Cargo.lock.
-        run: pnpm exec tauri build --target "$TARGET" --bundles "$BUNDLES" -- --locked
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # Fail with a clear message instead of a cryptic bundler error. The password may be
+          # legitimately empty only for a key generated without one, which this project does
+          # not use, so both are required.
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] || [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+            echo "::error::The repository secrets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD must both be set (updater signing key, see docs/RELEASING.md)."
+            exit 1
+          fi
+          # `--locked`: the build must use exactly the dependencies in Cargo.lock.
+          pnpm exec tauri build --target "$TARGET" --bundles "$BUNDLES" -- --locked
 
       - name: Verify the macOS bundle (signature, architecture, minimum system)
         if: runner.os == 'macOS'
@@ -185,26 +222,46 @@ jobs:
           [ "$arch" = "$EXPECTED_ARCH" ] || { echo "::error::expected architecture '$EXPECTED_ARCH', got '$arch'"; exit 1; }
           echo "LSMinimumSystemVersion: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")"
 
-      - name: Collect the installer under a clear name
+      - name: Collect the installer and the update package under clear names
         env:
           VERSION: ${{ needs.verify.outputs.version }}
           TARGET: ${{ matrix.target }}
           BUNDLE_DIR: ${{ matrix.bundle_dir }}
           PATTERN: ${{ matrix.pattern }}
           OUT_SUFFIX: ${{ matrix.out_suffix }}
+          ARCHIVE_PATTERN: ${{ matrix.archive_pattern }}
+          ARCHIVE_SUFFIX: ${{ matrix.archive_suffix }}
+          SIG_DIR: ${{ matrix.sig_dir }}
+          SIG_PATTERN: ${{ matrix.sig_pattern }}
+          SIG_SUFFIX: ${{ matrix.sig_suffix }}
         run: |
           shopt -s nullglob
-          files=("target/${TARGET}/release/bundle/${BUNDLE_DIR}"/$PATTERN)
-          if [ "${#files[@]}" -ne 1 ]; then
-            echo "::error::expected exactly one '$PATTERN' in target/${TARGET}/release/bundle/${BUNDLE_DIR}, found ${#files[@]}"
-            find "target/${TARGET}/release/bundle" -maxdepth 3
-            exit 1
-          fi
+          bundle="target/${TARGET}/release/bundle"
           mkdir -p release-files
-          cp "${files[0]}" "release-files/Portolano-${VERSION}-${OUT_SUFFIX}"
+
+          # copy_one DIR PATTERN SUFFIX: copy the single file matching PATTERN in DIR as
+          # Portolano-<version>-<suffix>. Anything but exactly one match is an error.
+          copy_one() {
+            local dir="$1" pattern="$2" suffix="$3"
+            local files=("${bundle}/${dir}"/$pattern)
+            if [ "${#files[@]}" -ne 1 ]; then
+              echo "::error::expected exactly one '$pattern' in ${bundle}/${dir}, found ${#files[@]}"
+              find "$bundle" -maxdepth 3
+              exit 1
+            fi
+            cp "${files[0]}" "release-files/Portolano-${VERSION}-${suffix}"
+          }
+
+          copy_one "$BUNDLE_DIR" "$PATTERN" "$OUT_SUFFIX"
+          # macOS only: Portolano.app.tar.gz (the file name is the same on both architectures).
+          if [ -n "$ARCHIVE_PATTERN" ]; then
+            copy_one macos "$ARCHIVE_PATTERN" "$ARCHIVE_SUFFIX"
+          fi
+          # The signature of the update package (a one-line text file).
+          copy_one "$SIG_DIR" "$SIG_PATTERN" "$SIG_SUFFIX"
           ls -l release-files
 
-      - name: Upload the installer
+      - name: Upload the installer and update package
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: installer-${{ matrix.label }}
@@ -213,25 +270,54 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------------------
-  # 3. Gather the installers and compute the SHA-256 checksums (runs on dry runs too).
+  # 3. Gather the files, write latest.json and compute the SHA-256 checksums (runs on dry
+  #    runs too). Read-only like the builds; the script is the only repository code involved,
+  #    which is why `publish` below can stay free of any.
   # ---------------------------------------------------------------------------------------
   package:
-    name: Checksums
-    needs: build
+    name: latest.json and checksums
+    needs: [verify, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Download the installers
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the installers and update packages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: installer-*
           merge-multiple: true
           path: release-files
 
+      # The updater downloads `latest.json` from the release (see docs/RELEASING.md). The
+      # script checks that every expected file and signature is there, and nothing else.
+      - name: Write latest.json
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 .github/scripts/make-latest-json.py \
+            --dir release-files \
+            --version "$VERSION" \
+            --tag "v${VERSION}" \
+            --repo "$REPO" \
+            --notes "See the release notes: https://github.com/${REPO}/releases/tag/v${VERSION}"
+          cat release-files/latest.json
+
+      # Covers every file that will be attached, except the checksum file itself.
       - name: Write SHA256SUMS.txt
         working-directory: release-files
         run: |
-          sha256sum -- Portolano-* > ../SHA256SUMS.txt
+          export LC_ALL=C
+          files=()
+          for f in *; do
+            [ "$f" = "SHA256SUMS.txt" ] || files+=("$f")
+          done
+          [ "${#files[@]}" -gt 0 ] || { echo "::error::no files to checksum"; exit 1; }
+          sha256sum -- "${files[@]}" > ../SHA256SUMS.txt
           mv ../SHA256SUMS.txt SHA256SUMS.txt
           cat SHA256SUMS.txt
           ls -l
@@ -281,9 +367,10 @@ jobs:
             [ "$is_draft" = "true" ] || { echo "::error::release $TAG is already published; refusing to modify it"; exit 1; }
             gh release upload "$TAG" "${files[@]}" --clobber
           else
+            # The release body is shown inside the app (update dialog and "What's new"): rewrite it for end users before publishing the draft.
             flags=(--draft --verify-tag --title "Portolano ${VERSION}" --generate-notes)
             [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
             gh release create "$TAG" "${flags[@]}" \
-              --notes "These builds are **not signed** (no Apple Developer ID, no Windows certificate), so macOS and Windows will warn the first time you open them. See the Download section of the README for the exact steps. Check the files against \`SHA256SUMS.txt\`." \
+              --notes "Improvements and fixes. Installing for the first time? These builds are not signed, so macOS and Windows warn on first launch: see the Download section of the README. Check the files against \`SHA256SUMS.txt\`." \
               "${files[@]}"
           fi

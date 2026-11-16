@@ -17,10 +17,13 @@ pub fn response(challenge: &[u8; 16], password: &[u8]) -> [u8; 16] {
     }
     let cipher = Des::new(&key.into());
     let mut out = [0u8; 16];
-    for (src, dst) in challenge.chunks_exact(8).zip(out.chunks_exact_mut(8)) {
-        let mut block = [0u8; 8];
-        block.copy_from_slice(src);
-        let mut block = block.into();
+    for (src, dst) in challenge
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .zip(out.as_chunks_mut::<8>().0)
+    {
+        let mut block = (*src).into();
         cipher.encrypt_block(&mut block);
         dst.copy_from_slice(&block);
     }

@@ -124,6 +124,7 @@ fn summary(events: &[FbEvent]) -> Vec<String> {
             FbEvent::CredentialPrompt(p) => format!("prompt {:?} err={:?}", p.kind, p.error),
             FbEvent::Security { encrypted } => format!("security encrypted={encrypted}"),
             FbEvent::UnencryptedPrompt => "unencrypted prompt".into(),
+            FbEvent::Clipboard(_) => "clipboard".into(),
         })
         .collect()
 }
@@ -248,8 +249,10 @@ async fn snapshot(session: &VncSession) -> Snapshot {
 fn changed_pixels(a: &Snapshot, b: &Snapshot) -> usize {
     assert_eq!((a.width, a.height), (b.width, b.height));
     a.rgba
-        .chunks_exact(4)
-        .zip(b.rgba.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.rgba.as_chunks::<4>().0)
         .filter(|(p, q)| p != q)
         .count()
 }
@@ -272,9 +275,9 @@ async fn connects_authenticates_and_the_backend_image_is_the_desktop() {
     let image = snapshot(&session).await;
     assert_eq!((image.width, image.height), (1280, 800));
     assert_eq!(image.rgba.len(), 1280 * 800 * 4);
-    assert!(image.rgba.chunks_exact(4).all(|p| p[3] == 255));
+    assert!(image.rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 255));
     let mut colours = std::collections::HashSet::new();
-    for p in image.rgba.chunks_exact(4) {
+    for p in image.rgba.as_chunks::<4>().0 {
         colours.insert([p[0], p[1], p[2]]);
         if colours.len() > 8 {
             break;
@@ -505,7 +508,12 @@ async fn input_reaches_the_server_and_text_renders_like_server_output() {
         {
             let typed = block(&after, ox + col * 6 + 2, oy);
             let printed = block(&after, ox + 2, oy + 13);
-            let ink = typed.chunks_exact(4).filter(|p| p[0] < 128).count();
+            let ink = typed
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| p[0] < 128)
+                .count();
             if typed == printed && ink > 20 && typed != block(&before, ox + col * 6 + 2, oy) {
                 found = true;
             }

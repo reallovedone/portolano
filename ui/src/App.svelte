@@ -16,6 +16,9 @@
   import Splitter from "./lib/ui/Splitter.svelte";
   import StatusBar from "./lib/ui/StatusBar.svelte";
   import Toasts from "./lib/ui/Toasts.svelte";
+  import UpdateCheckDialog from "./lib/updates/UpdateCheckDialog.svelte";
+  import UpdateOfferDialog from "./lib/updates/UpdateOfferDialog.svelte";
+  import WhatsNewDialog from "./lib/updates/WhatsNewDialog.svelte";
   import CreateVaultDialog from "./lib/vault/CreateVaultDialog.svelte";
   import CredentialManager from "./lib/vault/CredentialManager.svelte";
   import UnlockDialog from "./lib/vault/UnlockDialog.svelte";
@@ -28,7 +31,7 @@
 
   // The app object is fixed for the lifetime of the shell.
   // svelte-ignore state_referenced_locally
-  const { doc, vault, tabs, ui, overlay, notices } = app;
+  const { doc, vault, tabs, ui, overlay, notices, updates } = app;
   // svelte-ignore state_referenced_locally
   provideApp(app);
 
@@ -56,6 +59,21 @@
         notices.error(t("app.logFailed"), e);
       }
     })();
+  });
+
+  // "What's new" (after an update), then the automatic update check, never blocking start-up.
+  onMount(() => updates.start());
+
+  // An update found by a scheduled check waits until "What's new" is closed and no other dialog
+  // or menu is open; one asked for with "Check for updates…" is shown at once.
+  let offerVisible = $state(false);
+  $effect(() => {
+    const offer = updates.offer;
+    if (!offer) {
+      offerVisible = false;
+    } else if (!offerVisible && updates.whatsNew === null && (offer.manual || !overlay.open)) {
+      offerVisible = true;
+    }
   });
 
   function onKeydown(event: KeyboardEvent): void {
@@ -144,6 +162,14 @@
   <CredentialManager onclose={() => ui.closeDialog()} />
 {:else if ui.dialog?.type === "import"}
   <ImportDialog path={ui.dialog.path} onclose={() => ui.closeDialog()} />
+{:else if ui.dialog?.type === "updates"}
+  <UpdateCheckDialog onclose={() => ui.closeDialog()} />
+{/if}
+
+{#if updates.whatsNew}
+  <WhatsNewDialog info={updates.whatsNew} onclose={() => updates.dismissWhatsNew()} />
+{:else if offerVisible}
+  <UpdateOfferDialog />
 {/if}
 
 <style>

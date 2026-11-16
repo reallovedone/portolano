@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/svelte";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createMockIpc, MOCK_IDS } from "../ipc/mock";
 import { createApp } from "../state/app";
@@ -123,5 +123,45 @@ describe("ConnectionEditor RDP without NLA", () => {
     // The mock "File server" connection is saved without the option.
     const dialog = await open(MOCK_IDS.rdpServer);
     expect((within(dialog).getByLabelText(LABEL) as HTMLInputElement).checked).toBe(false);
+  });
+});
+
+describe("ConnectionEditor RDP clipboard sharing", () => {
+  const LABEL = "Share the clipboard with the remote desktop";
+
+  it("is off by default, explained, and only offered for RDP", async () => {
+    const rdp = await open(null, "rdp");
+    const box = within(rdp).getByLabelText(LABEL) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    // The explanation says who sees what, and that vault passwords are not shared.
+    expect(within(rdp).getByText(/can read what you copy/)).toBeTruthy();
+    expect(within(rdp).getByText(/never shared/)).toBeTruthy();
+    cleanup();
+    expect(within(await open(null, "vnc")).queryByLabelText(LABEL)).toBeNull();
+    cleanup();
+    expect(within(await open(null, "ssh")).queryByLabelText(LABEL)).toBeNull();
+  });
+
+  it("an existing connection keeps the choice it was saved with", async () => {
+    const dialog = await open(MOCK_IDS.rdpServer);
+    expect((within(dialog).getByLabelText(LABEL) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("is saved with the connection", async () => {
+    const app = createApp(createMockIpc({ vault: "unlocked" }));
+    await app.doc.load();
+    render(EditorHarness, { props: { app, id: null, kind: "rdp" } });
+    const dialog = await screen.findByRole("dialog");
+    await fireEvent.input(within(dialog).getByLabelText("Name"), { target: { value: "Shared" } });
+    await fireEvent.input(within(dialog).getByLabelText("Host"), { target: { value: "h.example" } });
+    await fireEvent.click(within(dialog).getByLabelText(LABEL));
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => {
+      const saved = app.doc.nodes.find((n) => n.type === "connection" && n.name === "Shared");
+      expect(saved?.type === "connection" && saved.options).toMatchObject({
+        type: "rdp",
+        shareClipboard: true,
+      });
+    });
   });
 });

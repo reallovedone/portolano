@@ -3,7 +3,14 @@
 // Every frame is [tag u8][body], little endian.
 
 import { IpcError } from "./errors";
-import type { AppError, CredentialPrompt, FbEvent, TermEvent } from "./types";
+import type {
+  AppError,
+  ClipboardEvent,
+  ClipboardFailure,
+  CredentialPrompt,
+  FbEvent,
+  TermEvent,
+} from "./types";
 
 const decoder = new TextDecoder();
 
@@ -74,6 +81,44 @@ export function decodeTermEvent(frame: Uint8Array): TermEvent {
   }
 }
 
+const CLIPBOARD_FAILURES: ClipboardFailure[] = [
+  "cancelled",
+  "limit",
+  "destination",
+  "remote",
+  "protocol",
+  "nothing",
+];
+
+function num(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function parseClipboardEvent(body: Uint8Array): ClipboardEvent {
+  const j = parseJson<Record<string, unknown>>(body);
+  switch (j.type) {
+    case "remoteFiles":
+      return { type: "remoteFiles", count: num(j.count), bytes: num(j.bytes), skipped: num(j.skipped) };
+    case "progress":
+      return {
+        type: "progress",
+        filesDone: num(j.filesDone),
+        filesTotal: num(j.filesTotal),
+        bytesDone: num(j.bytesDone),
+        bytesTotal: num(j.bytesTotal),
+      };
+    case "done":
+      return { type: "done", files: num(j.files), bytes: num(j.bytes), skipped: num(j.skipped) };
+    case "failed":
+      if (CLIPBOARD_FAILURES.includes(j.reason as ClipboardFailure)) {
+        return { type: "failed", reason: j.reason as ClipboardFailure };
+      }
+      throw new IpcError("internal", "malformed clipboard frame");
+    default:
+      throw new IpcError("internal", "malformed clipboard frame");
+  }
+}
+
 export function decodeFbEvent(frame: Uint8Array): FbEvent {
   requireLength(frame, 1, "framebuffer");
   const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
@@ -113,6 +158,8 @@ export function decodeFbEvent(frame: Uint8Array): FbEvent {
       return { type: "security", encrypted: parseJson<{ encrypted: boolean }>(body).encrypted === true };
     case 8:
       return { type: "unencryptedPrompt" };
+    case 9:
+      return { type: "clipboard", event: parseClipboardEvent(body) };
     default:
       throw new IpcError("internal", `unknown framebuffer event tag ${frame[0]}`);
   }

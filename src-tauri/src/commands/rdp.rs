@@ -18,6 +18,7 @@ use std::sync::Arc;
 use portolano_core_model::prompt::CredentialAnswer;
 use portolano_core_model::{resolve_credential, ConnectionOptions, ErrorCode, Node};
 use portolano_session_rdp::cert::CertStore;
+use portolano_session_rdp::clipboard::{ClipboardConfig, LocalClipboard};
 use portolano_session_rdp::{EventSink, FbEvent, RdpAsk, RdpConfig, RdpCredentials, RdpSession};
 use portolano_vault::RevealedSecret;
 use secrecy::SecretString;
@@ -39,6 +40,7 @@ struct Target {
     options_domain: Option<String>,
     ignore_cert: bool,
     allow_without_nla: bool,
+    share_clipboard: bool,
     credential: Option<Uuid>,
     connection_name: String,
     /// The connection's optional user name: pre-fills the credential prompt.
@@ -61,6 +63,7 @@ fn read_target(state: &AppState, connection_id: Uuid) -> Result<Target, AppError
             domain,
             ignore_cert,
             allow_without_nla,
+            share_clipboard,
         } = &connection.options
         else {
             return Err(AppError::invalid_input(format!(
@@ -78,6 +81,7 @@ fn read_target(state: &AppState, connection_id: Uuid) -> Result<Target, AppError
             options_domain: domain.clone().filter(|d| !d.trim().is_empty()),
             ignore_cert: *ignore_cert,
             allow_without_nla: *allow_without_nla,
+            share_clipboard: *share_clipboard,
             credential: resolve_credential(doc, connection_id)?,
             connection_name: connection.name.clone(),
             username: connection.username.clone().filter(|u| !u.trim().is_empty()),
@@ -137,6 +141,11 @@ fn build_config(
     config.fixed_size = fixed_size;
     config.ignore_cert = target.ignore_cert;
     config.allow_without_nla = target.allow_without_nla;
+    // The clipboard channel is negotiated only when the connection asks for it.
+    if target.share_clipboard {
+        let local: Arc<dyn LocalClipboard> = state.clipboard.clone();
+        config.clipboard = Some(ClipboardConfig { local });
+    }
     config.domain = target.options_domain;
     match prompt::vault_credential(state, target.credential, ask_requested)? {
         Some(id) => {
@@ -173,6 +182,7 @@ fn start_session(
     );
     let store = config.cert_store.clone();
     let (host, port) = (config.host.clone(), config.port);
+    let shares_clipboard = config.clipboard.is_some();
     let session = RdpSession::start(config, sink);
     state
         .sessions
@@ -181,6 +191,7 @@ fn start_session(
             store,
             host,
             port,
+            shares_clipboard,
         })))
 }
 
@@ -212,6 +223,19 @@ struct RdpFbSession {
     store: CertStore,
     host: String,
     port: u16,
+    shares_clipboard: bool,
+}
+
+impl RdpFbSession {
+    fn require_clipboard(&self) -> Result<(), AppError> {
+        if self.shares_clipboard {
+            Ok(())
+        } else {
+            Err(AppError::invalid_input(
+                "clipboard sharing is off for this connection",
+            ))
+        }
+    }
 }
 
 impl FbSession for RdpFbSession {
@@ -244,6 +268,16 @@ impl FbSession for RdpFbSession {
         })?;
         tracing::info!(host = %self.host, port = self.port, removed, "stored RDP certificate removed");
         Ok(())
+    }
+
+    fn clipboard_save(&self, dir: std::path::PathBuf) -> Result<(), AppError> {
+        self.require_clipboard()?;
+        Ok(self.session.clipboard_save(dir)?)
+    }
+
+    fn clipboard_cancel(&self) -> Result<(), AppError> {
+        self.require_clipboard()?;
+        Ok(self.session.clipboard_cancel()?)
     }
 
     fn credential(&self, answer: CredentialAnswer, save_to_vault: bool) -> Result<(), AppError> {
@@ -311,6 +345,7 @@ mod tests {
                 domain: Some("CONNDOM".into()),
                 ignore_cert: false,
                 allow_without_nla: false,
+                share_clipboard: false,
             },
         })
     }
@@ -397,6 +432,7 @@ mod tests {
                 domain: None,
                 ignore_cert: true,
                 allow_without_nla: true,
+                share_clipboard: false,
             };
             c.port = None;
         }
@@ -414,6 +450,33 @@ mod tests {
             config.allow_without_nla,
             "the connection's option reaches the session"
         );
+    }
+
+    #[test]
+    fn the_clipboard_channel_is_wired_only_when_the_connection_shares_it() {
+        let dir = TempDir::new("clipboard-option");
+        let state = AppState::new(dir.0.clone());
+        // Off by default: no clipboard in the configuration, so the channel is never negotiated.
+        put(&state, rdp_connection(2, None, CredentialRef::None));
+        let config = build_config(&state, u(2), 800, 600, false).expect("config");
+        assert!(config.clipboard.is_none());
+        assert!(!format!("{config:?}").contains("clipboard: true"));
+
+        let mut node = rdp_connection(3, None, CredentialRef::None);
+        if let Node::Connection(c) = &mut node {
+            c.options = ConnectionOptions::Rdp {
+                width: None,
+                height: None,
+                domain: None,
+                ignore_cert: false,
+                allow_without_nla: false,
+                share_clipboard: true,
+            };
+        }
+        put(&state, node);
+        let config = build_config(&state, u(3), 800, 600, false).expect("config");
+        assert!(config.clipboard.is_some());
+        assert!(format!("{config:?}").contains("clipboard: true"));
     }
 
     #[test]
@@ -558,6 +621,7 @@ mod tests {
                 domain: None,
                 ignore_cert: false,
                 allow_without_nla: true,
+                share_clipboard: false,
             };
         }
         put(&state, node);
@@ -658,6 +722,7 @@ mod tests {
                 domain: None,
                 ignore_cert: false,
                 allow_without_nla: true,
+                share_clipboard: false,
             };
         }
         put(&state, node);

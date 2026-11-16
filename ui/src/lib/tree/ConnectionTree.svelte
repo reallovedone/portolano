@@ -280,6 +280,12 @@
         action: () => void startExport(app, { format: "json", nodeIds: null, name: "portolano-connections" }),
         icon: "upload",
       },
+      {
+        label: t("update.menu"),
+        action: () => ui.open({ type: "updates" }),
+        icon: "refresh",
+        separatorBefore: true,
+      },
     ];
   }
 

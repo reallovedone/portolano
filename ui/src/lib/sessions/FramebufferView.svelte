@@ -14,6 +14,7 @@
   import Banner from "../ui/Banner.svelte";
   import Button from "../ui/Button.svelte";
   import Icon from "../ui/Icon.svelte";
+  import { CLIPBOARD_IDLE, formatBytes, percent } from "./fb/clipboard";
   import { FbController, type FbViewState } from "./fb/controller";
   import { fitToArea } from "./fb/geometry";
   import CredentialPromptDialog from "./CredentialPromptDialog.svelte";
@@ -42,6 +43,7 @@
     "credentialPrompt",
     "security",
     "unencryptedPrompt",
+    "clipboard",
   ]);
 
   let area: HTMLDivElement | undefined = $state();
@@ -57,6 +59,7 @@
     credential: null,
     closedReason: null,
     cursor: "default",
+    clipboard: CLIPBOARD_IDLE,
   });
   const connection = $derived.by(() => {
     const node = app.doc.node(session.connectionId);
@@ -68,7 +71,14 @@
   /** The "not encrypted" notice was dismissed (it shows once per session view). */
   let clearNoticeDismissed = $state(false);
   let chipTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The offer to save remote files was closed by the user (until the offer changes). */
+  let dismissedOffer = $state<string | null>(null);
   const target = $derived(targetLabel(connection));
+  const clip = $derived(view.clipboard);
+  const offerKey = $derived(clip.offer ? `${clip.offer.count}:${clip.offer.bytes}` : null);
+  const failureKey = $derived(
+    clip.phase.kind === "failed" ? (`fb.clipboard.failed.${clip.phase.reason}` as const) : null,
+  );
 
   const box = $derived(fitToArea(view.remote, areaSize));
 
@@ -95,6 +105,8 @@
         forgetCertificate: () => ipc.fbForgetCertificate(id),
         credential: (answer, save) => ipc.sessionCredential(id, answer, save),
         credentialCancel: () => ipc.sessionCredentialCancel(id),
+        clipboardSave: () => ipc.fbClipboardSave(id),
+        clipboardCancel: () => ipc.fbClipboardCancel(id),
       },
       surface: ctx,
       setCanvasSize: (w, h) => {
@@ -239,6 +251,73 @@
         </Banner>
       </div>
     {/if}
+  {/if}
+
+  {#if view.phase === "live" && (clip.phase.kind !== "idle" || (clip.offer && offerKey !== dismissedOffer))}
+    <div class="clip-wrap" data-testid="fb-clipboard">
+      {#if clip.phase.kind === "saving"}
+        {@const p = clip.phase.progress}
+        <Banner variant="info" role="status" title={t("fb.clipboard.savingTitle")}>
+          <p class="clip-line">
+            {t("fb.clipboard.saving", {
+              done: p.filesDone,
+              total: p.filesTotal,
+              size: formatBytes(p.bytesDone),
+              all: formatBytes(p.bytesTotal),
+            })}
+          </p>
+          <progress
+            aria-label={t("fb.clipboard.progressLabel")}
+            max={100}
+            value={percent(p.bytesDone, p.bytesTotal)}
+          ></progress>
+          {#snippet actions()}
+            <Button onclick={() => controller?.cancelClipboardSave()}>{t("common.cancel")}</Button>
+          {/snippet}
+        </Banner>
+      {:else if clip.phase.kind === "done"}
+        <Banner
+          variant="success"
+          role="status"
+          title={t("fb.clipboard.doneTitle")}
+          ondismiss={() => controller?.dismissClipboardNotice()}
+        >
+          {t("fb.clipboard.done", { count: clip.phase.files, size: formatBytes(clip.phase.bytes) })}
+          {#if clip.phase.skipped > 0}
+            {t("fb.clipboard.skipped", { count: clip.phase.skipped })}
+          {/if}
+        </Banner>
+      {:else if clip.phase.kind === "failed" && failureKey}
+        <Banner
+          variant={clip.phase.reason === "cancelled" ? "info" : "warning"}
+          role={clip.phase.reason === "cancelled" ? "status" : "alert"}
+          title={t("fb.clipboard.failedTitle")}
+          ondismiss={() => controller?.dismissClipboardNotice()}
+        >
+          {t(failureKey)}
+        </Banner>
+      {:else if clip.offer}
+        <Banner
+          variant="info"
+          role="status"
+          icon="clipboard"
+          title={t(clip.offer.count === 1 ? "fb.clipboard.offerOne" : "fb.clipboard.offerMany", {
+            count: clip.offer.count,
+            size: formatBytes(clip.offer.bytes),
+          })}
+          ondismiss={() => (dismissedOffer = offerKey)}
+        >
+          {#if clip.offer.skipped > 0}
+            {t("fb.clipboard.skipped", { count: clip.offer.skipped })}
+          {/if}
+          {#snippet actions()}
+            <Button variant="primary" onclick={() => controller?.saveClipboardFiles()}>
+              {t("fb.clipboard.save")}
+            </Button>
+          {/snippet}
+        </Banner>
+      {/if}
+    </div>
   {/if}
 
   {#if view.credential && session.visible}
@@ -470,6 +549,26 @@
     max-width: 36rem;
     pointer-events: auto;
     box-shadow: var(--shadow-popover);
+  }
+
+  /* Non-blocking: a small card in the top-right corner, never over the desktop's input area
+     more than it has to. */
+  .clip-wrap {
+    position: absolute;
+    inset: var(--space-4) var(--space-4) auto auto;
+    max-width: min(24rem, calc(100% - 2 * var(--space-4)));
+  }
+
+  .clip-wrap :global(.banner) {
+    box-shadow: var(--shadow-popover);
+  }
+
+  .clip-line {
+    margin: 0 0 var(--space-1);
+  }
+
+  .clip-wrap progress {
+    width: 100%;
   }
 
   .chip.active {

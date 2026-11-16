@@ -137,7 +137,7 @@ describe("draftToConnection", () => {
     const samples: Connection[] = [
       { ...base, host: "", username: null, credential: { type: "inherit" }, options: { type: "localShell", program: "/bin/zsh", args: ["-l"], cwd: "/tmp" } },
       { ...base, host: "h", port: 2222, username: "deploy", credential: { type: "id", id: "c" }, options: { type: "ssh", jumpHost: "j", keepaliveSecs: 15 } },
-      { ...base, host: "h", port: 3390, username: "CORP\\ann", credential: { type: "none" }, options: { type: "rdp", width: 800, height: 600, domain: "D", ignoreCert: true, allowWithoutNla: true } },
+      { ...base, host: "h", port: 3390, username: "CORP\\ann", credential: { type: "none" }, options: { type: "rdp", width: 800, height: 600, domain: "D", ignoreCert: true, allowWithoutNla: true, shareClipboard: false } },
       { ...base, host: "h", username: null, credential: { type: "inherit" }, options: { type: "vnc", viewOnly: true } },
       { ...base, host: "example.org", username: null, credential: { type: "inherit" }, options: { type: "web", url: "https://example.org/", isolatedProfile: true } },
     ];
@@ -145,6 +145,40 @@ describe("draftToConnection", () => {
       const draft = draftFromConnection(sample);
       expect(validateConnectionDraft(draft)).toEqual({});
       expect(draftToConnection(draft, newId)).toEqual(sample);
+    }
+  });
+});
+
+describe("RDP clipboard sharing", () => {
+  const base = { id: "i", parentId: null, name: "n", port: null, notes: "", tags: [] as string[] };
+  const rdp = (shareClipboard: boolean): Connection => ({
+    ...base,
+    host: "h",
+    username: null,
+    credential: { type: "inherit" },
+    options: {
+      type: "rdp",
+      width: null,
+      height: null,
+      domain: null,
+      ignoreCert: false,
+      allowWithoutNla: false,
+      shareClipboard,
+    },
+  });
+
+  it("is off in a new RDP draft and in a document that predates the option", () => {
+    expect(newConnectionDraft("rdp", null).shareClipboard).toBe(false);
+    const legacy = rdp(true);
+    // A document saved before the option existed has no such key.
+    delete (legacy.options as { shareClipboard?: boolean }).shareClipboard;
+    expect(draftFromConnection(legacy).shareClipboard).toBe(false);
+  });
+
+  it("is kept through a draft, on and off", () => {
+    for (const on of [true, false]) {
+      const converted = draftToConnection(draftFromConnection(rdp(on)), newId);
+      expect(converted.options).toMatchObject({ type: "rdp", shareClipboard: on });
     }
   });
 });

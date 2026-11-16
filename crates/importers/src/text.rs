@@ -39,14 +39,16 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<String, ImportError> {
 }
 
 fn decode_utf16le(bytes: &[u8]) -> Result<String, ImportError> {
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return Err(ImportError::InvalidInput(
             "the UTF-16 file has an odd number of bytes".into(),
         ));
     }
     let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
         .collect();
     String::from_utf16(&units)
         .map_err(|_| ImportError::InvalidInput("the file is not valid UTF-16 text".into()))

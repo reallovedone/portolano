@@ -44,6 +44,8 @@ const EXPECTED_COMMANDS = [
   "fb_cert_decision",
   "fb_unencrypted_decision",
   "fb_forget_certificate",
+  "fb_clipboard_save",
+  "fb_clipboard_cancel",
   "web_open",
   "web_set_bounds",
   "web_navigate",
@@ -54,6 +56,13 @@ const EXPECTED_COMMANDS = [
   "import_apply",
   "export_document",
   "read_private_key_file",
+  "update_settings",
+  "update_set_auto_check",
+  "update_check",
+  "update_skip",
+  "update_install",
+  "whats_new",
+  "update_open_release_page",
   "ui_log",
 ];
 
@@ -96,6 +105,8 @@ describe("tauriIpc", () => {
       () => tauriIpc.fbCertDecision("s", true),
       () => tauriIpc.fbUnencryptedDecision("s", false),
       () => tauriIpc.fbForgetCertificate("s"),
+      () => tauriIpc.fbClipboardSave("s"),
+      () => tauriIpc.fbClipboardCancel("s"),
       () => tauriIpc.webOpen("a", bounds),
       () => tauriIpc.webSetBounds("s", bounds, true),
       () => tauriIpc.webNavigate("s", { type: "reload" }),
@@ -111,6 +122,13 @@ describe("tauriIpc", () => {
       () => tauriIpc.importApply("a", null),
       () => tauriIpc.exportDocument("json", "/p", null),
       () => tauriIpc.readPrivateKeyFile("/p"),
+      () => tauriIpc.updateSettings(),
+      () => tauriIpc.updateSetAutoCheck(false),
+      () => tauriIpc.updateCheck(true),
+      () => tauriIpc.updateSkip("0.2.0"),
+      () => tauriIpc.updateInstall(noop),
+      () => tauriIpc.whatsNew(),
+      () => tauriIpc.updateOpenReleasePage("0.2.0"),
       () => tauriIpc.uiLog("info", "m"),
     ];
     for (const run of calls) await run();
@@ -119,6 +137,26 @@ describe("tauriIpc", () => {
     // Every command method of the interface is covered by one of the calls above (the `on…`
     // methods subscribe to events and are not commands).
     expect(Object.keys(tauriIpc).filter((name) => !name.startsWith("on")).length).toBe(calls.length);
+  });
+
+  it("sends the update arguments with camelCase names and streams progress", async () => {
+    await tauriIpc.updateCheck(true);
+    expect(invokeMock).toHaveBeenLastCalledWith("update_check", { manual: true }, undefined);
+    await tauriIpc.updateSetAutoCheck(false);
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "update_set_auto_check",
+      { enabled: false },
+      undefined,
+    );
+    const events: unknown[] = [];
+    invokeMock.mockImplementation(
+      async (_cmd: string, args: { onEvent: { onmessage: (m: unknown) => void } }) => {
+        args.onEvent.onmessage({ type: "progress", downloaded: 1, total: 2 });
+        args.onEvent.onmessage({ type: "installing" });
+      },
+    );
+    await tauriIpc.updateInstall((e) => events.push(e));
+    expect(events).toEqual([{ type: "progress", downloaded: 1, total: 2 }, { type: "installing" }]);
   });
 
   it("sends the session id header and raw bytes for term_write", async () => {
@@ -211,8 +249,16 @@ describe("tauriIpc", () => {
     const stop = fresh.onVaultLocked(locked);
     const failed = vi.fn();
     const stopFailed = fresh.onCredentialSaveFailed(failed);
-    await vi.waitFor(() => expect(listenMock).toHaveBeenCalledTimes(2));
-    expect(listenMock.mock.calls.map((c) => c[0])).toEqual(["vault-locked", "credential-save-failed"]);
+    const menu = vi.fn();
+    const stopMenu = fresh.onCheckForUpdatesMenu(menu);
+    await vi.waitFor(() => expect(listenMock).toHaveBeenCalledTimes(3));
+    expect(listenMock.mock.calls.map((c) => c[0])).toEqual([
+      "vault-locked",
+      "credential-save-failed",
+      "menu-check-for-updates",
+    ]);
+    listenMock.mock.calls[2]?.[1]({ payload: null });
+    expect(menu).toHaveBeenCalledTimes(1);
 
     listenMock.mock.calls[0]?.[1]({ payload: null });
     expect(locked).toHaveBeenCalledTimes(1);
@@ -222,7 +268,8 @@ describe("tauriIpc", () => {
 
     stop();
     stopFailed();
-    expect(off).toHaveBeenCalledTimes(2);
+    stopMenu();
+    expect(off).toHaveBeenCalledTimes(3);
     vi.doUnmock("@tauri-apps/api/event");
   });
 

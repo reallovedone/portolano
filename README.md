@@ -109,8 +109,10 @@ spent asleep, and when the application quits; keys and decrypted secrets are zer
 - Copied secrets are cleared from the clipboard after 30 seconds if it still holds them
   (when the system lets the app read it). Web pages in tabs cannot call into the app.
 - On macOS the data folder is readable only by your user; on Windows it inherits the
-  profile's permissions. No telemetry, no account, no cloud (the Windows installer may
-  download Microsoft's WebView2 runtime).
+  profile's permissions. No telemetry, no account, no cloud. Besides the hosts you connect to,
+  the app contacts GitHub to look for updates and read the release notes (nothing about you
+  is sent, and the automatic check can be turned off in the settings); the Windows installer
+  may download Microsoft's WebView2 runtime.
 
 **Honest limits.** A weak master password makes a weak vault, and malware running as your
 user is beyond what a local password manager can defend against. Locking does not wipe the
@@ -138,6 +140,13 @@ time. Check the file against `SHA256SUMS.txt` if you want to be sure.
   `xattr -dr com.apple.quarantine /Applications/Portolano.app` once.
 - **Windows:** run the `-setup.exe`. When SmartScreen says "Windows protected your PC", press
   *More info*, then *Run anyway*.
+
+**Updates.** From 0.2.0 Portolano checks GitHub for a newer release and, only if you agree,
+downloads, verifies and installs it, then restarts (*Check for updates…* does it on demand;
+the automatic check can be switched off in the settings). Updates are verified with a signing
+key of the project, which is separate from the system code signing: the builds stay unsigned,
+but updated copies do not bring the first-launch warning back. If you have 0.1.0, install
+0.2.0 by hand once.
 
 ## Building from source
 

@@ -9,6 +9,7 @@ import type { Ipc } from "./api";
 import { IpcError } from "./errors";
 import { MockPrompter, type MockPromptHooks } from "./mock-credentials";
 import { createMockTransfer, readMockKeyFile, type MockExport } from "./mock-transfer";
+import { createMockUpdates, type MockUpdateOptions, type MockUpdates } from "./mock-updates";
 import type {
   Connection,
   CredentialAnswer,
@@ -147,6 +148,7 @@ function seedDocument(withCredentials: boolean): Document {
         domain: "LAB",
         ignoreCert: false,
         allowWithoutNla: false,
+        shareClipboard: false,
       }, { tags: ["windows"] }),
       connection(MOCK_IDS.rdpFixed, MOCK_IDS.windows, "Kiosk (1280x800)", "kiosk.lab.example", 3390, {
         type: "rdp",
@@ -155,6 +157,7 @@ function seedDocument(withCredentials: boolean): Document {
         domain: null,
         ignoreCert: true,
         allowWithoutNla: false,
+        shareClipboard: false,
       }),
       folder(MOCK_IDS.production, null, "Production", { type: "none" }),
       connection(MOCK_IDS.intranet, MOCK_IDS.production, "Intranet", "intranet.example", null, {
@@ -453,6 +456,8 @@ export interface MockOptions {
    * state only). Default `false`: the `web*` commands reject with `unsupported`.
    */
   web?: boolean;
+  /** Canned answers of the update commands (default: up to date, no "What's new"). */
+  updates?: MockUpdateOptions;
 }
 
 /** The mock plus what tests need to play the backend's part. */
@@ -463,9 +468,13 @@ export interface MockIpc extends Ipc {
     autoLockVault(): void;
     /** A "save to the vault" failure after a successful connection. */
     credentialSaveFailed(notice: CredentialSaveFailed): void;
+    /** "Check for Updates…" chosen in the macOS menu bar. */
+    checkForUpdatesMenu(): void;
   };
   /** Every successful `exportDocument` call. */
   readonly exports: readonly MockExport[];
+  /** What the update commands received, and the knobs to steer their answers. */
+  readonly updates: MockUpdates;
 }
 
 export function createMockIpc(options: MockOptions = {}): MockIpc {
@@ -490,12 +499,14 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
   };
   const clone = <T>(value: T): T => structuredClone(value);
   const lockedHandlers = new Set<() => void>();
+  const menuUpdateHandlers = new Set<() => void>();
   const saveFailedHandlers = new Set<(notice: CredentialSaveFailed) => void>();
   const lockVault = (): void => {
     if (vaultStatus !== "unlocked") return;
     vaultStatus = "locked";
     for (const handler of [...lockedHandlers]) handler();
   };
+  const updates = createMockUpdates(options.updates);
   const transfer = createMockTransfer(
     () => doc,
     (next) => {
@@ -576,8 +587,12 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       credentialSaveFailed(notice) {
         for (const handler of [...saveFailedHandlers]) handler(notice);
       },
+      checkForUpdatesMenu() {
+        for (const handler of [...menuUpdateHandlers]) handler();
+      },
     },
     exports: transfer.exports,
+    updates,
     async docGet() {
       return clone(doc);
     },
@@ -697,6 +712,8 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     fbCertDecision: (sessionId, accept) => fb.certDecision(sessionId, accept),
     fbUnencryptedDecision: (sessionId, allow) => fb.unencryptedDecision(sessionId, allow),
     fbForgetCertificate: (sessionId) => fb.forgetCertificate(sessionId),
+    fbClipboardSave: (sessionId) => fb.clipboardSave(sessionId),
+    fbClipboardCancel: (sessionId) => fb.clipboardCancel(sessionId),
 
     webOpen: (connectionId, bounds) => web.open(connectionId, bounds),
     webSetBounds: (sessionId, bounds, visible) => web.setBounds(sessionId, bounds, visible),
@@ -723,9 +740,15 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     exportDocument: (format, path, nodeIds) => transfer.export(format, path, nodeIds),
     readPrivateKeyFile: (path) => readMockKeyFile(path),
 
+    ...updates.api,
+
     onVaultLocked(handler) {
       lockedHandlers.add(handler);
       return () => lockedHandlers.delete(handler);
+    },
+    onCheckForUpdatesMenu(handler) {
+      menuUpdateHandlers.add(handler);
+      return () => menuUpdateHandlers.delete(handler);
     },
     onCredentialSaveFailed(handler) {
       saveFailedHandlers.add(handler);

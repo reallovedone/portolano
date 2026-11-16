@@ -1,8 +1,12 @@
 //! Portolano application crate: Tauri setup, shared state and IPC commands.
 
+mod clipboard;
 mod commands;
 mod error;
+#[cfg(target_os = "macos")]
+mod menu;
 mod state;
+mod update;
 
 use tauri::{Emitter, Manager, RunEvent};
 use tracing_subscriber::EnvFilter;
@@ -11,6 +15,13 @@ use crate::state::AppState;
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    // The clipboard channel of IronRDP logs file names of the remote clipboard when it has to
+    // fix or skip one. File names are never logged by Portolano, so that crate stays silent
+    // whatever `RUST_LOG` says.
+    let filter = match "ironrdp_cliprdr=off".parse() {
+        Ok(directive) => filter.add_directive(directive),
+        Err(_) => filter,
+    };
     // `try_init` only fails when a global subscriber is already installed (for example in
     // tests); logging then goes to that subscriber, so there is nothing to recover.
     tracing_subscriber::fmt()
@@ -22,16 +33,31 @@ fn init_tracing() {
 /// Starts the application.
 pub fn run() {
     init_tracing();
+    // Several TLS providers end up compiled in (the updater brings `ring`, the RDP and VNC code
+    // `aws-lc-rs`): fix the process default explicitly so that no library has to guess.
+    if tokio_rustls::rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .is_err()
+    {
+        tracing::debug!("a process-level TLS provider was already installed");
+    }
 
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // macOS only: the default menu bar plus "Check for Updates…". Elsewhere there is no menu bar.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(menu::build).on_menu_event(menu::on_event);
+    let app = builder
         // Native open/save file dialogs (import and export). Only the `open` and `save`
         // permissions are granted, in `capabilities/main.json`.
         .plugin(tauri_plugin_dialog::init())
+        // Auto-update. Driven from Rust (`commands/update.rs`); no capability grants the webview
+        // the plugin's own commands.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = portolano_core_model::data_dir()?;
             portolano_core_model::private_fs::harden_data_dir(&data_dir)?;
             tracing::info!(data_dir = %data_dir.display(), "starting");
-            let state = AppState::new(data_dir);
+            let state = AppState::new(data_dir.clone());
             // Notices from code outside a command (hooks of a session) reach the main webview.
             let handle = app.handle().clone();
             state.notifier.connect(move |event, payload| {
@@ -40,6 +66,10 @@ pub fn run() {
                 }
             });
             app.manage(state);
+            app.manage(update::UpdateService::new(
+                &data_dir,
+                app.package_info().version.clone(),
+            ));
             // Vault auto-lock timer (WP3).
             commands::vault::spawn_auto_lock(app.handle().clone());
             Ok(())
@@ -74,6 +104,8 @@ pub fn run() {
             commands::fb::fb_cert_decision,
             commands::fb::fb_unencrypted_decision,
             commands::fb::fb_forget_certificate,
+            commands::fb::fb_clipboard_save,
+            commands::fb::fb_clipboard_cancel,
             commands::web::web_open,
             commands::web::web_set_bounds,
             commands::web::web_navigate,
@@ -84,6 +116,13 @@ pub fn run() {
             commands::transfer::import_apply,
             commands::transfer::export_document,
             commands::keyfile::read_private_key_file,
+            commands::update::update_settings,
+            commands::update::update_set_auto_check,
+            commands::update::update_check,
+            commands::update::update_skip,
+            commands::update::update_install,
+            commands::update::whats_new,
+            commands::update::update_open_release_page,
             // Not in the contract table: UI-to-backend log line.
             commands::ui_log,
         ])
@@ -147,6 +186,43 @@ mod tests {
         }
     }
 
+    /// The updater configuration (WP13a): HTTPS endpoint only, a public key, signed update
+    /// artifacts, a signature bound to the announced version, a passive (never silent) Windows
+    /// installer, and no capability that would hand the updater plugin's commands to the webview.
+    #[test]
+    fn the_updater_is_configured_safely() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json");
+        assert_eq!(conf["bundle"]["createUpdaterArtifacts"], true);
+        let updater = &conf["plugins"]["updater"];
+        let endpoints = updater["endpoints"].as_array().expect("endpoints");
+        assert_eq!(endpoints.len(), 1);
+        for endpoint in endpoints {
+            let url = endpoint.as_str().expect("endpoint text");
+            assert!(url.starts_with("https://"), "{url}");
+        }
+        assert_eq!(
+            endpoints[0],
+            "https://github.com/reallovedone/portolano/releases/latest/download/latest.json"
+        );
+        assert!(!updater["pubkey"].as_str().expect("pubkey").is_empty());
+        assert_eq!(updater["requireSignedVersion"], true);
+        assert_eq!(updater["windows"]["installMode"], "passive");
+        for key in [
+            "dangerousInsecureTransportProtocol",
+            "dangerousAcceptInvalidCerts",
+            "dangerousAcceptInvalidHostnames",
+            "allowDowngrades",
+        ] {
+            assert!(updater.get(key).is_none(), "{key} must not be set");
+        }
+        let capabilities = include_str!("../capabilities/main.json");
+        assert!(
+            !capabilities.contains("updater:") && !capabilities.contains("opener:"),
+            "the webview must not receive the updater or opener commands"
+        );
+    }
+
     /// Every command of §4.3 must be registered in the single `generate_handler!` list.
     #[test]
     fn all_contract_commands_are_registered() {
@@ -179,6 +255,8 @@ mod tests {
             "fb_cert_decision",
             "fb_unencrypted_decision",
             "fb_forget_certificate",
+            "fb_clipboard_save",
+            "fb_clipboard_cancel",
             "web_open",
             "web_set_bounds",
             "web_navigate",
@@ -189,6 +267,13 @@ mod tests {
             "import_apply",
             "export_document",
             "read_private_key_file",
+            "update_settings",
+            "update_set_auto_check",
+            "update_check",
+            "update_skip",
+            "update_install",
+            "whats_new",
+            "update_open_release_page",
         ];
         let source = include_str!("lib.rs");
         let handler = source

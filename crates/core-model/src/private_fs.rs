@@ -108,6 +108,8 @@ const DATA_FILES: &[&str] = &[
     "vnc_known_certs.tmp",
     "vnc_unencrypted_hosts",
     "vnc_unencrypted_hosts.tmp",
+    "settings.json",
+    "settings.json.tmp",
 ];
 
 /// Creates the data directory `0700` and corrects the mode of the data files already there.

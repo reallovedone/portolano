@@ -201,7 +201,7 @@ fn is_blank(s: &Snapshot) -> bool {
 
 fn distinct_colors(s: &Snapshot) -> usize {
     let mut colors = HashSet::new();
-    for px in s.rgba.chunks_exact(4).step_by(7) {
+    for px in s.rgba.as_chunks::<4>().0.iter().step_by(7) {
         colors.insert((px[0], px[1], px[2]));
         if colors.len() > 4096 {
             break;
@@ -213,7 +213,9 @@ fn distinct_colors(s: &Snapshot) -> usize {
 fn non_black_ratio(s: &Snapshot) -> f64 {
     let lit = s
         .rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|p| p[0] > 8 || p[1] > 8 || p[2] > 8)
         .count();
     lit as f64 / (usize::from(s.width) * usize::from(s.height)) as f64
@@ -223,8 +225,10 @@ fn non_black_ratio(s: &Snapshot) -> f64 {
 fn changed_pixels(a: &Snapshot, b: &Snapshot) -> usize {
     assert_eq!((a.width, a.height), (b.width, b.height));
     a.rgba
-        .chunks_exact(4)
-        .zip(b.rgba.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.rgba.as_chunks::<4>().0)
         .filter(|(p, q)| p[..3].iter().zip(&q[..3]).any(|(x, y)| x.abs_diff(*y) > 24))
         .count()
 }

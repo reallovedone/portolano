@@ -3,6 +3,14 @@
 // forwards DOM events; this class holds everything testable without a DOM.
 
 import type { AppError, CredentialAnswer, CredentialPrompt, FbEvent } from "../../ipc";
+import {
+  CLIPBOARD_IDLE,
+  dismissNotice,
+  failedLocally,
+  reduceClipboard,
+  startSaving,
+  type ClipboardUi,
+} from "./clipboard";
 import { cursorStyle, type ToDataUrl } from "./cursor";
 import type { Size } from "./geometry";
 import { InputController, type Geometry, type InputApi, type InputOptions } from "./input";
@@ -21,6 +29,10 @@ export interface FbApi extends InputApi {
   credential(answer: CredentialAnswer, saveToVault: boolean): Promise<void>;
   /** The user dismissed the credential prompt (`session_credential_cancel`). */
   credentialCancel(): Promise<void>;
+  /** Saves the files on the remote clipboard; `false`: the user dismissed the folder dialog. */
+  clipboardSave(): Promise<boolean>;
+  /** Stops the save in progress. */
+  clipboardCancel(): Promise<void>;
 }
 
 export type Phase = "connecting" | "live" | "closed" | "cancelled";
@@ -51,6 +63,8 @@ export interface FbViewState {
   credential: CredentialPrompt | null;
   closedReason: string | null;
   cursor: string;
+  /** Files on the remote clipboard and the save of them (RDP with a shared clipboard). */
+  clipboard: ClipboardUi;
 }
 
 export interface ControllerOptions {
@@ -90,6 +104,7 @@ export class FbController {
     credential: null,
     closedReason: null,
     cursor: "default",
+    clipboard: CLIPBOARD_IDLE,
   };
   /** The last answer asked to be saved; cleared once the session proves it worked. */
   #saveRequested = false;
@@ -161,6 +176,9 @@ export class FbController {
       }
       case "security":
         this.#patch({ transport: event.encrypted ? "encrypted" : "clear" });
+        break;
+      case "clipboard":
+        this.#patch({ clipboard: reduceClipboard(this.#state.clipboard, event.event) });
         break;
       case "closed":
         this.renderer.flush();
@@ -267,6 +285,35 @@ export class FbController {
           : { code: "internal", message: "The credentials could not be sent." },
       );
     });
+  }
+
+  /**
+   * The user asked to save the files on the remote clipboard. The backend opens the folder
+   * dialog; nothing is saved when it is dismissed.
+   */
+  saveClipboardFiles(): void {
+    const { clipboard } = this.#state;
+    if (clipboard.offer === null || clipboard.phase.kind === "saving") return;
+    this.#o.api.clipboardSave().then(
+      (started) => {
+        if (started) this.#patch({ clipboard: startSaving(this.#state.clipboard) });
+      },
+      (e: unknown) => {
+        this.#o.onError("fb_clipboard_save", e);
+        this.#patch({ clipboard: failedLocally(this.#state.clipboard) });
+      },
+    );
+  }
+
+  /** The user stopped the save. The outcome arrives as an event. */
+  cancelClipboardSave(): void {
+    if (this.#state.clipboard.phase.kind !== "saving") return;
+    this.#o.api.clipboardCancel().catch((e: unknown) => this.#o.onError("fb_clipboard_cancel", e));
+  }
+
+  /** The user closed the notice about a finished or failed save. */
+  dismissClipboardNotice(): void {
+    this.#patch({ clipboard: dismissNotice(this.#state.clipboard) });
   }
 
   /** The user dismissed the credential prompt: the session ends as cancelled. */

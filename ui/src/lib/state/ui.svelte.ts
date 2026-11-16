@@ -9,7 +9,9 @@ export type Dialog =
   | { type: "credentials" }
   // A file was chosen; the dialog previews it and imports it on confirmation.
   | { type: "import"; path: string }
-  | { type: "createVault" };
+  | { type: "createVault" }
+  // "Check for updates…": version, the automatic-check setting, and the result of a check.
+  | { type: "updates" };
 
 export class UiStore {
   dialog = $state<Dialog | null>(null);

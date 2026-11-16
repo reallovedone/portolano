@@ -24,6 +24,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ironrdp_cliprdr::Cliprdr;
 use ironrdp_connector::connection_activation::{
     ConnectionActivationFactory, ConnectionActivationState,
 };
@@ -43,6 +44,7 @@ use ironrdp_pdu::rdp::refresh_rectangle::RefreshRectanglePdu;
 use ironrdp_pdu::rdp::suppress_output::SuppressOutputPdu;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStage, ActiveStageBuilder, ActiveStageOutput};
+use ironrdp_svc::{SvcMessage, SvcProcessorMessages};
 use ironrdp_tokio::reqwest::ReqwestNetworkClient;
 use ironrdp_tokio::{single_sequence_step, FramedWrite as _, TokioFramed};
 use portolano_core_model::fb::FbEvent;
@@ -56,6 +58,10 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
 use crate::cert::{fingerprint_sha256, CertCheck, CertStore};
+use crate::clipboard::backend::ForwardBackend;
+use crate::clipboard::engine::{self, Engine, Internal};
+use crate::clipboard::guard::GuardedCliprdr;
+use crate::clipboard::{ClipboardConfig, Command as ClipboardCommand};
 use crate::dirty::{DirtyRegion, Rect};
 use crate::error::{self, from_connector, RdpError};
 use crate::keymap;
@@ -120,6 +126,9 @@ pub struct RdpConfig {
     pub allow_without_nla: bool,
     pub cert_store: CertStore,
     pub keyboard_layout: u32,
+    /// Share the clipboard with the remote desktop. `None`: the clipboard channel is not
+    /// negotiated at all.
+    pub clipboard: Option<ClipboardConfig>,
 }
 
 impl RdpConfig {
@@ -143,6 +152,7 @@ impl RdpConfig {
             allow_without_nla: false,
             cert_store,
             keyboard_layout: DEFAULT_KEYBOARD_LAYOUT,
+            clipboard: None,
         }
     }
 }
@@ -157,6 +167,7 @@ impl std::fmt::Debug for RdpConfig {
             .field("ask", &self.ask.is_some())
             .field("ignore_cert", &self.ignore_cert)
             .field("allow_without_nla", &self.allow_without_nla)
+            .field("clipboard", &self.clipboard.is_some())
             .finish()
     }
 }
@@ -186,6 +197,7 @@ enum Cmd {
     },
     Visible(bool),
     Snapshot(oneshot::Sender<Snapshot>),
+    Clipboard(ClipboardCommand),
 }
 
 /// Handle of a running session. Dropping it closes the session.
@@ -260,6 +272,17 @@ impl RdpSession {
     /// Hidden: nothing is sent. Visible: one full redraw.
     pub fn set_visible(&self, visible: bool) -> Result<(), RdpError> {
         self.send(Cmd::Visible(visible))
+    }
+
+    /// Saves the files on the remote clipboard below `dir`, a folder the user chose. Progress
+    /// and the outcome arrive as `FbEvent::Clipboard`. A no-op when clipboard sharing is off.
+    pub fn clipboard_save(&self, dir: std::path::PathBuf) -> Result<(), RdpError> {
+        self.send(Cmd::Clipboard(ClipboardCommand::SaveTo(dir)))
+    }
+
+    /// Stops the save in progress.
+    pub fn clipboard_cancel(&self) -> Result<(), RdpError> {
+        self.send(Cmd::Clipboard(ClipboardCommand::Cancel))
     }
 
     /// Answer to a `CertPrompt`.
@@ -548,9 +571,16 @@ async fn check_certificate(
     }
 }
 
+/// The queue of the clipboard channel of one connection attempt.
+struct ClipboardLink {
+    tx: mpsc::UnboundedSender<Internal>,
+    rx: mpsc::UnboundedReceiver<Internal>,
+}
+
 struct Established {
     framed: Framed,
     result: ironrdp_connector::ConnectionResult,
+    clipboard: Option<ClipboardLink>,
 }
 
 async fn establish(
@@ -570,6 +600,14 @@ async fn establish(
     connector.attach_static_channel(
         DrdynvcClient::new().with_dynamic_channel(DisplayControlClient::new(|_| Ok(Vec::new()))),
     );
+    // The clipboard channel exists only when the connection asked for it.
+    let clipboard = config.clipboard.as_ref().map(|_| {
+        let (tx, rx) = mpsc::unbounded_channel();
+        connector.attach_static_channel(GuardedCliprdr::new(Cliprdr::new(Box::new(
+            ForwardBackend::new(tx.clone()),
+        ))));
+        ClipboardLink { tx, rx }
+    });
     let nla = error::NlaPolicy::of(config.credentials.is_some(), config.allow_without_nla);
 
     let should_upgrade = cancellable(
@@ -633,7 +671,11 @@ async fn establish(
     let result = outcome
         .into_connected()
         .map_err(|e| from_connector(&e, nla))?;
-    Ok(Some(Established { framed, result }))
+    Ok(Some(Established {
+        framed,
+        result,
+        clipboard,
+    }))
 }
 
 struct Asked {
@@ -833,7 +875,15 @@ async fn run_inner(
     let Some(established) = established else {
         return Ok(End::CertDeclined);
     };
-    let Established { framed, result } = established;
+    let Established {
+        framed,
+        result,
+        clipboard,
+    } = established;
+    let (clip_tx, mut clip_rx) = match clipboard {
+        Some(link) => (Some(link.tx), Some(link.rx)),
+        None => (None, None),
+    };
 
     // Commands sent while connecting are stale, except the visibility.
     let mut visible = true;
@@ -847,8 +897,10 @@ async fn run_inner(
     if !sink(FbEvent::Resize { w, h }) {
         return Ok(End::Local);
     }
-    let mut active = Active::new(config, sink.clone(), result, visible);
-    active.run(framed, &mut cmd_rx, &mut close).await
+    let mut active = Active::new(config, sink.clone(), result, visible, clip_tx);
+    active
+        .run(framed, &mut cmd_rx, &mut clip_rx, &mut close)
+        .await
 }
 
 // ---------------------------------------------------------------------------------------
@@ -875,6 +927,18 @@ struct Active {
     needs_reactivation: bool,
     end: Option<End>,
     sink_gone: bool,
+    /// The shared clipboard, when the connection asked for it.
+    clip: Option<Engine>,
+}
+
+/// Waits for the next clipboard event; never completes when the clipboard is not shared.
+async fn next_clipboard_event(
+    rx: &mut Option<mpsc::UnboundedReceiver<Internal>>,
+) -> Option<Internal> {
+    match rx {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
+    }
 }
 
 impl Active {
@@ -883,7 +947,14 @@ impl Active {
         sink: EventSink,
         r: ironrdp_connector::ConnectionResult,
         visible: bool,
+        clip_tx: Option<mpsc::UnboundedSender<Internal>>,
     ) -> Self {
+        let clip = match (&config.clipboard, clip_tx) {
+            (Some(shared), Some(tx)) => {
+                Some(Engine::new(shared.local.clone(), sink.clone(), tx, visible))
+            }
+            _ => None,
+        };
         let image = DecodedImage::new(
             PixelFormat::RgbA32,
             r.desktop_size.width,
@@ -920,6 +991,7 @@ impl Active {
             needs_reactivation: false,
             end: None,
             sink_gone: false,
+            clip,
         }
     }
 
@@ -1138,6 +1210,9 @@ impl Active {
             return Ok(frames);
         }
         self.visible = visible;
+        if let Some(clip) = self.clip.as_mut() {
+            clip.set_visible(visible);
+        }
         if visible {
             if self.suppressed {
                 frames.push(self.suppress_frame(true)?);
@@ -1223,6 +1298,9 @@ impl Active {
                 Ok(self.resize_frame(width, height)?.into_iter().collect())
             }
             Cmd::Visible(v) => self.set_visible(v),
+            Cmd::Clipboard(command) => {
+                self.clipboard_frames(|engine, channel| engine.command(command, channel))
+            }
             Cmd::Snapshot(reply) => {
                 // The requester may have given up; that is fine.
                 if reply.send(self.snapshot()).is_err() {
@@ -1231,6 +1309,29 @@ impl Active {
                 Ok(Vec::new())
             }
         }
+    }
+
+    /// Runs `work` on the clipboard engine and encodes what it wants to send. Nothing happens
+    /// when the clipboard is not shared (or the channel was not set up by the server).
+    fn clipboard_frames(
+        &mut self,
+        work: impl FnOnce(&mut Engine, &mut ironrdp_cliprdr::CliprdrClient) -> Vec<SvcMessage>,
+    ) -> Result<Vec<Vec<u8>>, RdpError> {
+        let (Some(engine), Some(channel)) = (
+            self.clip.as_mut(),
+            self.stage.get_svc_processor_mut::<GuardedCliprdr>(),
+        ) else {
+            return Ok(Vec::new());
+        };
+        let messages = work(engine, channel.inner_mut());
+        if messages.is_empty() {
+            return Ok(Vec::new());
+        }
+        let frame = self
+            .stage
+            .process_svc_processor_messages(SvcProcessorMessages::<GuardedCliprdr>::new(messages))
+            .map_err(|e| RdpError::Io(format!("cannot encode a clipboard message: {e}")))?;
+        Ok(vec![frame])
     }
 
     async fn write_all(framed: &mut Framed, frames: Vec<Vec<u8>>) -> Result<(), RdpError> {
@@ -1346,8 +1447,11 @@ impl Active {
         &mut self,
         mut framed: Framed,
         cmd_rx: &mut mpsc::UnboundedReceiver<Cmd>,
+        clip_rx: &mut Option<mpsc::UnboundedReceiver<Internal>>,
         close: &mut watch::Receiver<bool>,
     ) -> Result<End, RdpError> {
+        let mut clip_tick = tokio::time::interval(engine::TICK);
+        clip_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         // A tab that starts hidden is suppressed right away.
         if !self.visible && self.suppress_output_support {
             let frame = self.suppress_frame(false)?;
@@ -1401,6 +1505,12 @@ impl Active {
                     if let Some((w, h)) = self.pending_resize {
                         frames.extend(self.resize_frame(w, h)?);
                     }
+                }
+                Some(event) = next_clipboard_event(clip_rx) => {
+                    frames.extend(self.clipboard_frames(|engine, channel| engine.on_internal(event, channel))?);
+                }
+                _ = clip_tick.tick(), if self.clip.is_some() => {
+                    frames.extend(self.clipboard_frames(|engine, channel| engine.on_tick(channel))?);
                 }
                 _ = tokio::time::sleep_until(deadline.unwrap_or_else(Instant::now)), if deadline.is_some() => {
                     self.flush();

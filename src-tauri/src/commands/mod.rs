@@ -12,6 +12,7 @@ pub mod prompt;
 pub mod rdp;
 pub mod term;
 pub mod transfer;
+pub mod update;
 pub mod vault;
 pub mod vnc;
 pub mod web;

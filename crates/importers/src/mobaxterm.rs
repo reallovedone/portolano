@@ -189,6 +189,7 @@ fn import_section(draft: &mut Draft, section: Section) -> Result<(), ImportError
                     domain: None,
                     ignore_cert: false,
                     allow_without_nla: false,
+                    share_clipboard: false,
                 },
                 DEFAULT_RDP_PORT,
             ),

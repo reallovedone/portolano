@@ -102,3 +102,41 @@ describe("credential-save-failed event", () => {
     }
   });
 });
+
+describe("menu-check-for-updates event (macOS menu bar)", () => {
+  async function shell() {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined });
+    const ipc = createMockIpc({ vault: "unlocked" });
+    const app = createApp(ipc);
+    render(App, { props: { app, demo: false } });
+    await waitFor(() => expect(app.doc.status).toBe("ready"));
+    return { ipc, app };
+  }
+
+  it("opens the Software update dialog and runs a manual check", async () => {
+    const { ipc, app } = await shell();
+    ipc.simulate.checkForUpdatesMenu();
+    await screen.findByRole("dialog", { name: "Software update" });
+    expect(app.ui.dialog?.type).toBe("updates");
+    await waitFor(() => expect(ipc.updates.checks).toEqual([true]));
+  });
+
+  it("does not stack a second dialog when the check is already on screen", async () => {
+    const { ipc, app } = await shell();
+    ipc.simulate.checkForUpdatesMenu();
+    await screen.findByRole("dialog", { name: "Software update" });
+    ipc.simulate.checkForUpdatesMenu();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(app.notices.items).toEqual([]);
+  });
+
+  it("leaves another open dialog alone and says so", async () => {
+    const { ipc, app } = await shell();
+    app.ui.open({ type: "credentials" });
+    ipc.simulate.checkForUpdatesMenu();
+    expect(app.ui.dialog?.type).toBe("credentials");
+    expect(app.notices.items.map((n) => n.title)).toEqual([
+      "Close the open dialog, then choose “Check for Updates…” again.",
+    ]);
+  });
+});

@@ -221,3 +221,51 @@ describe("mock framebuffer: VNC over TLS", () => {
     expect(events.some((e) => e.type === "security" || e.type === "resize")).toBe(false);
   });
 });
+
+describe("mock framebuffer clipboard", () => {
+  async function openSharing() {
+    const ipc = createMockIpc({ framebuffer: true, vault: "unlocked" });
+    const doc = await ipc.docGet();
+    const server = doc.nodes.find(
+      (n): n is ConnectionNode => n.type === "connection" && n.id === MOCK_IDS.rdpServer,
+    );
+    if (!server || server.options.type !== "rdp") throw new Error("seed changed");
+    await ipc.docUpsertNode({ ...server, options: { ...server.options, shareClipboard: true } });
+    const events: FbEvent[] = [];
+    const id = await ipc.fbOpen(MOCK_IDS.rdpServer, 800, 600, (e) => events.push(e));
+    await vi.waitFor(() => expect(events[0]?.type).toBe("certPrompt"));
+    await ipc.fbCertDecision(id, true);
+    return { ipc, id, events };
+  }
+
+  it("offers two files only when the connection shares its clipboard", async () => {
+    const { events } = await openSharing();
+    expect(events.find((e) => e.type === "clipboard")).toEqual({
+      type: "clipboard",
+      event: { type: "remoteFiles", count: 2, bytes: 2_500_000, skipped: 0 },
+    });
+    const plain = await open();
+    await vi.waitFor(() => expect(plain.events[0]?.type).toBe("certPrompt"));
+    await plain.ipc.fbCertDecision(plain.id, true);
+    expect(plain.events.some((e) => e.type === "clipboard")).toBe(false);
+    await expect(plain.ipc.fbClipboardSave(plain.id)).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("saves in steps and can be cancelled", async () => {
+    vi.useFakeTimers();
+    try {
+      const { ipc, id, events } = await openSharing();
+      await expect(ipc.fbClipboardSave(id)).resolves.toBe(true);
+      await vi.advanceTimersByTimeAsync(2000);
+      const kinds = events.flatMap((e) => (e.type === "clipboard" ? [e.event.type] : []));
+      expect(kinds).toEqual(["remoteFiles", "progress", "progress", "progress", "done"]);
+
+      await ipc.fbClipboardSave(id);
+      await vi.advanceTimersByTimeAsync(500);
+      await ipc.fbClipboardCancel(id);
+      expect(events.at(-1)).toEqual({ type: "clipboard", event: { type: "failed", reason: "cancelled" } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

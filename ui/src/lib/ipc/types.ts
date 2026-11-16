@@ -74,6 +74,11 @@ export type ConnectionOptions =
        * sent. The backend always writes it (false for documents saved before it existed).
        */
       allowWithoutNla: boolean;
+      /**
+       * Share the clipboard (text and files) with the remote desktop while the tab is the active
+       * one. Off for documents saved before the option existed. The backend always writes it.
+       */
+      shareClipboard: boolean;
     }
   | { type: "vnc"; viewOnly: boolean }
   | { type: "web"; url: string; isolatedProfile: boolean };
@@ -231,7 +236,30 @@ export type FbEvent =
    * VNC only: the server offers no encryption and wants a password. Nothing derived from it was
    * sent yet; answer with `fbUnencryptedDecision`.
    */
-  | { type: "unencryptedPrompt" };
+  | { type: "unencryptedPrompt" }
+  /** RDP with a shared clipboard: news about files on the remote clipboard and their saving. */
+  | { type: "clipboard"; event: ClipboardEvent };
+
+/**
+ * Why a clipboard file save did not happen: `cancelled` (the user), `limit` (too many files or
+ * bytes), `destination` (the chosen folder refused a file), `remote` (the remote machine could
+ * not provide a file), `protocol` (it sent something invalid), `nothing` (no usable file).
+ */
+export type ClipboardFailure =
+  | "cancelled"
+  | "limit"
+  | "destination"
+  | "remote"
+  | "protocol"
+  | "nothing";
+
+/** Counts and sizes only: file names and clipboard contents never reach the UI. */
+export type ClipboardEvent =
+  /** Files on the remote clipboard can be saved; `count: 0` means there are none (any more). */
+  | { type: "remoteFiles"; count: number; bytes: number; skipped: number }
+  | { type: "progress"; filesDone: number; filesTotal: number; bytesDone: number; bytesTotal: number }
+  | { type: "done"; files: number; bytes: number; skipped: number }
+  | { type: "failed"; reason: ClipboardFailure };
 
 /** Bit mask of `fbPointer.buttons` (same bits as DOM `MouseEvent.buttons`). */
 export const FB_BUTTON_LEFT = 1;
@@ -252,4 +280,39 @@ export interface ImportPreview {
   previewId: Uuid;
   nodes: Node[];
   warnings: ImportWarning[];
+}
+
+// ---- updates (WP13a) ----
+
+export interface UpdateSettings {
+  /** "Automatically check for updates". */
+  autoCheck: boolean;
+  currentVersion: string;
+}
+
+/** An available update. `notes` is Markdown from the network: render it as text, never as HTML. */
+export interface UpdateInfo {
+  currentVersion: string;
+  version: string;
+  /** `null`: no notes could be fetched; offer the release page instead. */
+  notes: string | null;
+}
+
+export type UpdateCheck =
+  | { status: "upToDate" }
+  /** An automatic check while the setting is off. */
+  | { status: "disabled" }
+  /** An automatic check found the version the user chose to skip. */
+  | { status: "skipped"; version: string }
+  | { status: "available"; update: UpdateInfo };
+
+export type UpdateEvent =
+  | { type: "progress"; downloaded: number; total: number | null }
+  /** Downloaded and verified: installing (the application restarts right after). */
+  | { type: "installing" };
+
+/** "What's new in <version>", shown once on the first launch after an update. */
+export interface WhatsNew {
+  version: string;
+  notes: string | null;
 }

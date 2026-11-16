@@ -9,6 +9,41 @@ const raw = (tag: number, text: string) => Uint8Array.from([tag, ...new TextEnco
 
 // The binary vectors below are the same ones asserted in the Rust tests
 // (crates/core-model/src/fb.rs and crates/session-term/src/lib.rs).
+describe("decodeFbEvent clipboard", () => {
+  // The same bytes are asserted in crates/core-model/src/fb.rs (clipboard_frame_layout).
+  it("decodes the four clipboard events", () => {
+    expect(
+      decodeFbEvent(raw(9, '{"type":"remoteFiles","count":2,"bytes":1500,"skipped":1}')),
+    ).toEqual({ type: "clipboard", event: { type: "remoteFiles", count: 2, bytes: 1500, skipped: 1 } });
+    expect(
+      decodeFbEvent(
+        raw(9, '{"type":"progress","filesDone":1,"filesTotal":3,"bytesDone":10,"bytesTotal":30}'),
+      ),
+    ).toEqual({
+      type: "clipboard",
+      event: { type: "progress", filesDone: 1, filesTotal: 3, bytesDone: 10, bytesTotal: 30 },
+    });
+    expect(decodeFbEvent(raw(9, '{"type":"done","files":3,"bytes":30,"skipped":0}'))).toEqual({
+      type: "clipboard",
+      event: { type: "done", files: 3, bytes: 30, skipped: 0 },
+    });
+    expect(decodeFbEvent(raw(9, '{"type":"failed","reason":"cancelled"}'))).toEqual({
+      type: "clipboard",
+      event: { type: "failed", reason: "cancelled" },
+    });
+  });
+
+  it("refuses a malformed clipboard frame instead of guessing", () => {
+    expect(() => decodeFbEvent(raw(9, '{"type":"failed","reason":"mystery"}'))).toThrow();
+    expect(() => decodeFbEvent(raw(9, '{"type":"other"}'))).toThrow();
+    expect(() => decodeFbEvent(raw(9, "not json"))).toThrow();
+    // Numbers that are not plain counts become 0.
+    expect(
+      decodeFbEvent(raw(9, '{"type":"remoteFiles","count":-3,"bytes":"x","skipped":null}')),
+    ).toEqual({ type: "clipboard", event: { type: "remoteFiles", count: 0, bytes: 0, skipped: 0 } });
+  });
+});
+
 describe("decodeFbEvent", () => {
   it("decodes resize", () => {
     expect(decodeFbEvent(bytes(0, 0x02, 0x01, 0x04, 0x03))).toEqual({

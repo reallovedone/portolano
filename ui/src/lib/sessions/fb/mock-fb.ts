@@ -92,6 +92,10 @@ interface Session {
   /** The session ended with the changed-certificate report: nothing to do but reconnect. */
   ended: boolean;
   keysDrawn: number;
+  /** An RDP connection that shares its clipboard: the mock offers two remote files. */
+  clipboard: boolean;
+  /** Timer of a running mock save. */
+  saveTimer: ReturnType<typeof setInterval> | null;
   pointer: { x: number; y: number } | null;
   prompter: MockPrompter | null;
   onEvent: (event: FbEvent) => void;
@@ -120,6 +124,9 @@ function crosshair(): FbEvent {
   }
   return { type: "cursor", hotspotX: size / 2, hotspotY: size / 2, w: size, h: size, rgba };
 }
+
+/** Size of the two files the mock offers on its remote clipboard. */
+const MOCK_CLIPBOARD_BYTES = 2_500_000;
 
 export type MockTransport = "rdp" | "vnc" | "vnc-tls";
 
@@ -152,6 +159,7 @@ export class MockFramebuffer {
     onEvent: (event: FbEvent) => void,
     ask: { connection: Connection; kind: CredentialPromptKind; hooks: MockPromptHooks } | null = null,
     transport: MockTransport = "rdp",
+    clipboard = false,
   ): SessionId {
     const id: SessionId = `mock-fb-${++this.#counter}`;
     const w = Math.max(200, width);
@@ -173,6 +181,8 @@ export class MockFramebuffer {
       plain: transport === "vnc",
       ended: false,
       keysDrawn: 0,
+      clipboard,
+      saveTimer: null,
       pointer: null,
       prompter: null,
       onEvent,
@@ -263,6 +273,50 @@ export class MockFramebuffer {
     s.onEvent({ type: "resize", w: s.w, h: s.h });
     this.#sendRect(s, 0, 0, s.w, s.h);
     s.onEvent(crosshair());
+    if (s.clipboard) {
+      s.onEvent({
+        type: "clipboard",
+        event: { type: "remoteFiles", count: 2, bytes: MOCK_CLIPBOARD_BYTES, skipped: 0 },
+      });
+    }
+  }
+
+  /** Pretends to save the remote clipboard files: a few progress steps, then done. */
+  clipboardSave(id: SessionId): boolean {
+    const s = this.#get(id);
+    if (!s.connected || !s.clipboard) {
+      throw new IpcError("invalid_input", "clipboard sharing is off for this connection");
+    }
+    if (s.saveTimer !== null) return true;
+    let step = 0;
+    s.saveTimer = setInterval(() => {
+      step += 1;
+      if (step >= 4) {
+        if (s.saveTimer !== null) clearInterval(s.saveTimer);
+        s.saveTimer = null;
+        s.onEvent({ type: "clipboard", event: { type: "done", files: 2, bytes: MOCK_CLIPBOARD_BYTES, skipped: 0 } });
+        return;
+      }
+      s.onEvent({
+        type: "clipboard",
+        event: {
+          type: "progress",
+          filesDone: step > 2 ? 1 : 0,
+          filesTotal: 2,
+          bytesDone: Math.floor((MOCK_CLIPBOARD_BYTES * step) / 4),
+          bytesTotal: MOCK_CLIPBOARD_BYTES,
+        },
+      });
+    }, 400);
+    return true;
+  }
+
+  clipboardCancel(id: SessionId): void {
+    const s = this.#get(id);
+    if (s.saveTimer === null) return;
+    clearInterval(s.saveTimer);
+    s.saveTimer = null;
+    s.onEvent({ type: "clipboard", event: { type: "failed", reason: "cancelled" } });
   }
 
   #sendRect(s: Session, x: number, y: number, w: number, h: number): void {
@@ -382,6 +436,7 @@ export class MockFramebuffer {
     const s = this.#sessions.get(id);
     if (!s) return false;
     s.closed = true;
+    if (s.saveTimer !== null) clearInterval(s.saveTimer);
     this.#sessions.delete(id);
     return true;
   }
@@ -444,6 +499,7 @@ export function createMockFramebuffer(
           onEvent,
           ask,
           node.options.type === "rdp" ? "rdp" : tls ? "vnc-tls" : "vnc",
+          node.options.type === "rdp" && node.options.shareClipboard,
         );
       }),
     has: (id: SessionId): boolean => fake.has(id),
@@ -465,6 +521,9 @@ export function createMockFramebuffer(
       run("fbUnencryptedDecision", () => fake.unencryptedDecision(id, allow)),
     forgetCertificate: (id: SessionId) =>
       run("fbForgetCertificate", () => fake.forgetCertificate(id)),
+    clipboardSave: (id: SessionId) => run("fbClipboardSave", () => fake.clipboardSave(id)),
+    clipboardCancel: (id: SessionId) =>
+      run("fbClipboardCancel", () => fake.clipboardCancel(id)),
     /** `true` when `id` was a mock framebuffer session (now closed). */
     close: (id: SessionId): boolean => fake.close(id),
   };

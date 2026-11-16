@@ -25,6 +25,11 @@ portolano-session-vnc.workspace = true
 portolano-importers.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog.workspace = true
+tauri-plugin-updater.workspace = true
+tauri-plugin-opener.workspace = true
+tokio-rustls.workspace = true
+semver.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
@@ -32,6 +37,19 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 secrecy.workspace = true
+sha2.workspace = true
+arboard.workspace = true
+
+# The change counter of the macOS pasteboard (readable without any permission prompt) and the
+# marker types password managers use for concealed content.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString"] }
+
+# The clipboard sequence number of Windows (the same crate `arboard` uses there).
+[target.'cfg(windows)'.dependencies]
+clipboard-win = "5.3"
 
 [build-dependencies]
 tauri-build.workspace = true

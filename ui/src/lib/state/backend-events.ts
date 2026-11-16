@@ -8,6 +8,18 @@ export function connectBackendEvents(app: App): () => void {
   const subscriptions = [
     // The vault locked itself or was locked: show it now instead of on the next call.
     app.vault.listen(),
+    // macOS menu bar "Check for Updates…": the same dialog as the sidebar entry.
+    app.ipc.onCheckForUpdatesMenu(() => {
+      const { ui, updates, notices } = app;
+      // Already on screen (the check, an offer, an installation): never stack a second one.
+      if (ui.dialog?.type === "updates" || updates.offer || updates.installing) return;
+      // Another dialog may hold unsaved input: do not replace it.
+      if (ui.dialog) {
+        notices.push("info", t("update.menuBusy"));
+        return;
+      }
+      ui.open({ type: "updates" });
+    }),
     // Not blocking: the session is connected, only the "save to the vault" step failed.
     app.ipc.onCredentialSaveFailed((notice) => {
       app.notices.push(

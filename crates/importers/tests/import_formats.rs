@@ -104,9 +104,11 @@ fn rdp_utf8_file_with_port_and_dropped_password() {
             domain,
             ignore_cert,
             allow_without_nla,
+            share_clipboard,
         } => {
             assert_eq!(*width, Some(1920));
             assert!(!allow_without_nla);
+            assert!(!share_clipboard);
             assert_eq!(*height, Some(1080));
             assert_eq!(domain.as_deref(), Some("EXAMPLE"));
             assert!(!ignore_cert);

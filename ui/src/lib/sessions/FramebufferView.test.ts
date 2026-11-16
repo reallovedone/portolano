@@ -15,9 +15,12 @@ interface Drawn {
 }
 
 let drawn: Drawn[] = [];
+/** What `fbClipboardSave` answers: `false` is a dismissed folder dialog. */
+let saveAnswer = true;
 
 beforeEach(() => {
   drawn = [];
+  saveAnswer = true;
   vi.stubGlobal(
     "ImageData",
     class {
@@ -56,6 +59,11 @@ function recordingIpc(base: Ipc = createMockIpc()) {
     sessionCredential: async (id, answer, save) =>
       void calls.push(`credential:${answer.username}:${answer.domain ?? "-"}:save=${save}`),
     sessionCredentialCancel: async () => void calls.push("credentialCancel"),
+    fbClipboardSave: async () => {
+      calls.push("clipboardSave");
+      return saveAnswer;
+    },
+    fbClipboardCancel: async () => void calls.push("clipboardCancel"),
   };
   return { ipc, calls };
 }
@@ -471,5 +479,104 @@ describe("FramebufferView", () => {
       await waitFor(() => expect(docGet.mock.calls.length).toBeGreaterThan(docReads));
       await waitFor(() => expect(vaultList.mock.calls.length).toBeGreaterThan(listReads));
     });
+  });
+});
+
+describe("FramebufferView shared clipboard", () => {
+  const live = (session: ReturnType<typeof mount>): void => {
+    session.bridge.emit({ type: "resize", w: 800, h: 600 });
+  };
+  const offer = (count: number, bytes: number, skipped = 0) =>
+    ({ type: "clipboard", event: { type: "remoteFiles", count, bytes, skipped } }) as const;
+
+  it("shows nothing until the remote clipboard holds files", async () => {
+    const { ipc } = recordingIpc();
+    const session = mount(ipc);
+    live(session);
+    await waitFor(() => expect(canvasOf().width).toBe(800));
+    expect(screen.queryByTestId("fb-clipboard")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save…" })).toBeNull();
+  });
+
+  it("offers to save the files, asks the backend for the folder dialog and shows progress", async () => {
+    const { ipc, calls } = recordingIpc();
+    const session = mount(ipc);
+    live(session);
+    session.bridge.emit(offer(3, 2_500_000));
+    expect(await screen.findByText("3 items on the remote clipboard (2.5 MB)")).toBeTruthy();
+    // Nothing happens until the user asks.
+    expect(calls).not.toContain("clipboardSave");
+    await fireEvent.click(screen.getByRole("button", { name: "Save…" }));
+    await waitFor(() => expect(calls).toContain("clipboardSave"));
+    expect(await screen.findByText("Saving files from the remote clipboard")).toBeTruthy();
+
+    session.bridge.emit({
+      type: "clipboard",
+      event: { type: "progress", filesDone: 1, filesTotal: 3, bytesDone: 1_000_000, bytesTotal: 2_500_000 },
+    });
+    expect(await screen.findByText("1 of 3 files, 1.0 MB of 2.5 MB")).toBeTruthy();
+    const bar = screen.getByLabelText("Save progress") as HTMLProgressElement;
+    expect(bar.value).toBe(40);
+
+    session.bridge.emit({ type: "clipboard", event: { type: "done", files: 3, bytes: 2_500_000, skipped: 1 } });
+    expect(await screen.findByText("Files saved")).toBeTruthy();
+    expect(screen.getByText(/3 files saved \(2\.5 MB\)\./)).toBeTruthy();
+    expect(screen.getByText(/1 could not be saved because of their names/)).toBeTruthy();
+  });
+
+  it("cancels a save in progress and says that written files are kept", async () => {
+    const { ipc, calls } = recordingIpc();
+    const session = mount(ipc);
+    live(session);
+    session.bridge.emit(offer(1, 100));
+    expect(await screen.findByText("1 item on the remote clipboard (100 B)")).toBeTruthy();
+    await fireEvent.click(screen.getByRole("button", { name: "Save…" }));
+    await screen.findByText("Saving files from the remote clipboard");
+    await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(calls).toContain("clipboardCancel"));
+    session.bridge.emit({ type: "clipboard", event: { type: "failed", reason: "cancelled" } });
+    expect(await screen.findByText(/The save was cancelled\. Files already written are kept\./)).toBeTruthy();
+  });
+
+  it("a dismissed folder dialog starts nothing", async () => {
+    saveAnswer = false;
+    const { ipc, calls } = recordingIpc();
+    const session = mount(ipc);
+    live(session);
+    session.bridge.emit(offer(2, 10));
+    await fireEvent.click(await screen.findByRole("button", { name: "Save…" }));
+    await waitFor(() => expect(calls).toContain("clipboardSave"));
+    expect(screen.queryByText("Saving files from the remote clipboard")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save…" })).toBeTruthy();
+  });
+
+  it("reports a failure in words and lets the user close it", async () => {
+    const { ipc } = recordingIpc();
+    const session = mount(ipc);
+    live(session);
+    session.bridge.emit(offer(2, 10));
+    session.bridge.emit({ type: "clipboard", event: { type: "failed", reason: "destination" } });
+    expect(await screen.findByText("The files were not saved")).toBeTruthy();
+    expect(screen.getByText(/refused a file/)).toBeTruthy();
+    await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(screen.queryByText("The files were not saved")).toBeNull());
+    // The offer is still there for another try.
+    expect(screen.getByRole("button", { name: "Save…" })).toBeTruthy();
+  });
+
+  it("the offer goes away with the files and can be closed by the user", async () => {
+    const { ipc } = recordingIpc();
+    const session = mount(ipc);
+    live(session);
+    session.bridge.emit(offer(2, 10));
+    await screen.findByRole("button", { name: "Save…" });
+    session.bridge.emit(offer(0, 0));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Save…" })).toBeNull());
+    session.bridge.emit(offer(2, 10));
+    await fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Save…" })).toBeNull());
+    // A different offer shows again.
+    session.bridge.emit(offer(5, 99));
+    expect(await screen.findByText("5 items on the remote clipboard (99 B)")).toBeTruthy();
   });
 });

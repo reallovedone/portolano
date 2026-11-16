@@ -51,6 +51,7 @@ export interface ConnectionDraft {
   domain: string;
   ignoreCert: boolean;
   allowWithoutNla: boolean;
+  shareClipboard: boolean;
   // vnc
   viewOnly: boolean;
   // web
@@ -96,6 +97,7 @@ export function newConnectionDraft(
     domain: "",
     ignoreCert: false,
     allowWithoutNla: false,
+    shareClipboard: false,
     viewOnly: false,
     url: "",
     isolatedProfile: false,
@@ -141,6 +143,7 @@ export function draftFromConnection(c: Connection): ConnectionDraft {
       draft.domain = text(o.domain);
       draft.ignoreCert = o.ignoreCert;
       draft.allowWithoutNla = o.allowWithoutNla === true;
+      draft.shareClipboard = o.shareClipboard === true;
       break;
     case "vnc":
       draft.viewOnly = o.viewOnly;
@@ -268,6 +271,7 @@ export function draftToConnection(draft: ConnectionDraft, newId: () => Uuid): Co
         domain: orNull(draft.domain),
         ignoreCert: draft.ignoreCert,
         allowWithoutNla: draft.allowWithoutNla,
+        shareClipboard: draft.shareClipboard,
       };
       break;
     case "vnc":

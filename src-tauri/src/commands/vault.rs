@@ -145,7 +145,25 @@ fn clear_references(state: &AppState, id: Uuid) -> Result<(), AppError> {
 /// The only command that returns secret material, and only on an explicit user action.
 #[tauri::command]
 pub async fn vault_reveal_secret(app: AppHandle, id: Uuid) -> Result<RevealedSecret, AppError> {
-    with_vault(app, move |v| v.reveal_secret(id)).await
+    let secret = with_vault(app.clone(), move |v| v.reveal_secret(id)).await?;
+    // A revealed secret may end up on the clipboard: remember its hash so that a shared RDP
+    // clipboard never offers it to a remote desktop (see `clipboard.rs`).
+    if let Some(state) = app.try_state::<AppState>() {
+        let marks = state.clipboard.secrets();
+        match &secret {
+            RevealedSecret::Password { password } => marks.mark(password),
+            RevealedSecret::SshKey {
+                private_key_pem,
+                passphrase,
+            } => {
+                marks.mark(private_key_pem);
+                if let Some(passphrase) = passphrase {
+                    marks.mark(passphrase);
+                }
+            }
+        }
+    }
+    Ok(secret)
 }
 
 /// One evaluation of the inactivity timer. Never blocks: when an operation holds the vault

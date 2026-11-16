@@ -22,6 +22,7 @@ use portolano_importers::PreviewCache;
 use portolano_vault::Vault;
 use uuid::Uuid;
 
+use crate::clipboard::SystemClipboard;
 use crate::error::{poisoned, AppError};
 
 pub type SessionId = Uuid;
@@ -67,6 +68,19 @@ pub trait FbSession: Send + Sync {
     /// Removes the stored certificate of the session's host (the deliberate step after a
     /// changed certificate or a refused downgrade).
     fn forget_certificate(&self) -> Result<(), AppError>;
+    /// Saves the files on the remote clipboard below `dir`, a folder the user chose (RDP with
+    /// clipboard sharing only).
+    fn clipboard_save(&self, _dir: PathBuf) -> Result<(), AppError> {
+        Err(AppError::invalid_input(
+            "this session does not share a clipboard",
+        ))
+    }
+    /// Stops the save started by `clipboard_save`.
+    fn clipboard_cancel(&self) -> Result<(), AppError> {
+        Err(AppError::invalid_input(
+            "this session does not share a clipboard",
+        ))
+    }
     /// Answer to a `CredentialPrompt`. The secrets stay in the backend, for this session.
     fn credential(&self, answer: CredentialAnswer, save_to_vault: bool) -> Result<(), AppError>;
     /// The user dismissed a `CredentialPrompt`.
@@ -259,6 +273,8 @@ pub struct AppState {
     pub import_previews: Mutex<PreviewCache>,
     /// Notices for the UI from code that runs outside a command (see [`Notifier`]).
     pub notifier: Arc<Notifier>,
+    /// The operating system's clipboard, for RDP sessions that share it (WP14).
+    pub clipboard: Arc<SystemClipboard>,
 }
 
 impl AppState {
@@ -274,6 +290,7 @@ impl AppState {
             sessions: SessionManager::new(),
             import_previews: Mutex::new(PreviewCache::default()),
             notifier: Arc::new(Notifier::default()),
+            clipboard: Arc::new(SystemClipboard::default()),
         }
     }
 }

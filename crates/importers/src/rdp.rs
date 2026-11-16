@@ -77,6 +77,7 @@ pub(crate) fn parse(text: &str, name_hint: &str) -> Result<Draft, ImportError> {
             domain,
             ignore_cert: false,
             allow_without_nla: false,
+            share_clipboard: false,
         },
     };
     draft.add_connection(None, entry, Some(line))?;

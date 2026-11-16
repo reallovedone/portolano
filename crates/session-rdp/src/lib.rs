@@ -4,6 +4,7 @@
 //! (`FbEvent` and its binary wire format). See `session.rs` for the design.
 
 pub mod cert;
+pub mod clipboard;
 pub mod dirty;
 mod error;
 pub mod keymap;

@@ -276,6 +276,10 @@
           {#if draft.allowWithoutNla}
             <Banner variant="warning" role="note">{t("editor.rdp.nlaWarning")}</Banner>
           {/if}
+          <div class="option">
+            <Checkbox bind:checked={draft.shareClipboard} label={t("editor.rdp.shareClipboard")} />
+            <p class="size-hint">{t("editor.rdp.shareClipboardHelp")}</p>
+          </div>
         {:else if draft.kind === "vnc"}
           <div class="option">
             <Checkbox bind:checked={draft.viewOnly} label={t("editor.vnc.viewOnly")} />

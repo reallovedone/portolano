@@ -18,6 +18,7 @@
 //! | 6   | `CredentialPrompt` | UTF-8 JSON `{"kind","usernameHint","domainHint","target","error","canSaveToVault"}` |
 //! | 7   | `Security`   | UTF-8 JSON `{"encrypted"}` (VNC only: sent once, before the first `Resize`) |
 //! | 8   | `UnencryptedPrompt` | UTF-8 JSON `{}` (VNC only: the server offers no encryption and wants a password; nothing was sent yet, the user decides) |
+//! | 9   | `Clipboard`  | UTF-8 JSON [`ClipboardEvent`] (RDP only, and only when the connection shares the clipboard): `{"type":"remoteFiles","count","bytes","skipped"}`, `{"type":"progress","filesDone","filesTotal","bytesDone","bytesTotal"}`, `{"type":"done","files","bytes","skipped"}`, `{"type":"failed","reason"}`. Never carries file names or clipboard contents |
 //!
 //! Pixels are never JSON-encoded. The TypeScript decoder is `ui/src/lib/ipc/frames.ts`.
 
@@ -35,6 +36,59 @@ pub const TAG_ERROR: u8 = 5;
 pub const TAG_CREDENTIAL_PROMPT: u8 = 6;
 pub const TAG_SECURITY: u8 = 7;
 pub const TAG_UNENCRYPTED_PROMPT: u8 = 8;
+pub const TAG_CLIPBOARD: u8 = 9;
+
+/// Why a clipboard file transfer did not happen (or stopped). Stable identifiers; the UI
+/// words them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClipboardFailure {
+    /// The user stopped it.
+    Cancelled,
+    /// More files or bytes than the limits allow.
+    Limit,
+    /// The chosen folder refused a file (full disk, no permission, ...).
+    Destination,
+    /// The remote machine could not provide a file or stopped answering.
+    Remote,
+    /// The remote machine sent something that does not fit the protocol.
+    Protocol,
+    /// There is nothing (usable) to save any more.
+    Nothing,
+}
+
+/// Clipboard news for the UI. By design it holds counts and sizes only: file names and
+/// clipboard contents never leave the backend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ClipboardEvent {
+    /// Files on the remote machine's clipboard can be saved. `count: 0`: there are none (any
+    /// more). `skipped` entries were left out because their names could not be made safe.
+    RemoteFiles {
+        count: u32,
+        bytes: u64,
+        skipped: u32,
+    },
+    /// Progress of a save the user started.
+    Progress {
+        files_done: u32,
+        files_total: u32,
+        bytes_done: u64,
+        bytes_total: u64,
+    },
+    /// The save finished.
+    Done {
+        files: u32,
+        bytes: u64,
+        skipped: u32,
+    },
+    /// The save (or the offer) failed or was cancelled.
+    Failed { reason: ClipboardFailure },
+}
 
 /// Bit mask of `fb_pointer.buttons`, same bits as DOM `MouseEvent.buttons`.
 pub mod buttons {
@@ -84,6 +138,8 @@ pub enum FbEvent {
     /// before anything derived from it is sent. Answered with `fb_unencrypted_decision`.
     /// Additive event.
     UnencryptedPrompt,
+    /// Shared-clipboard news (RDP). Additive event.
+    Clipboard(ClipboardEvent),
 }
 
 /// `[tag][JSON]` frame used by every non-binary event of the Terminal and Framebuffer families.
@@ -149,6 +205,7 @@ impl FbEvent {
                 json_frame(TAG_SECURITY, &serde_json::json!({"encrypted": encrypted}))
             }
             Self::UnencryptedPrompt => json_frame(TAG_UNENCRYPTED_PROMPT, &serde_json::json!({})),
+            Self::Clipboard(event) => json_frame(TAG_CLIPBOARD, event),
         }
     }
 }
@@ -244,6 +301,48 @@ mod tests {
         assert_eq!(&frame[1..], br#"{"encrypted":true}"#);
         let frame = FbEvent::Security { encrypted: false }.encode();
         assert_eq!(&frame[1..], br#"{"encrypted":false}"#);
+    }
+
+    #[test]
+    fn clipboard_frame_layout() {
+        // The TypeScript decoder test (ui/src/lib/ipc/frames.test.ts) decodes these same vectors.
+        let frame = FbEvent::Clipboard(ClipboardEvent::RemoteFiles {
+            count: 2,
+            bytes: 1500,
+            skipped: 1,
+        })
+        .encode();
+        assert_eq!(frame[0], 9);
+        assert_eq!(
+            &frame[1..],
+            br#"{"type":"remoteFiles","count":2,"bytes":1500,"skipped":1}"#
+        );
+        let frame = FbEvent::Clipboard(ClipboardEvent::Progress {
+            files_done: 1,
+            files_total: 3,
+            bytes_done: 10,
+            bytes_total: 30,
+        })
+        .encode();
+        assert_eq!(
+            &frame[1..],
+            br#"{"type":"progress","filesDone":1,"filesTotal":3,"bytesDone":10,"bytesTotal":30}"#
+        );
+        let frame = FbEvent::Clipboard(ClipboardEvent::Done {
+            files: 3,
+            bytes: 30,
+            skipped: 0,
+        })
+        .encode();
+        assert_eq!(
+            &frame[1..],
+            br#"{"type":"done","files":3,"bytes":30,"skipped":0}"#
+        );
+        let frame = FbEvent::Clipboard(ClipboardEvent::Failed {
+            reason: ClipboardFailure::Cancelled,
+        })
+        .encode();
+        assert_eq!(&frame[1..], br#"{"type":"failed","reason":"cancelled"}"#);
     }
 
     #[test]

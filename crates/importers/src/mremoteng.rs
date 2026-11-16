@@ -162,6 +162,7 @@ fn import_connection(
                         .map(str::to_owned),
                     ignore_cert: false,
                     allow_without_nla: false,
+                    share_clipboard: false,
                 },
                 "vnc" => ConnectionOptions::Vnc { view_only: false },
                 _ => ConnectionOptions::Ssh {

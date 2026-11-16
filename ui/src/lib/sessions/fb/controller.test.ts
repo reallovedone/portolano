@@ -173,6 +173,8 @@ describe("visibility", () => {
         forgetCertificate: async () => undefined,
         credential: async () => undefined,
         credentialCancel: async () => undefined,
+        clipboardSave: async () => true,
+        clipboardCancel: async () => undefined,
         setVisible: async () => {
           throw new Error("gone");
         },
@@ -240,6 +242,8 @@ describe("certificate prompt", () => {
         },
         credential: async () => undefined,
         credentialCancel: async () => undefined,
+        clipboardSave: async () => true,
+        clipboardCancel: async () => undefined,
         setVisible: async () => undefined,
       },
       surface: { putImageData: () => undefined },
@@ -414,5 +418,80 @@ describe("credential prompt", () => {
     t.controller.handleEvent({ type: "resize", w: 800, h: 600 });
     t.controller.handleEvent({ type: "resize", w: 640, h: 480 });
     expect(t.saved).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("shared clipboard", () => {
+  const offer: FbEvent = {
+    type: "clipboard",
+    event: { type: "remoteFiles", count: 2, bytes: 300, skipped: 0 },
+  };
+
+  it("follows the backend's clipboard events", () => {
+    const { controller } = setup();
+    expect(controller.state.clipboard.offer).toBeNull();
+    controller.handleEvent(offer);
+    expect(controller.state.clipboard.offer).toEqual({ count: 2, bytes: 300, skipped: 0 });
+    controller.handleEvent({
+      type: "clipboard",
+      event: { type: "progress", filesDone: 1, filesTotal: 2, bytesDone: 100, bytesTotal: 300 },
+    });
+    expect(controller.state.clipboard.phase.kind).toBe("saving");
+    controller.handleEvent({ type: "clipboard", event: { type: "done", files: 2, bytes: 300, skipped: 0 } });
+    expect(controller.state.clipboard.phase).toEqual({ kind: "done", files: 2, bytes: 300, skipped: 0 });
+    controller.dismissClipboardNotice();
+    expect(controller.state.clipboard.phase.kind).toBe("idle");
+  });
+
+  it("saves only when there is an offer, once at a time", async () => {
+    const { controller, calls } = setup();
+    controller.saveClipboardFiles();
+    await flushPromises();
+    expect(calls.filter((c) => c.fn === "clipboardSave")).toHaveLength(0);
+
+    controller.handleEvent(offer);
+    controller.saveClipboardFiles();
+    await flushPromises();
+    expect(controller.state.clipboard.phase.kind).toBe("saving");
+    // A second request while saving does nothing.
+    controller.saveClipboardFiles();
+    await flushPromises();
+    expect(calls.filter((c) => c.fn === "clipboardSave")).toHaveLength(1);
+  });
+
+  it("cancels only while saving and reports a refused command without throwing", async () => {
+    const { controller, calls, onError } = setup();
+    controller.cancelClipboardSave();
+    expect(calls.filter((c) => c.fn === "clipboardCancel")).toHaveLength(0);
+
+    const failing = new FbController({
+      api: {
+        pointer: async () => undefined,
+        key: async () => undefined,
+        resize: async () => undefined,
+        certDecision: async () => undefined,
+        unencryptedDecision: async () => undefined,
+        forgetCertificate: async () => undefined,
+        credential: async () => undefined,
+        credentialCancel: async () => undefined,
+        clipboardSave: async () => {
+          throw new Error("clipboard sharing is off for this connection");
+        },
+        clipboardCancel: async () => undefined,
+        setVisible: async () => undefined,
+      },
+      surface: { putImageData: () => undefined },
+      setCanvasSize: () => undefined,
+      onState: () => undefined,
+      onFatal: () => undefined,
+      onError,
+      geometry: () => null,
+    });
+    failing.handleEvent(offer);
+    failing.saveClipboardFiles();
+    await flushPromises();
+    expect(onError).toHaveBeenCalledWith("fb_clipboard_save", expect.any(Error));
+    expect(failing.state.clipboard.phase).toEqual({ kind: "failed", reason: "unavailable" });
+    failing.dispose();
   });
 });

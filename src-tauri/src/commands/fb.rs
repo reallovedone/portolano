@@ -10,9 +10,10 @@
 //! `on_event` carries raw binary frames (`FbEvent::encode`), not JSON. `ask_credentials` skips
 //! the vault for this session ("enter manually"): the session prompts for its credential.
 
-use portolano_core_model::{ConnectionOptions, Node};
+use portolano_core_model::{ConnectionOptions, ErrorCode, Node};
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::State;
+use tauri::{State, WebviewWindow};
+use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
 use crate::commands::{rdp, vnc};
@@ -137,4 +138,49 @@ pub async fn fb_forget_certificate(
     session_id: SessionId,
 ) -> Result<(), AppError> {
     state.sessions.fb(session_id)?.forget_certificate()
+}
+
+/// Saves the files on the remote clipboard (RDP with a shared clipboard). The folder comes
+/// from a native dialog opened here, in the backend: the destination is always something the
+/// user just picked, never a path the webview supplies. `Ok(false)`: the user dismissed the
+/// dialog and nothing happened. Progress and the outcome arrive as clipboard events.
+#[tauri::command]
+pub async fn fb_clipboard_save(
+    state: State<'_, AppState>,
+    window: WebviewWindow,
+    session_id: SessionId,
+) -> Result<bool, AppError> {
+    let session = state.sessions.fb(session_id)?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    window
+        .dialog()
+        .file()
+        .set_title("Save the files from the remote clipboard")
+        .set_can_create_directories(true)
+        .set_parent(&window)
+        .pick_folder(move |picked| {
+            if tx.send(picked).is_err() {
+                tracing::debug!("the folder dialog was answered after the command ended");
+            }
+        });
+    let picked = rx
+        .await
+        .map_err(|_| AppError::new(ErrorCode::Internal, "the folder dialog was closed"))?;
+    let Some(picked) = picked else {
+        return Ok(false);
+    };
+    let dir = picked.into_path().map_err(|_| {
+        AppError::invalid_input("the chosen location is not a folder on this computer")
+    })?;
+    session.clipboard_save(dir)?;
+    Ok(true)
+}
+
+/// Stops the save started by `fb_clipboard_save`.
+#[tauri::command]
+pub async fn fb_clipboard_cancel(
+    state: State<'_, AppState>,
+    session_id: SessionId,
+) -> Result<(), AppError> {
+    state.sessions.fb(session_id)?.clipboard_cancel()
 }

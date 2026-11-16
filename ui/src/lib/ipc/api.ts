@@ -15,9 +15,13 @@ import type {
   RevealedSecret,
   SessionId,
   TermEvent,
+  UpdateCheck,
+  UpdateEvent,
+  UpdateSettings,
   Uuid,
   VaultStatus,
   WebNavAction,
+  WhatsNew,
 } from "./types";
 
 /**
@@ -85,6 +89,14 @@ export interface Ipc {
    * certificate or a refused downgrade; connect again afterwards.
    */
   fbForgetCertificate(sessionId: SessionId): Promise<void>;
+  /**
+   * Saves the files on the remote clipboard (RDP with a shared clipboard). The backend opens a
+   * native folder dialog; the answer is `false` when the user dismissed it. Progress and the
+   * outcome arrive as `clipboard` events.
+   */
+  fbClipboardSave(sessionId: SessionId): Promise<boolean>;
+  /** Stops the save in progress. */
+  fbClipboardCancel(sessionId: SessionId): Promise<void>;
 
   // web family
   webOpen(connectionId: Uuid, bounds: Bounds): Promise<SessionId>;
@@ -119,9 +131,32 @@ export interface Ipc {
    */
   readPrivateKeyFile(path: string): Promise<string>;
 
+  // updates (the backend does all the networking; the webview needs no network permission)
+  updateSettings(): Promise<UpdateSettings>;
+  updateSetAutoCheck(enabled: boolean): Promise<void>;
+  /**
+   * Looks for a newer version. `manual` (the "Check for updates…" action) ignores the automatic
+   * setting and the skipped version and always answers; network errors reject.
+   */
+  updateCheck(manual: boolean): Promise<UpdateCheck>;
+  /** "Skip this version": automatic checks stop proposing it. */
+  updateSkip(version: string): Promise<void>;
+  /**
+   * Downloads the update found by the last `updateCheck`, verifies its signature, installs it and
+   * restarts the application. The promise rejects with the reason when anything fails, and
+   * normally never resolves because the application restarts.
+   */
+  updateInstall(onEvent: (event: UpdateEvent) => void): Promise<void>;
+  /** The "What's new" due at this start-up (`null`: nothing to show). */
+  whatsNew(): Promise<WhatsNew | null>;
+  /** Opens the GitHub release page of `version` in the browser. */
+  updateOpenReleasePage(version: string): Promise<void>;
+
   // backend notices (events, not commands). Each returns the function that unsubscribes.
   /** The vault locked itself (inactivity) or was locked: update the state at once. */
   onVaultLocked(handler: () => void): () => void;
+  /** macOS menu bar: "Check for Updates…" was chosen (the event never fires elsewhere). */
+  onCheckForUpdatesMenu(handler: () => void): () => void;
   /** "Save to the vault" failed at connect time; the session stays connected. */
   onCredentialSaveFailed(handler: (notice: CredentialSaveFailed) => void): () => void;
 

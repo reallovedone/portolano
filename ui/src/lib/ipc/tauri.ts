@@ -3,7 +3,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { Ipc } from "./api";
 import { IpcError, toIpcError } from "./errors";
 import { decodeFbEvent, decodeTermEvent, toBytes } from "./frames";
-import type { CredentialSaveFailed, FbEvent, TermEvent } from "./types";
+import type { CredentialSaveFailed, FbEvent, TermEvent, UpdateEvent } from "./types";
 
 /** Subscribes to a backend event (lazy import: the event API does not exist in a browser). */
 function subscribe<P>(event: string, handler: (payload: P) => void): () => void {
@@ -112,6 +112,8 @@ export const tauriIpc: Ipc = {
   fbUnencryptedDecision: (sessionId, allow) =>
     call("fb_unencrypted_decision", { sessionId, allow }),
   fbForgetCertificate: (sessionId) => call("fb_forget_certificate", { sessionId }),
+  fbClipboardSave: (sessionId) => call("fb_clipboard_save", { sessionId }),
+  fbClipboardCancel: (sessionId) => call("fb_clipboard_cancel", { sessionId }),
 
   // `viewportHeight` is the UI's `innerHeight` at the time the bounds were measured: the
   // backend needs it for the title bar correction of child webviews (commands/web/geometry.rs).
@@ -131,7 +133,20 @@ export const tauriIpc: Ipc = {
   exportDocument: (format, path, nodeIds) => call("export_document", { format, path, nodeIds }),
   readPrivateKeyFile: (path) => call("read_private_key_file", { path }),
 
+  updateSettings: () => call("update_settings"),
+  updateSetAutoCheck: (enabled) => call("update_set_auto_check", { enabled }),
+  updateCheck: (manual) => call("update_check", { manual }),
+  updateSkip: (version) => call("update_skip", { version }),
+  updateInstall: (onEvent) => {
+    const channel = new Channel<UpdateEvent>();
+    channel.onmessage = onEvent;
+    return call("update_install", { onEvent: channel });
+  },
+  whatsNew: () => call("whats_new"),
+  updateOpenReleasePage: (version) => call("update_open_release_page", { version }),
+
   onVaultLocked: (handler) => subscribe<null>("vault-locked", () => handler()),
+  onCheckForUpdatesMenu: (handler) => subscribe<null>("menu-check-for-updates", () => handler()),
   onCredentialSaveFailed: (handler) =>
     subscribe<CredentialSaveFailed>("credential-save-failed", handler),
 

@@ -384,6 +384,7 @@ fn rich_document() -> Document {
                 domain: Some("EXAMPLE".into()),
                 ignore_cert: false,
                 allow_without_nla: false,
+                share_clipboard: false,
             },
         ),
     ];
@@ -478,8 +479,10 @@ fn json_export_never_contains_a_password_key_or_credential_ids() {
 fn decode_utf16le_with_bom(bytes: &[u8]) -> String {
     assert_eq!(&bytes[..2], &[0xFF, 0xFE], "UTF-16LE byte order mark");
     let units: Vec<u16> = bytes[2..]
-        .chunks_exact(2)
-        .map(|p| u16::from_le_bytes([p[0], p[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|p| u16::from_le_bytes(*p))
         .collect();
     String::from_utf16(&units).expect("valid UTF-16")
 }
@@ -497,6 +500,7 @@ fn rdp_export_has_the_exact_content_and_no_password() {
             domain: Some("EXAMPLE".into()),
             ignore_cert: true,
             allow_without_nla: false,
+            share_clipboard: false,
         },
     );
     let Node::Connection(mut conn) = node else {
@@ -539,6 +543,7 @@ fn rdp_export_omits_unset_fields_and_defaults() {
             domain: None,
             ignore_cert: false,
             allow_without_nla: false,
+            share_clipboard: false,
         },
     )];
     let file = dir.path("plain.rdp");
@@ -569,6 +574,7 @@ fn rdp_export_refuses_what_it_cannot_write() {
                 domain: None,
                 ignore_cert: false,
                 allow_without_nla: false,
+                share_clipboard: false,
             },
         ),
         connection_node(
@@ -581,6 +587,7 @@ fn rdp_export_refuses_what_it_cannot_write() {
                 domain: None,
                 ignore_cert: false,
                 allow_without_nla: false,
+                share_clipboard: false,
             },
         ),
     ];
@@ -605,6 +612,7 @@ fn rdp_export_refuses_what_it_cannot_write() {
             domain: None,
             ignore_cert: false,
             allow_without_nla: false,
+            share_clipboard: false,
         },
     })];
     assert!(matches!(

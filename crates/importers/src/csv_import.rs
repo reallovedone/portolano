@@ -161,6 +161,7 @@ fn import_row(
                         domain: None,
                         ignore_cert: false,
                         allow_without_nla: false,
+                        share_clipboard: false,
                     },
                     3389,
                 ),

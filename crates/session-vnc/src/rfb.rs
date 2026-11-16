@@ -80,7 +80,7 @@ pub struct Image {
 impl Image {
     pub fn new(width: u16, height: u16) -> Self {
         let mut rgba = vec![0u8; usize::from(width) * usize::from(height) * 4];
-        for px in rgba.chunks_exact_mut(4) {
+        for px in rgba.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
         Self {
@@ -341,8 +341,10 @@ async fn vencrypt_negotiate<S: AsyncRead + AsyncWrite + Unpin>(
     }
     let raw = read_bytes(stream, usize::from(count) * 4).await?;
     let subtypes: Vec<u32> = raw
-        .chunks_exact(4)
-        .map(|c| u32::from_be_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_be_bytes(*c))
         .collect();
     let Some(subtype) = choose_subtype(&subtypes) else {
         let anonymous = subtypes
@@ -773,7 +775,7 @@ async fn read_update<R: AsyncRead + Unpin>(
                     }
                     ENC_RAW => {
                         let mut rgba = read_bytes(r, usize::from(w) * usize::from(h) * 4).await?;
-                        for px in rgba.chunks_exact_mut(4) {
+                        for px in rgba.as_chunks_mut::<4>().0 {
                             px[3] = 255;
                         }
                         lock(image).blit(x, y, w, h, &rgba);

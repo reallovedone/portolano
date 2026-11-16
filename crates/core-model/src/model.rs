@@ -155,6 +155,11 @@ pub enum ConnectionOptions {
         /// is sent. Off unless the user chose it for this connection.
         #[serde(default)]
         allow_without_nla: bool,
+        /// Share the clipboard (text and files) with the remote desktop while this session's
+        /// tab is the active one. Off unless the user chose it for this connection: the remote
+        /// machine then sees, and can replace, what is on the local clipboard.
+        #[serde(default)]
+        share_clipboard: bool,
     },
     Vnc {
         #[serde(default)]
@@ -320,8 +325,9 @@ mod tests {
                     domain: Some("CORP".into()),
                     ignore_cert: false,
                     allow_without_nla: false,
+                    share_clipboard: true,
                 },
-                json!({"type": "rdp", "width": 1920, "height": 1080, "domain": "CORP", "ignoreCert": false, "allowWithoutNla": false}),
+                json!({"type": "rdp", "width": 1920, "height": 1080, "domain": "CORP", "ignoreCert": false, "allowWithoutNla": false, "shareClipboard": true}),
             ),
             (
                 ConnectionOptions::Vnc { view_only: true },
@@ -359,7 +365,33 @@ mod tests {
                 domain: None,
                 ignore_cert: true,
                 allow_without_nla: false,
+                share_clipboard: false,
             }
+        );
+    }
+
+    #[test]
+    fn rdp_clipboard_sharing_is_off_unless_the_document_says_otherwise() {
+        // A connection saved before the option existed: no sharing.
+        let old: ConnectionOptions = serde_json::from_value(
+            json!({"type": "rdp", "width": null, "height": null, "domain": null, "ignoreCert": false, "allowWithoutNla": false}),
+        )
+        .expect("parse");
+        let ConnectionOptions::Rdp {
+            share_clipboard, ..
+        } = old
+        else {
+            panic!("not an RDP connection");
+        };
+        assert!(!share_clipboard);
+        // The option is written explicitly and survives a round trip.
+        let on: ConnectionOptions =
+            serde_json::from_value(json!({"type": "rdp", "shareClipboard": true})).expect("parse");
+        let value = serde_json::to_value(&on).expect("serialize");
+        assert_eq!(value["shareClipboard"], json!(true));
+        assert_eq!(
+            serde_json::from_value::<ConnectionOptions>(value).expect("parse"),
+            on
         );
     }
 

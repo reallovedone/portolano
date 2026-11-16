@@ -243,6 +243,7 @@ mod tests {
                         domain: None,
                         ignore_cert: false,
                         allow_without_nla: false,
+                        share_clipboard: false,
                     },
                 }))
                 .expect("rdp connection");
