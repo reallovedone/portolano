@@ -66,3 +66,17 @@ pub async fn ui_log(level: String, message: String) -> Result<(), AppError> {
     }
     Ok(())
 }
+
+/// Where the generated test credentials are (tests only). `PORTOLANO_TEST_KEYS_DIR` moves the
+/// folder (CI simulation); `PORTOLANO_TEST_SERVERS_DOWN` makes every integration test skip as
+/// if the servers and their credentials did not exist.
+#[cfg(test)]
+pub(crate) fn test_env_path() -> std::path::PathBuf {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    if std::env::var_os("PORTOLANO_TEST_SERVERS_DOWN").is_some() {
+        return repo.join(".tmp/wp12/servers-down/test.env");
+    }
+    std::env::var_os("PORTOLANO_TEST_KEYS_DIR")
+        .map_or_else(|| repo.join("dev/keys"), std::path::PathBuf::from)
+        .join("test.env")
+}

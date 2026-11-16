@@ -525,8 +525,7 @@ mod tests {
     /// `FbSession` -> channel bytes -> `session_close`. Skips without the server.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn open_and_close_through_the_session_manager() {
-        let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        let password = fs::read_to_string(repo.join("dev/keys/test.env"))
+        let password = fs::read_to_string(crate::commands::test_env_path())
             .ok()
             .and_then(|t| {
                 t.lines()
@@ -629,8 +628,7 @@ mod tests {
     /// credential prompt -> `session_credential` -> certificate prompt -> frames.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn open_without_a_vault_prompts_then_connects_and_sends_no_secret() {
-        let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        let password = fs::read_to_string(repo.join("dev/keys/test.env"))
+        let password = fs::read_to_string(crate::commands::test_env_path())
             .ok()
             .and_then(|t| {
                 t.lines()

@@ -23,7 +23,7 @@
 //! overwrite it with an empty document.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -529,7 +529,10 @@ fn write_document(path: &Path, document: &Document) -> Result<(), ModelError> {
         let tmp = sibling_with_suffix(path, ".bak.tmp");
         fs::copy(path, &tmp)?;
         crate::private_fs::restrict_file(&tmp)?;
-        File::open(&tmp)?.sync_all()?;
+        // Flushing needs write access on Windows (FlushFileBuffers): a read-only handle from
+        // `File::open` fails there with "Access is denied". The handle is closed (dropped at
+        // the end of the statement) before the rename.
+        OpenOptions::new().write(true).open(&tmp)?.sync_all()?;
         fs::rename(&tmp, backup_path(path))?;
     }
     write_atomic(path, document)
@@ -555,6 +558,8 @@ fn write_atomic(path: &Path, document: &Document) -> Result<(), ModelError> {
         crate::private_fs::restrict_file(&tmp)?;
         file.write_all(&json)?;
         file.sync_all()?;
+        // Windows cannot rename a file that is still open here: close it first.
+        drop(file);
         fs::rename(&tmp, path)
     })();
     if let Err(e) = written {
@@ -566,7 +571,8 @@ fn write_atomic(path: &Path, document: &Document) -> Result<(), ModelError> {
         return Err(ModelError::Io(e));
     }
     #[cfg(unix)]
-    File::open(dir)?.sync_all()?;
+    // Directories can be opened and flushed on unix only (opening one fails on Windows).
+    fs::File::open(dir)?.sync_all()?;
     Ok(())
 }
 
@@ -668,6 +674,42 @@ mod tests {
         store
             .upsert_node(ok)
             .expect("surrounding spaces are trimmed away");
+    }
+
+    /// The first save has nothing to back up; every later one copies the previous file over
+    /// the backup (an existing destination) and replaces the main file. Windows refuses both
+    /// when a handle is still open or was opened without write access, so this runs everywhere.
+    #[test]
+    fn consecutive_saves_replace_the_file_and_the_backup_and_reload_cleanly() {
+        let dir = TempDir::new();
+        let mut store = DocumentStore::load(dir.file()).expect("load");
+        for n in 1..=4u128 {
+            store
+                .upsert_node(folder(n, None, &format!("F{n}")))
+                .unwrap_or_else(|e| panic!("save {n}: {e:?}"));
+        }
+        assert!(backup_path(&dir.file()).exists());
+        // Save right after a load, then load again.
+        let mut again = DocumentStore::load(dir.file()).expect("reload");
+        assert_eq!(again.document().nodes.len(), 4);
+        again
+            .upsert_node(folder(5, None, "F5"))
+            .expect("save after load");
+        assert_eq!(
+            DocumentStore::load(dir.file())
+                .expect("final")
+                .document()
+                .nodes
+                .len(),
+            5
+        );
+        // No temporary file is left behind.
+        let leftovers: Vec<_> = fs::read_dir(dir.file().parent().expect("parent"))
+            .expect("read dir")
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
     }
 
     #[cfg(unix)]

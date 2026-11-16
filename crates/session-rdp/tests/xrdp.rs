@@ -37,6 +37,18 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// Where the generated test credentials are. `PORTOLANO_TEST_KEYS_DIR` moves the folder (CI
+/// simulation); `PORTOLANO_TEST_SERVERS_DOWN` makes every integration test skip as if the
+/// servers and their credentials did not exist.
+fn test_env_path() -> PathBuf {
+    if std::env::var_os("PORTOLANO_TEST_SERVERS_DOWN").is_some() {
+        return repo_root().join(".tmp/wp12/servers-down/test.env");
+    }
+    std::env::var_os("PORTOLANO_TEST_KEYS_DIR")
+        .map_or_else(|| repo_root().join("dev/keys"), PathBuf::from)
+        .join("test.env")
+}
+
 fn out_dir(name: &str) -> PathBuf {
     let dir = repo_root().join(".tmp/wp6").join(name);
     fs::create_dir_all(&dir).expect("create test dir");
@@ -45,7 +57,7 @@ fn out_dir(name: &str) -> PathBuf {
 
 /// The test password, read at run time from `dev/keys/test.env`.
 fn test_password() -> Option<String> {
-    let text = fs::read_to_string(repo_root().join("dev/keys/test.env")).ok()?;
+    let text = fs::read_to_string(test_env_path()).ok()?;
     text.lines()
         .find_map(|l| l.strip_prefix("TEST_PASSWORD="))
         .map(|v| v.trim().trim_matches('"').to_owned())

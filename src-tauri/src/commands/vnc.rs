@@ -346,8 +346,7 @@ mod tests {
     }
 
     fn test_password() -> Option<String> {
-        let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        fs::read_to_string(repo.join("dev/keys/test.env"))
+        fs::read_to_string(crate::commands::test_env_path())
             .ok()
             .and_then(|t| {
                 t.lines()

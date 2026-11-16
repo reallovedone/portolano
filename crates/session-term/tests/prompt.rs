@@ -178,7 +178,7 @@ async fn key_file_answer_works_and_its_content_never_reaches_the_ui() {
         again.error
     );
 
-    let key_path = repo_root().join("dev/keys/id_ed25519");
+    let key_path = keys_dir().join("id_ed25519");
     session
         .credential(
             CredentialAnswer {

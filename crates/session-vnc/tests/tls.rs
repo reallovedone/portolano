@@ -28,8 +28,20 @@ fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// Where the generated test credentials are. `PORTOLANO_TEST_KEYS_DIR` moves the folder (CI
+/// simulation); `PORTOLANO_TEST_SERVERS_DOWN` makes every integration test skip as if the
+/// servers and their credentials did not exist.
+fn test_env_path() -> PathBuf {
+    if std::env::var_os("PORTOLANO_TEST_SERVERS_DOWN").is_some() {
+        return repo().join(".tmp/wp12/servers-down/test.env");
+    }
+    std::env::var_os("PORTOLANO_TEST_KEYS_DIR")
+        .map_or_else(|| repo().join("dev/keys"), PathBuf::from)
+        .join("test.env")
+}
+
 fn password() -> Option<String> {
-    let text = std::fs::read_to_string(repo().join("dev/keys/test.env")).ok()?;
+    let text = std::fs::read_to_string(test_env_path()).ok()?;
     text.lines()
         .find_map(|l| l.strip_prefix("VNC_PASSWORD="))
         .map(|v| v.trim().trim_matches('"').to_owned())

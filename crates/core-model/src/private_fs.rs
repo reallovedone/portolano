@@ -78,6 +78,8 @@ pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         restrict_file(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
+        // Windows cannot rename a file that is still open here: close it first.
+        drop(file);
         fs::rename(&tmp, path)
     })();
     if written.is_err() {
@@ -185,5 +187,27 @@ mod tests {
         }
         // Only the files Portolano owns are touched.
         assert_eq!(mode(&dir.join("unrelated.txt")), 0o644);
+    }
+}
+
+/// Runs on every platform (the module above is unix-only): replacing an existing file twice
+/// must work, which on Windows needs the temporary file closed before the rename.
+#[cfg(test)]
+mod portable_tests {
+    use super::*;
+
+    #[test]
+    fn write_private_atomic_replaces_an_existing_file_repeatedly() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.tmp/wp12")
+            .join(format!("private-fs-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("data.bin");
+        for round in 0..3u8 {
+            write_private_atomic(&path, &[round; 8]).expect("write");
+            assert_eq!(fs::read(&path).expect("read"), vec![round; 8]);
+        }
+        assert!(!dir.join("data.bin.tmp").exists());
+        fs::remove_dir_all(&dir).expect("cleanup");
     }
 }

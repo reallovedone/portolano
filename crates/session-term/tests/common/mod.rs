@@ -252,8 +252,31 @@ pub fn scratch() -> tempfile::TempDir {
     tempfile::tempdir_in(base).expect("scratch dir")
 }
 
-/// `true` when the test sshd answers; otherwise prints why the test is skipped.
+/// Folder with the generated test credentials (`dev/servers.sh up` creates it). The
+/// environment variable lets a run simulate CI, where the folder does not exist.
+pub fn keys_dir() -> PathBuf {
+    std::env::var_os("PORTOLANO_TEST_KEYS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo_root().join("dev/keys"))
+}
+
+/// `true` when the test sshd answers and its generated credentials exist; otherwise prints
+/// why the test is skipped. Tests that need the server or the credentials call this first
+/// (through `require_server!`), so reading the credentials later cannot fail.
 pub fn server_up() -> bool {
+    if std::env::var_os("PORTOLANO_TEST_SERVERS_DOWN").is_some() {
+        eprintln!("SKIPPED: PORTOLANO_TEST_SERVERS_DOWN is set (simulating unreachable servers)");
+        return false;
+    }
+    for name in ["test.env", "id_ed25519"] {
+        if !keys_dir().join(name).is_file() {
+            eprintln!(
+                "SKIPPED: {} is missing; generate the test credentials with dev/servers.sh up",
+                keys_dir().join(name).display()
+            );
+            return false;
+        }
+    }
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], SERVER_PORT));
     match std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(1)) {
         Ok(_) => true,
@@ -275,8 +298,8 @@ macro_rules! require_server {
 }
 
 pub fn test_password() -> SecretString {
-    let text =
-        std::fs::read_to_string(repo_root().join("dev/keys/test.env")).expect("dev/keys/test.env");
+    let text = std::fs::read_to_string(keys_dir().join("test.env"))
+        .expect("test.env (guarded by require_server!)");
     let value = text
         .lines()
         .find_map(|l| l.strip_prefix("TEST_PASSWORD="))
@@ -286,8 +309,8 @@ pub fn test_password() -> SecretString {
 
 pub fn test_key() -> SecretString {
     SecretString::from(
-        std::fs::read_to_string(repo_root().join("dev/keys/id_ed25519"))
-            .expect("dev/keys/id_ed25519"),
+        std::fs::read_to_string(keys_dir().join("id_ed25519"))
+            .expect("id_ed25519 (guarded by require_server!)"),
     )
 }
 

@@ -280,7 +280,8 @@ async fn encrypted_key_with_wrong_passphrase_is_reported_without_reaching_the_se
 async fn unreachable_host_is_host_unreachable() {
     let _serial = serial().await;
     let dir = scratch();
-    let mut target = password_hop();
+    // Needs neither the server nor its credentials: a dummy password for a closed port.
+    let mut target = hop(SshAuth::Password(SecretString::from("unused")));
     target.port = 1; // nothing listens there on loopback
     let (_s, probe) = open_ssh(ssh_spec(target, &known_hosts_file(&dir)), 80, 24);
     wait_until("an error", T, || probe.error().is_some()).await;

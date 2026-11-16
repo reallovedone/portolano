@@ -325,7 +325,7 @@ pub async fn known_hosts_remove(
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
 
@@ -788,13 +788,19 @@ mod tests {
     }
 
     fn server_password() -> Option<String> {
+        if std::env::var_os("PORTOLANO_TEST_SERVERS_DOWN").is_some() {
+            eprintln!("SKIPPED: PORTOLANO_TEST_SERVERS_DOWN is set");
+            return None;
+        }
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 12222));
         if std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(1)).is_err() {
             eprintln!("SKIPPED: the test sshd on 127.0.0.1:12222 is not reachable");
             return None;
         }
-        let env: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../dev/keys/test.env");
-        let text = std::fs::read_to_string(env).expect("dev/keys/test.env");
+        let Ok(text) = std::fs::read_to_string(crate::commands::test_env_path()) else {
+            eprintln!("SKIPPED: the generated test credentials (test.env) are missing");
+            return None;
+        };
         text.lines()
             .find_map(|l| l.strip_prefix("TEST_PASSWORD="))
             .map(|v| v.trim().trim_matches('"').to_string())
@@ -1125,6 +1131,8 @@ mod tests {
         state.sessions.close_all();
     }
 
+    // Needs a unix shell (`/usr/bin/env`, `/bin/sh`): there is none on the Windows runner.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn credential_commands_reject_a_session_that_is_not_waiting_or_not_a_session() {
         let dir = scratch();
