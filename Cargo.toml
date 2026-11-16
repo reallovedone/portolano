@@ -65,7 +65,7 @@ ironrdp-dvc = "0.10"
 ironrdp-svc = "0.10"
 ironrdp-core = "0.3"
 x509-cert = "0.3"
-sha2 = "0.10"
+sha2 = "0.11"
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "aws_lc_rs"] }
 
 # WP5 (terminal and SSH)
