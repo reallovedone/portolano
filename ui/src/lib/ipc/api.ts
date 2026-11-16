@@ -110,6 +110,15 @@ export interface Ipc {
   importApply(previewId: Uuid, targetFolderId: Uuid | null): Promise<number>;
   exportDocument(format: ExportFormat, path: string, nodeIds: Uuid[] | null): Promise<void>;
 
+  // key files
+  /**
+   * The text of the private key file at `path` (a path from the native open dialog). The
+   * backend refuses anything but a small regular file holding a PEM/OpenSSH private key
+   * (`invalid_input`; `not_found` / `io` when it cannot be read). The caller owns the result
+   * and must drop it as soon as it is in a field.
+   */
+  readPrivateKeyFile(path: string): Promise<string>;
+
   // backend notices (events, not commands). Each returns the function that unsubscribes.
   /** The vault locked itself (inactivity) or was locked: update the state at once. */
   onVaultLocked(handler: () => void): () => void;

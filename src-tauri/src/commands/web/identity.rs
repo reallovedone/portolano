@@ -71,12 +71,15 @@ pub fn new_label() -> String {
 /// 16-byte `data_store_identifier` of a connection's isolated profile (macOS 14+).
 /// Deterministic and reversible: the bytes of the connection id. The same connection always
 /// gets the same store, across tabs and restarts, and a stored identifier can be mapped back
-/// to its connection to find orphans.
+/// to its connection to find orphans. Only macOS names a store this way (Windows uses a profile
+/// folder, other platforms have no isolated store), so the function exists only there.
+#[cfg(target_os = "macos")]
 pub fn store_identifier(connection_id: Uuid) -> [u8; 16] {
     *connection_id.as_bytes()
 }
 
 /// Inverse of [`store_identifier`].
+#[cfg(target_os = "macos")]
 pub fn connection_of_identifier(identifier: [u8; 16]) -> Uuid {
     Uuid::from_bytes(identifier)
 }
@@ -185,6 +188,7 @@ mod tests {
         assert!(Uuid::parse_str(&a[LABEL_PREFIX.len()..]).is_ok());
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn store_identifier_is_stable_distinct_and_reversible() {
         let a = Uuid::from_u128(1);

@@ -11,7 +11,9 @@ use common::*;
 use portolano_core_model::ErrorCode;
 use portolano_session_term::{LocalSpec, Session, SessionSpec};
 
-const T: Duration = Duration::from_secs(10);
+// Generous: a loaded CI runner can be slow to start a shell; waits are condition-based, so a
+// fast machine never waits this long.
+const T: Duration = Duration::from_secs(30);
 
 /// An interactive `/bin/sh` that never writes a history file: on macOS `sh` is bash and
 /// would otherwise create `~/.bash_history` in the real home folder on exit.
@@ -42,6 +44,7 @@ fn process_alive(pid: u32) -> bool {
 async fn echo_and_environment() {
     let dir = scratch();
     let (session, probe) = open(spec(dir.path()));
+    ready(&session, &probe).await;
     session
         .write(b"echo hello-$((6*7)) $TERM $COLORTERM; pwd\n".to_vec())
         .await
@@ -57,6 +60,7 @@ async fn echo_and_environment() {
 async fn resize_reaches_the_pty() {
     let dir = scratch();
     let (session, probe) = open(spec(dir.path()));
+    ready(&session, &probe).await;
     session.write(b"stty size\n".to_vec()).await.expect("write");
     wait_text(&probe, "24 80", T).await;
     session.resize(132, 50).expect("resize");
@@ -69,6 +73,7 @@ async fn resize_reaches_the_pty() {
 async fn exit_code_follows_the_output() {
     let dir = scratch();
     let (session, probe) = open(spec(dir.path()));
+    ready(&session, &probe).await;
     session
         .write(b"echo last-$((1+1)); exit 3\n".to_vec())
         .await
@@ -79,24 +84,47 @@ async fn exit_code_follows_the_output() {
     assert!(probe.error().is_none());
 }
 
+/// The number between `prefix` and `suffix` in the first place where it is all digits.
+///
+/// The PTY echoes what is typed, so the command line itself (`...PID[%s]...` or `...$$...`)
+/// is part of the output. Requiring digits between two delimiters makes sure only the
+/// expanded value matches, never the echoed command.
+fn number_between(text: &str, prefix: &str, suffix: &str) -> Option<u32> {
+    text.split(prefix).skip(1).find_map(|rest| {
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if digits.is_empty() || !rest[digits.len()..].starts_with(suffix) {
+            return None;
+        }
+        digits.parse().ok()
+    })
+}
+
+#[test]
+fn number_between_ignores_the_echoed_command() {
+    let echoed = "printf 'SHELL-PID[%s]\\n' $$; sleep 1000\r\n";
+    assert_eq!(number_between(echoed, "SHELL-PID[", "]"), None);
+    let both = format!("{echoed}SHELL-PID[4242]\r\n");
+    assert_eq!(number_between(&both, "SHELL-PID[", "]"), Some(4242));
+    // A half-received value is not a match yet.
+    assert_eq!(number_between("SHELL-PID[42", "SHELL-PID[", "]"), None);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn close_kills_the_shell_and_its_foreground_job() {
     let dir = scratch();
     let (session, probe) = open(spec(dir.path()));
+    // Wait for an interactive shell first: input typed before it is ready may be dropped.
+    ready(&session, &probe).await;
     session
-        .write(b"echo SHELL-PID-$$; sleep 1000\n".to_vec())
+        .write(b"printf 'SHELL-PID[%s]\\n' $$; sleep 1000\n".to_vec())
         .await
         .expect("write");
-    wait_text(&probe, "SHELL-PID-", T).await;
-    let text = probe.text();
-    let pid: u32 = text
-        .split("SHELL-PID-")
-        .filter_map(|rest| {
-            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-            digits.parse().ok()
-        })
-        .next()
-        .expect("pid in the output");
+    // Condition-based: the value arrives after the echo of the command line.
+    wait_until("the expanded shell pid", T, || {
+        number_between(&probe.text(), "SHELL-PID[", "]").is_some()
+    })
+    .await;
+    let pid = number_between(&probe.text(), "SHELL-PID[", "]").expect("pid in the output");
     assert!(
         process_alive(pid),
         "the shell must be running before the close"
@@ -113,6 +141,7 @@ async fn close_kills_the_shell_and_its_foreground_job() {
 async fn flow_control_applies_to_local_output_too() {
     let dir = scratch();
     let (session, probe) = open(spec(dir.path()));
+    ready(&session, &probe).await;
     let window = portolano_session_term::MAX_UNACKED_BYTES;
     session
         .write(b"seq 1 1000000; echo END-$((3+4))\n".to_vec())

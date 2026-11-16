@@ -60,3 +60,14 @@ describe("mock dangling references", () => {
     expect(lab).toMatchObject({ credential: { type: "none" } });
   });
 });
+
+describe("mock readPrivateKeyFile", () => {
+  it("returns a fake key, and the real backend's error codes for marked paths", async () => {
+    const ipc = createMockIpc();
+    expect(await ipc.readPrivateKeyFile("/x/id_ed25519")).toContain("BEGIN OPENSSH PRIVATE KEY");
+    await expect(ipc.readPrivateKeyFile("/x/missing_key")).rejects.toMatchObject({ code: "not_found" });
+    await expect(ipc.readPrivateKeyFile("/x/unreadable")).rejects.toMatchObject({ code: "io" });
+    await expect(ipc.readPrivateKeyFile("/x/big")).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(ipc.readPrivateKeyFile("/x/notakey")).rejects.toMatchObject({ code: "invalid_input" });
+  });
+});

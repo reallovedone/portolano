@@ -83,6 +83,7 @@ pub fn run() {
             commands::transfer::import_preview,
             commands::transfer::import_apply,
             commands::transfer::export_document,
+            commands::keyfile::read_private_key_file,
             // Not in the contract table: UI-to-backend log line.
             commands::ui_log,
         ])
@@ -187,6 +188,7 @@ mod tests {
             "import_preview",
             "import_apply",
             "export_document",
+            "read_private_key_file",
         ];
         let source = include_str!("lib.rs");
         let handler = source

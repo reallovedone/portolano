@@ -53,6 +53,7 @@ const EXPECTED_COMMANDS = [
   "import_preview",
   "import_apply",
   "export_document",
+  "read_private_key_file",
   "ui_log",
 ];
 
@@ -109,6 +110,7 @@ describe("tauriIpc", () => {
       () => tauriIpc.importPreview("csv", "/p"),
       () => tauriIpc.importApply("a", null),
       () => tauriIpc.exportDocument("json", "/p", null),
+      () => tauriIpc.readPrivateKeyFile("/p"),
       () => tauriIpc.uiLog("info", "m"),
     ];
     for (const run of calls) await run();

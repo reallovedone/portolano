@@ -129,6 +129,7 @@ export const tauriIpc: Ipc = {
   importPreview: (format, path) => call("import_preview", { format, path }),
   importApply: (previewId, targetFolderId) => call("import_apply", { previewId, targetFolderId }),
   exportDocument: (format, path, nodeIds) => call("export_document", { format, path, nodeIds }),
+  readPrivateKeyFile: (path) => call("read_private_key_file", { path }),
 
   onVaultLocked: (handler) => subscribe<null>("vault-locked", () => handler()),
   onCredentialSaveFailed: (handler) =>

@@ -147,3 +147,21 @@ export function createMockTransfer(
     },
   };
 }
+
+/**
+ * `readPrivateKeyFile` of the mock: nothing is read from disk. A fake (not a real) key is
+ * returned, except for marked paths that trigger the real backend's error codes:
+ * "missing" -> not_found, "unreadable" -> io, "big" / "notakey" -> invalid_input.
+ */
+export async function readMockKeyFile(path: string): Promise<string> {
+  if (path.includes("missing")) throw new IpcError("not_found", "the file was not found");
+  if (path.includes("unreadable")) throw new IpcError("io", "the file cannot be read: permission denied");
+  if (path.includes("big")) throw new IpcError("invalid_input", "the file is too large to be a private key");
+  if (path.includes("notakey")) throw new IpcError("invalid_input", "the file does not contain a private key");
+  return [
+    "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "bW9jay1rZXktZm9yLXRoZS1kZW1vLW5vdC1hLXJlYWwta2V5",
+    "-----END OPENSSH PRIVATE KEY-----",
+    "",
+  ].join("\n");
+}

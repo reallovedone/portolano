@@ -197,11 +197,19 @@
       if (list && event.target instanceof Node && list.contains(event.target)) return;
       hide();
     };
+    // Focus moving elsewhere (a dialog that opens over this one) closes the list too.
+    const onFocusIn = (event: FocusEvent): void => {
+      const target = event.target as Node | null;
+      if (target && (button?.contains(target) || list?.contains(target))) return;
+      hide();
+    };
     window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("focusin", onFocusIn);
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", hide);
     return () => {
       window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("focusin", onFocusIn);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", hide);
     };

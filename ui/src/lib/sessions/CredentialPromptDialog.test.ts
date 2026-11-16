@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CredentialAnswer, CredentialPrompt } from "../ipc";
 import { createMockIpc } from "../ipc/mock";
 import { createApp } from "../state/app";
+import { createMockFilePicker, type MockFilePickerOptions } from "../transfer/files";
 import PromptHarness from "./PromptHarness.svelte";
 
 afterEach(cleanup);
@@ -19,9 +20,14 @@ const base: CredentialPrompt = {
 
 async function show(
   prompt: Partial<CredentialPrompt> = {},
-  options: { vault?: "notCreated" | "locked" | "unlocked"; name?: string | null } = {},
+  options: {
+    vault?: "notCreated" | "locked" | "unlocked";
+    name?: string | null;
+    picker?: MockFilePickerOptions;
+  } = {},
 ) {
-  const app = createApp(createMockIpc({ vault: options.vault ?? "notCreated" }));
+  const picker = createMockFilePicker(options.picker);
+  const app = createApp(createMockIpc({ vault: options.vault ?? "notCreated" }), picker);
   await app.vault.refresh();
   const onsubmit = vi.fn<(answer: CredentialAnswer, save: boolean) => void>();
   const oncancel = vi.fn<() => void>();
@@ -35,7 +41,7 @@ async function show(
     },
   });
   const dialog = await screen.findByRole("dialog", { name: "Credentials needed" });
-  return { app, onsubmit, oncancel, dialog };
+  return { app, onsubmit, oncancel, dialog, picker };
 }
 
 const type = (label: string, value: string) =>
@@ -174,5 +180,55 @@ describe("CredentialPromptDialog", () => {
     expect(app.overlay.open).toBe(true);
     cleanup();
     expect(app.overlay.open).toBe(false);
+  });
+});
+
+describe("CredentialPromptDialog: choosing the private key file", () => {
+  const keyMode = async (picker: MockFilePickerOptions) => {
+    const shown = await show({ kind: "sshKey", usernameHint: "tester" }, { picker });
+    await fireEvent.click(screen.getByLabelText("Use a private key file"));
+    return shown;
+  };
+
+  it("Browse… fills the path from the native dialog, which shows every file and starts in ~/.ssh", async () => {
+    const { picker, onsubmit, dialog } = await keyMode({ open: "/Users/demo/.ssh/id_ed25519" });
+    await fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
+    await waitFor(() =>
+      expect((screen.getByLabelText("Private key file path") as HTMLInputElement).value).toBe(
+        "/Users/demo/.ssh/id_ed25519",
+      ),
+    );
+    expect(picker.openRequests).toHaveLength(1);
+    // No extension filter (private keys usually have none) and the default folder is ~/.ssh.
+    expect(picker.openRequests[0]?.filters).toBeUndefined();
+    expect(picker.openRequests[0]?.startInSshDir).toBe(true);
+    await fireEvent.submit(dialog.querySelector("form") as HTMLFormElement);
+    expect(onsubmit).toHaveBeenCalledExactlyOnceWith(
+      { username: "tester", password: null, keyPath: "/Users/demo/.ssh/id_ed25519", passphrase: null, domain: null },
+      false,
+    );
+  });
+
+  it("cancelling the dialog leaves the typed path unchanged, and the path stays editable", async () => {
+    await keyMode({ open: null });
+    await type("Private key file path", "~/keys/mine");
+    await fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
+    await waitFor(() => expect(document.activeElement).not.toBeNull());
+    expect((screen.getByLabelText("Private key file path") as HTMLInputElement).value).toBe("~/keys/mine");
+    await type("Private key file path", "~/keys/other");
+    expect((screen.getByLabelText("Private key file path") as HTMLInputElement).value).toBe("~/keys/other");
+  });
+
+  it("offers Browse… only in key mode", async () => {
+    await show({ kind: "sshKey", usernameHint: "tester" });
+    expect(screen.queryByRole("button", { name: "Browse…" })).toBeNull();
+  });
+
+  it("a failing dialog does not break the prompt", async () => {
+    const { app, picker } = await keyMode({});
+    picker.pickOpen = () => Promise.reject(new Error("dialog unavailable"));
+    await fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
+    await waitFor(() => expect(app.notices.items.length).toBeGreaterThan(0));
+    expect(screen.getByRole("dialog", { name: "Credentials needed" })).toBeTruthy();
   });
 });

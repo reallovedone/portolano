@@ -1,5 +1,57 @@
 <!-- Modal dialog: focus trap, Escape to close, focus restored on close, and it marks the
      app as "overlay open" while mounted (child webviews must hide). -->
+<script lang="ts" module>
+  // Dialogs can open over each other (an unlock from an editor, a confirmation from a
+  // manager). The stack decides who is on top, whatever the DOM order: the newest dialog gets
+  // the highest z-index, every dialog below is `inert` (no pointer, focus or keyboard) and
+  // keeps its state because it stays mounted.
+  interface StackEntry {
+    backdrop: HTMLElement;
+    root: HTMLElement;
+    close: () => void;
+    focusFirst: () => void;
+  }
+
+  const stack: StackEntry[] = [];
+
+  function syncStack(): void {
+    stack.forEach((entry, index) => {
+      const covered = index < stack.length - 1;
+      entry.backdrop.toggleAttribute("inert", covered);
+      entry.backdrop.dataset.stackDepth = String(index);
+      entry.backdrop.dataset.covered = covered ? "true" : "false";
+      entry.backdrop.style.setProperty("z-index", `calc(var(--z-overlay) + ${index})`);
+    });
+  }
+
+  // Keys pressed while focus is outside the top dialog (e.g. after clicking its scrim).
+  function onDocumentKeydown(event: KeyboardEvent): void {
+    const top = stack[stack.length - 1];
+    if (!top || event.defaultPrevented) return;
+    if (event.target instanceof globalThis.Node && top.root.contains(event.target)) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      top.close();
+    } else if (event.key === "Tab") {
+      event.preventDefault();
+      top.focusFirst();
+    }
+  }
+
+  function push(entry: StackEntry): void {
+    if (stack.length === 0) document.addEventListener("keydown", onDocumentKeydown);
+    stack.push(entry);
+    syncStack();
+  }
+
+  function remove(entry: StackEntry): void {
+    const index = stack.indexOf(entry);
+    if (index >= 0) stack.splice(index, 1);
+    syncStack();
+    if (stack.length === 0) document.removeEventListener("keydown", onDocumentKeydown);
+  }
+</script>
+
 <script lang="ts">
   import { onMount, type Snippet } from "svelte";
 
@@ -32,6 +84,7 @@
   const uid = $props.id();
   const titleId = `dlg-${uid}`;
   let root: HTMLDivElement | undefined = $state();
+  let backdrop: HTMLDivElement | undefined = $state();
 
   const FOCUSABLE =
     'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -43,14 +96,26 @@
     );
   }
 
+  function focusFirst(): void {
+    const preferred = root?.querySelector<HTMLElement>("[data-autofocus]");
+    (preferred ?? focusables()[0] ?? root)?.focus();
+  }
+
   onMount(() => {
     const release = app.overlay.acquire();
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const preferred = root?.querySelector<HTMLElement>("[data-autofocus]");
-    (preferred ?? focusables()[0] ?? root)?.focus();
+    let entry: StackEntry | null = null;
+    if (backdrop && root) {
+      entry = { backdrop, root, close: () => onclose(), focusFirst };
+      push(entry);
+    }
+    focusFirst();
     return () => {
       release();
-      if (previous?.isConnected) previous.focus();
+      if (entry) remove(entry);
+      // The dialog below (if any) is no longer inert at this point: give it its focus back.
+      if (previous?.isConnected && !previous.closest("[inert]")) previous.focus();
+      else stack[stack.length - 1]?.focusFirst();
     };
   });
 
@@ -80,7 +145,7 @@
   }
 </script>
 
-<div class="backdrop" role="presentation">
+<div bind:this={backdrop} class="backdrop" role="presentation">
   <div
     bind:this={root}
     class="dialog {size}"

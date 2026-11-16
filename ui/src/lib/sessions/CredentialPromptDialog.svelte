@@ -34,7 +34,7 @@
     oncancel: () => void;
   } = $props();
 
-  const { vault } = getApp();
+  const { vault, files, notices } = getApp();
   const uid = `cp-${Math.random().toString(36).slice(2, 9)}`;
 
   // The dialog is created per prompt: the hints are read once, the fields then belong to the
@@ -102,6 +102,16 @@
     onsubmit(answer, keep);
   }
 
+  /** The native open dialog; only the path comes back, the backend reads the file. */
+  async function browseKey(): Promise<void> {
+    try {
+      const chosen = await files.pickOpen({ title: t("prompt.browseKey"), startInSshDir: true });
+      if (chosen !== null) keyPath = chosen;
+    } catch (e) {
+      notices.error(t("transfer.pickFailed"), e);
+    }
+  }
+
   function cancel(): void {
     password = "";
     passphrase = "";
@@ -162,6 +172,10 @@
       </div>
     {/if}
 
+    {#snippet suffix()}
+      <Button size="compact" variant="plain" onclick={browseKey}>{t("common.browse")}</Button>
+    {/snippet}
+
     {#if usesKey}
       <TextField
         id="{uid}-key"
@@ -172,6 +186,7 @@
         hint={t("prompt.keyHint")}
         bind:value={keyPath}
         data-autofocus={focusField === "secret" ? "" : undefined}
+        {suffix}
       />
       <TextField
         id="{uid}-pass"

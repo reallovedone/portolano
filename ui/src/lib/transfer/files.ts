@@ -10,7 +10,10 @@ export interface FileFilter {
 
 export interface OpenFileOptions {
   title: string;
+  /** Omit to show every file (private keys usually have no extension). */
   filters?: FileFilter[];
+  /** Start in the user's `~/.ssh` folder when it can be found; otherwise the OS default. */
+  startInSshDir?: boolean;
 }
 
 export interface SaveFileOptions {
@@ -30,10 +33,22 @@ export interface FilePicker {
  * The native dialogs (`tauri-plugin-dialog`, permissions `dialog:allow-open` and
  * `dialog:allow-save`). Loaded lazily: the plugin API does not exist in a plain browser.
  */
+/** `~/.ssh`, or `undefined` when the home folder cannot be resolved (the dialog then uses its default). */
+async function sshDirectory(): Promise<string | undefined> {
+  try {
+    const { homeDir, join } = await import("@tauri-apps/api/path");
+    return await join(await homeDir(), ".ssh");
+  } catch {
+    // No default folder is a normal fallback, not an error worth showing.
+    return undefined;
+  }
+}
+
 export const tauriFilePicker: FilePicker = {
-  async pickOpen({ title, filters }) {
+  async pickOpen({ title, filters, startInSshDir }) {
     const { open } = await import("@tauri-apps/plugin-dialog");
-    const chosen = await open({ title, filters, multiple: false, directory: false });
+    const defaultPath = startInSshDir ? await sshDirectory() : undefined;
+    const chosen = await open({ title, filters, defaultPath, multiple: false, directory: false });
     return typeof chosen === "string" ? chosen : null;
   },
   async pickSave({ title, defaultName, filters }) {

@@ -2,7 +2,7 @@
   import { onDestroy, tick } from "svelte";
 
   import { t } from "../i18n/strings";
-  import type { CredentialSummary } from "../ipc";
+  import { toIpcError, type CredentialSummary } from "../ipc";
   import { getApp } from "../state/app";
   import Banner from "../ui/Banner.svelte";
   import Button from "../ui/Button.svelte";
@@ -25,7 +25,7 @@
     onclose,
   }: { credential?: CredentialSummary | null; onclose: (saved: boolean) => void } = $props();
 
-  const { vault } = getApp();
+  const { vault, files, ipc } = getApp();
   const uid = `ced-${Math.random().toString(36).slice(2, 9)}`;
   // svelte-ignore state_referenced_locally
   const editing = credential !== null;
@@ -72,6 +72,32 @@
     clearSecrets();
     if (result.ok) onclose(true);
     else saveError = `${result.error.message} (${result.error.code})`;
+  }
+
+  let loadError = $state<string | null>(null);
+
+  /**
+   * Fills the private key field from a file: the native dialog gives a path, a narrow backend
+   * command returns the text (and only if it is a private key). The text goes straight into
+   * the field and is cleared with the other secrets.
+   */
+  async function loadFromFile(): Promise<void> {
+    loadError = null;
+    let path: string | null;
+    try {
+      path = await files.pickOpen({ title: t("cred.loadTitle"), startInSshDir: true });
+    } catch (e) {
+      loadError = toIpcError(e).message;
+      return;
+    }
+    if (path === null) return;
+    try {
+      draft.privateKey = await ipc.readPrivateKeyFile(path);
+      errors = { ...errors, privateKey: undefined };
+    } catch (e) {
+      const error = toIpcError(e);
+      loadError = `${error.message} (${error.code})`;
+    }
   }
 
   function cancel(): void {
@@ -130,6 +156,9 @@
         hint={editing ? t("cred.secretKeep") : undefined}
       />
     {:else}
+      {#if loadError}
+        <Banner variant="danger"><span data-testid="load-error">{t("cred.loadFailed")}: {loadError}</span></Banner>
+      {/if}
       <TextArea
         id="{uid}-key"
         label={t("cred.privateKey")}
@@ -141,6 +170,9 @@
         error={errors.privateKey ? t(errors.privateKey) : null}
         hint={editing ? t("cred.secretKeep") : undefined}
       />
+      <div class="load">
+        <Button size="compact" onclick={loadFromFile}>{t("cred.loadFromFile")}</Button>
+      </div>
       <TextField
         id="{uid}-pass"
         type="password"
@@ -164,6 +196,10 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+  }
+
+  .load {
+    align-self: flex-start;
   }
 
   /* The segmented control hugs its content; keep it at the start. */

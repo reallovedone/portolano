@@ -6,6 +6,7 @@
 //! `AppError { code: "unsupported" }`.
 
 pub mod fb;
+pub mod keyfile;
 pub mod model;
 pub mod prompt;
 pub mod rdp;

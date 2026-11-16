@@ -11,7 +11,10 @@ export HOME=/home/tester
 # A stopped container keeps its filesystem: without this, restarting it fails with
 # "Server is already active for display 0" because of the lock left by the previous run.
 rm -f /tmp/.X0-lock /tmp/.X11-unix/X0
+# The test suites try wrong passwords on purpose: without a high blacklist threshold
+# TigerVNC bans the client address for a while and unrelated tests fail at random.
 # Start a minimal desktop once the X server is up.
 runuser -u tester -- sh -c 'sleep 2; DISPLAY=:0 openbox >/dev/null 2>&1 & DISPLAY=:0 xterm -geometry 100x30+20+20 >/dev/null 2>&1 &' &
 exec runuser -u tester -- Xvnc :0 -geometry 1280x800 -depth 24 \
-  -rfbport 5900 -SecurityTypes VncAuth -PasswordFile /home/tester/.vnc/passwd -AlwaysShared
+  -rfbport 5900 -SecurityTypes VncAuth -PasswordFile /home/tester/.vnc/passwd -AlwaysShared \
+  -BlacklistThreshold 1000 -BlacklistTimeout 1

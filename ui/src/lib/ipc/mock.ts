@@ -8,7 +8,7 @@ import { effectiveCredentialOf } from "../tree/model";
 import type { Ipc } from "./api";
 import { IpcError } from "./errors";
 import { MockPrompter, type MockPromptHooks } from "./mock-credentials";
-import { createMockTransfer, type MockExport } from "./mock-transfer";
+import { createMockTransfer, readMockKeyFile, type MockExport } from "./mock-transfer";
 import type {
   Connection,
   CredentialAnswer,
@@ -721,6 +721,7 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     importPreview: (format, path) => transfer.preview(format, path),
     importApply: (previewId, targetFolderId) => transfer.apply(previewId, targetFolderId),
     exportDocument: (format, path, nodeIds) => transfer.export(format, path, nodeIds),
+    readPrivateKeyFile: (path) => readMockKeyFile(path),
 
     onVaultLocked(handler) {
       lockedHandlers.add(handler);
