@@ -149,6 +149,7 @@ function seedDocument(withCredentials: boolean): Document {
         ignoreCert: false,
         allowWithoutNla: false,
         shareClipboard: false,
+      macShortcuts: false,
       }, { tags: ["windows"] }),
       connection(MOCK_IDS.rdpFixed, MOCK_IDS.windows, "Kiosk (1280x800)", "kiosk.lab.example", 3390, {
         type: "rdp",
@@ -158,6 +159,7 @@ function seedDocument(withCredentials: boolean): Document {
         ignoreCert: true,
         allowWithoutNla: false,
         shareClipboard: false,
+      macShortcuts: false,
       }),
       folder(MOCK_IDS.production, null, "Production", { type: "none" }),
       connection(MOCK_IDS.intranet, MOCK_IDS.production, "Intranet", "intranet.example", null, {

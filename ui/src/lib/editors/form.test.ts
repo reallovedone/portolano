@@ -137,7 +137,7 @@ describe("draftToConnection", () => {
     const samples: Connection[] = [
       { ...base, host: "", username: null, credential: { type: "inherit" }, options: { type: "localShell", program: "/bin/zsh", args: ["-l"], cwd: "/tmp" } },
       { ...base, host: "h", port: 2222, username: "deploy", credential: { type: "id", id: "c" }, options: { type: "ssh", jumpHost: "j", keepaliveSecs: 15 } },
-      { ...base, host: "h", port: 3390, username: "CORP\\ann", credential: { type: "none" }, options: { type: "rdp", width: 800, height: 600, domain: "D", ignoreCert: true, allowWithoutNla: true, shareClipboard: false } },
+      { ...base, host: "h", port: 3390, username: "CORP\\ann", credential: { type: "none" }, options: { type: "rdp", width: 800, height: 600, domain: "D", ignoreCert: true, allowWithoutNla: true, shareClipboard: false, macShortcuts: true } },
       { ...base, host: "h", username: null, credential: { type: "inherit" }, options: { type: "vnc", viewOnly: true } },
       { ...base, host: "example.org", username: null, credential: { type: "inherit" }, options: { type: "web", url: "https://example.org/", isolatedProfile: true } },
     ];
@@ -164,6 +164,7 @@ describe("RDP clipboard sharing", () => {
       ignoreCert: false,
       allowWithoutNla: false,
       shareClipboard,
+      macShortcuts: false,
     },
   });
 
@@ -226,5 +227,44 @@ describe("folder drafts", () => {
     const draft = draftFromConnection(old as Connection);
     expect(draft.username).toBe("");
     expect(draftToConnection(draft, newId).username).toBeNull();
+  });
+});
+
+describe("RDP Mac shortcuts", () => {
+  const base = { id: "i", parentId: null, name: "n", port: null, notes: "", tags: [] as string[] };
+  const rdp = (macShortcuts: boolean): Connection => ({
+    ...base,
+    host: "h",
+    username: null,
+    credential: { type: "inherit" },
+    options: {
+      type: "rdp",
+      width: null,
+      height: null,
+      domain: null,
+      ignoreCert: false,
+      allowWithoutNla: false,
+      shareClipboard: false,
+      macShortcuts,
+    },
+  });
+
+  it("is on in a new RDP draft on macOS only", () => {
+    expect(newConnectionDraft("rdp", null, "macos").macShortcuts).toBe(true);
+    expect(newConnectionDraft("rdp", null, "windows").macShortcuts).toBe(false);
+    expect(newConnectionDraft("rdp", null, "other").macShortcuts).toBe(false);
+  });
+
+  it("is off for a document that predates the option, even when opened on macOS", () => {
+    const legacy = rdp(true);
+    delete (legacy.options as { macShortcuts?: boolean }).macShortcuts;
+    expect(draftFromConnection(legacy).macShortcuts).toBe(false);
+  });
+
+  it("is kept through a draft, on and off", () => {
+    for (const on of [true, false]) {
+      const converted = draftToConnection(draftFromConnection(rdp(on)), newId);
+      expect(converted.options).toMatchObject({ type: "rdp", macShortcuts: on });
+    }
   });
 });

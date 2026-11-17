@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/sv
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Ipc } from "../ipc";
-import { createMockIpc } from "../ipc/mock";
+import { createMockIpc, MOCK_IDS } from "../ipc/mock";
 import { createApp } from "../state/app";
 import FbHarness from "./fb/FbHarness.svelte";
 import { createTestSession } from "./fb/test-context.svelte";
@@ -230,6 +230,57 @@ describe("FramebufferView", () => {
     await waitFor(() => expect(calls).toEqual(expect.arrayContaining(["key:KeyW:down", "key:KeyW:up"])));
     expect(leaked).not.toHaveBeenCalled();
     expect(screen.getByText(/Ctrl\+Alt\+Esc/)).toBeTruthy();
+  });
+
+  describe("Mac shortcuts", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    async function press(opts: { platform: string; macShortcuts: boolean }): Promise<string[]> {
+      vi.spyOn(globalThis.navigator, "platform", "get").mockReturnValue(opts.platform);
+      const { ipc, calls } = recordingIpc();
+      const app = createApp(ipc);
+      await app.doc.load();
+      const node = app.doc.node(MOCK_IDS.rdpServer);
+      if (!node || node.type !== "connection" || node.options.type !== "rdp") throw new Error("no rdp node");
+      await app.doc.upsert({ ...node, options: { ...node.options, macShortcuts: opts.macShortcuts } });
+      const session = createTestSession();
+      render(FbHarness, { props: { app, context: { ...session.context, connectionId: MOCK_IDS.rdpServer } } });
+      session.bridge.emit({ type: "resize", w: 800, h: 600 });
+      const canvas = canvasOf();
+      canvas.focus();
+      await fireEvent.keyDown(canvas, { code: "MetaLeft", metaKey: true });
+      await fireEvent.keyDown(canvas, { code: "KeyC", metaKey: true });
+      await fireEvent.keyUp(canvas, { code: "MetaLeft" });
+      await waitFor(() => expect(calls.filter((c) => c.startsWith("key:")).length).toBeGreaterThanOrEqual(4));
+      return calls.filter((c) => c.startsWith("key:"));
+    }
+
+    it("sends Cmd+C as Ctrl+C on a Mac when the connection has the option", async () => {
+      expect(await press({ platform: "MacIntel", macShortcuts: true })).toEqual([
+        "key:ControlLeft:down",
+        "key:KeyC:down",
+        "key:KeyC:up",
+        "key:ControlLeft:up",
+      ]);
+    });
+
+    it("keeps sending the Windows key when the option is off", async () => {
+      expect(await press({ platform: "MacIntel", macShortcuts: false })).toEqual([
+        "key:MetaLeft:down",
+        "key:KeyC:down",
+        "key:KeyC:up",
+        "key:MetaLeft:up",
+      ]);
+    });
+
+    it("has no effect on Windows even if the document turned it on", async () => {
+      expect(await press({ platform: "Win32", macShortcuts: true })).toEqual([
+        "key:MetaLeft:down",
+        "key:KeyC:down",
+        "key:KeyC:up",
+        "key:MetaLeft:up",
+      ]);
+    });
   });
 
   it("fades the keyboard hint after a few seconds and shows it again on capture", async () => {

@@ -46,6 +46,12 @@ export interface InputOptions {
   /** The escape chord was pressed: give the keyboard back to the shell. */
   onEscape?: () => void;
   onError?: (error: unknown) => void;
+  /**
+   * Whether the Mac shortcuts are on (macOS with the connection's option): Cmd+key goes to the
+   * remote as Ctrl+key, and Cmd pressed and released alone as a tap of the Windows key.
+   * Asked on every key event, so a change of the option applies at once.
+   */
+  macShortcuts?: () => boolean;
   requestFrame?: (callback: () => void) => number;
   cancelFrame?: (handle: number) => void;
   setTimer?: (callback: () => void, ms: number) => number;
@@ -55,6 +61,10 @@ export interface InputOptions {
 /** The documented chord that releases the keyboard: Ctrl+Alt+Escape. */
 export function isEscapeChord(e: Pick<KeyLike, "code" | "ctrlKey" | "altKey">): boolean {
   return e.code === "Escape" && e.ctrlKey && e.altKey;
+}
+
+function isMeta(code: string): boolean {
+  return code === "MetaLeft" || code === "MetaRight";
 }
 
 type Op =
@@ -68,6 +78,10 @@ export class InputController {
   #buttons = 0;
   #last = { x: 0, y: 0 };
   #capsDown = false;
+  /** Cmd keys held now, as far as this controller saw (Mac shortcuts only). */
+  readonly #metaDown = new Set<string>();
+  /** Another key was pressed while Cmd was held, so releasing Cmd is not a Windows key tap. */
+  #metaUsed = false;
   #ops: Op[] = [];
   #draining = false;
   #moveFrame: number | null = null;
@@ -103,6 +117,7 @@ export class InputController {
       this.#tap(e.code);
       return;
     }
+    if (this.#macShortcuts() && this.#macKeyDown(e)) return;
     // Browsers repeat held modifiers; pressing them again would reset the remote state.
     if (e.repeat && isModifier(e.code)) return;
     this.#push({ kind: "key", code: e.code, down: true });
@@ -122,11 +137,50 @@ export class InputController {
       else this.#tap(e.code);
       return;
     }
-    if (e.code === "MetaLeft" || e.code === "MetaRight") {
+    if (this.#macShortcuts() && isMeta(e.code)) {
+      // Cmd was never sent: released alone it is a tap of the Windows key (Start).
+      if (this.#metaDown.delete(e.code) && this.#metaDown.size === 0) {
+        if (!this.#metaUsed) this.#tap(e.code);
+        this.#metaUsed = false;
+      }
+      return;
+    }
+    if (isMeta(e.code)) {
       // Keys that were still down when Cmd was released will not get their own key-up.
       for (const code of [...this.#pressed]) if (!isModifier(code)) this.#release(code);
     }
     if (this.#pressed.has(e.code)) this.#release(e.code);
+  }
+
+  #macShortcuts(): boolean {
+    return this.#o.macShortcuts?.() === true;
+  }
+
+  /**
+   * Mac shortcuts, key down. Returns whether the event was dealt with.
+   *
+   * - Cmd itself is not sent: it only arms the translation (see `keyUp` for the lone tap).
+   * - Cmd+key becomes Ctrl down, key down, key up, Ctrl up, all queued together, so the remote
+   *   never keeps a modifier and no later event can be slipped in between. The key-up is sent at
+   *   once because macOS does not deliver one for a key pressed with Cmd. If a physical Ctrl is
+   *   already down it is used as it is and left alone.
+   * - Other modifiers (Shift, Alt) and keys without Cmd go the normal way.
+   */
+  #macKeyDown(e: KeyLike): boolean {
+    if (isMeta(e.code)) {
+      if (!e.repeat && !this.#metaDown.has(e.code)) {
+        if (this.#metaDown.size === 0) this.#metaUsed = false;
+        this.#metaDown.add(e.code);
+      }
+      return true;
+    }
+    if (this.#metaDown.size > 0) this.#metaUsed = true;
+    if (isModifier(e.code) || !e.metaKey) return false;
+    const ctrlHeld = this.#pressed.has("ControlLeft") || this.#pressed.has("ControlRight");
+    if (!ctrlHeld) this.#push({ kind: "key", code: "ControlLeft", down: true });
+    this.#tap(e.code);
+    if (!ctrlHeld) this.#push({ kind: "key", code: "ControlLeft", down: false });
+    return true;
   }
 
   #tap(code: string): void {
@@ -143,6 +197,9 @@ export class InputController {
   releaseAll(): void {
     for (const code of [...this.#pressed]) this.#release(code);
     this.#capsDown = false;
+    // Cmd was not sent in Mac shortcuts mode, so there is nothing to release and no tap to make.
+    this.#metaDown.clear();
+    this.#metaUsed = false;
     this.#cancelMove();
     if (this.#buttons !== 0) {
       this.#buttons = 0;

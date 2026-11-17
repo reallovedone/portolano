@@ -214,6 +214,9 @@ export const strings = {
   "editor.rdp.shareClipboard": "Share the clipboard with the remote desktop",
   "editor.rdp.shareClipboardHelp":
     "While this tab is active, text and files you copy here can be pasted into the remote desktop, and text copied there arrives on your clipboard. The remote machine can read what you copy and replace what is on your clipboard. Passwords you copy from the Portolano vault are never shared; anything you copy from other programs is. Files copied on the remote desktop are not pasted here: Portolano offers to save them into a folder you choose. Off unless you turn it on.",
+  "editor.rdp.macShortcuts": "Use Mac shortcuts",
+  "editor.rdp.macShortcutsHelp":
+    "⌘C, ⌘V and other ⌘ shortcuts are sent as Ctrl shortcuts; ⌘ alone opens the Start menu.",
   "editor.rdp.nlaWarning":
     "Needed only for servers that offer TLS but not Network Level Authentication (xrdp, for example). With this on, the password is sent without the NLA check, and someone who can pose as the server could receive it. Leave it off for Windows hosts.",
   "editor.vnc.viewOnly": "View only (no keyboard or mouse input)",

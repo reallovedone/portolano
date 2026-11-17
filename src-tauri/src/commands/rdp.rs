@@ -64,6 +64,7 @@ fn read_target(state: &AppState, connection_id: Uuid) -> Result<Target, AppError
             ignore_cert,
             allow_without_nla,
             share_clipboard,
+            ..
         } = &connection.options
         else {
             return Err(AppError::invalid_input(format!(
@@ -346,6 +347,7 @@ mod tests {
                 ignore_cert: false,
                 allow_without_nla: false,
                 share_clipboard: false,
+                mac_shortcuts: false,
             },
         })
     }
@@ -433,6 +435,7 @@ mod tests {
                 ignore_cert: true,
                 allow_without_nla: true,
                 share_clipboard: false,
+                mac_shortcuts: false,
             };
             c.port = None;
         }
@@ -471,6 +474,7 @@ mod tests {
                 ignore_cert: false,
                 allow_without_nla: false,
                 share_clipboard: true,
+                mac_shortcuts: false,
             };
         }
         put(&state, node);
@@ -622,6 +626,7 @@ mod tests {
                 ignore_cert: false,
                 allow_without_nla: true,
                 share_clipboard: false,
+                mac_shortcuts: false,
             };
         }
         put(&state, node);
@@ -723,6 +728,7 @@ mod tests {
                 ignore_cert: false,
                 allow_without_nla: true,
                 share_clipboard: false,
+                mac_shortcuts: false,
             };
         }
         put(&state, node);

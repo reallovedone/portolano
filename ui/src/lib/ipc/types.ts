@@ -79,6 +79,11 @@ export type ConnectionOptions =
        * one. Off for documents saved before the option existed. The backend always writes it.
        */
       shareClipboard: boolean;
+      /**
+       * macOS only: send Cmd+key as Ctrl+key and a lone Cmd press as the Windows key. Off for
+       * documents saved before the option existed. The backend always writes it.
+       */
+      macShortcuts: boolean;
     }
   | { type: "vnc"; viewOnly: boolean }
   | { type: "web"; url: string; isolatedProfile: boolean };

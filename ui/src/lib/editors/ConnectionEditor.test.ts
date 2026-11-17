@@ -165,3 +165,62 @@ describe("ConnectionEditor RDP clipboard sharing", () => {
     });
   });
 });
+
+describe("ConnectionEditor RDP Mac shortcuts", () => {
+  const LABEL = "Use Mac shortcuts";
+  const HELP = "⌘C, ⌘V and other ⌘ shortcuts are sent as Ctrl shortcuts; ⌘ alone opens the Start menu.";
+
+  /** Pretends to run on this platform (the editor reads it once when it opens). */
+  function platform(name: string): void {
+    vi.spyOn(globalThis.navigator, "platform", "get").mockReturnValue(name);
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("is on by default for a new RDP connection on macOS, with its help text, and only for RDP", async () => {
+    platform("MacIntel");
+    const rdp = await open(null, "rdp");
+    expect((within(rdp).getByLabelText(LABEL) as HTMLInputElement).checked).toBe(true);
+    expect(within(rdp).getByText(HELP)).toBeTruthy();
+    cleanup();
+    expect(within(await open(null, "vnc")).queryByLabelText(LABEL)).toBeNull();
+    cleanup();
+    expect(within(await open(null, "ssh")).queryByLabelText(LABEL)).toBeNull();
+  });
+
+  it("is hidden on Windows", async () => {
+    platform("Win32");
+    const rdp = await open(null, "rdp");
+    expect(within(rdp).queryByLabelText(LABEL)).toBeNull();
+    expect(within(rdp).queryByText(HELP)).toBeNull();
+  });
+
+  it("an existing connection saved without the option has it off", async () => {
+    platform("MacIntel");
+    const dialog = await open(MOCK_IDS.rdpServer);
+    expect((within(dialog).getByLabelText(LABEL) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("is saved with the connection, on or off", async () => {
+    platform("MacIntel");
+    for (const turnOff of [false, true]) {
+      const app = createApp(createMockIpc({ vault: "unlocked" }));
+      await app.doc.load();
+      render(EditorHarness, { props: { app, id: null, kind: "rdp" } });
+      const dialog = await screen.findByRole("dialog");
+      const name = turnOff ? "Plain" : "Mac";
+      await fireEvent.input(within(dialog).getByLabelText("Name"), { target: { value: name } });
+      await fireEvent.input(within(dialog).getByLabelText("Host"), { target: { value: "h.example" } });
+      if (turnOff) await fireEvent.click(within(dialog).getByLabelText(LABEL));
+      await fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+      await vi.waitFor(() => {
+        const saved = app.doc.nodes.find((n) => n.type === "connection" && n.name === name);
+        expect(saved?.type === "connection" && saved.options).toMatchObject({
+          type: "rdp",
+          macShortcuts: !turnOff,
+        });
+      });
+      cleanup();
+    }
+  });
+});

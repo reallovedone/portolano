@@ -8,7 +8,7 @@ const geometry = () => ({
   remote: { w: 1920, h: 1080 },
 });
 
-function setup(options: { delayMs?: number; onEscape?: () => void } = {}) {
+function setup(options: { delayMs?: number; onEscape?: () => void; mac?: boolean } = {}) {
   const clock = new ManualClock();
   const { api, calls } = recordingApi({ delayMs: options.delayMs });
   const onError = vi.fn();
@@ -17,6 +17,7 @@ function setup(options: { delayMs?: number; onEscape?: () => void } = {}) {
     geometry,
     onEscape: options.onEscape,
     onError,
+    macShortcuts: options.mac === undefined ? undefined : () => options.mac === true,
     ...clock,
   });
   return { input, calls, clock, onError };
@@ -230,5 +231,154 @@ describe("pointer", () => {
     await flushPromises();
     expect(calls).toEqual(["KeyA", "KeyB"]);
     expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Mac shortcuts", () => {
+  const meta = { metaKey: true };
+
+  it("sends Cmd+C as Ctrl+C, wrapped so the remote keeps no modifier", async () => {
+    const { input, calls } = setup({ mac: true });
+    input.keyDown(fakeKey("MetaLeft", meta));
+    input.keyDown(fakeKey("KeyC", meta));
+    input.keyUp(fakeKey("MetaLeft"));
+    await flushPromises();
+    expect(keys(calls)).toEqual(["ControlLeft+", "KeyC+", "KeyC-", "ControlLeft-"]);
+    expect(input.pressedKeys).toEqual([]);
+  });
+
+  it("combines with the other modifiers: Cmd+Shift+Z is Ctrl+Shift+Z", async () => {
+    const { input, calls } = setup({ mac: true });
+    input.keyDown(fakeKey("MetaLeft", meta));
+    input.keyDown(fakeKey("ShiftLeft", meta));
+    input.keyDown(fakeKey("KeyZ", meta));
+    input.keyUp(fakeKey("ShiftLeft", meta));
+    input.keyUp(fakeKey("MetaLeft"));
+    await flushPromises();
+    expect(keys(calls)).toEqual([
+      "ShiftLeft+",
+      "ControlLeft+",
+      "KeyZ+",
+      "KeyZ-",
+      "ControlLeft-",
+      "ShiftLeft-",
+    ]);
+  });
+
+  it("repeats a held Cmd shortcut as complete Ctrl shortcuts and handles several in a row", async () => {
+    const { input, calls } = setup({ mac: true });
+    input.keyDown(fakeKey("MetaLeft", meta));
+    input.keyDown(fakeKey("KeyV", meta));
+    input.keyDown(fakeKey("KeyV", { ...meta, repeat: true }));
+    input.keyDown(fakeKey("KeyA", meta));
+    await vi.waitFor(() => expect(calls).toHaveLength(12));
+    expect(keys(calls)).toEqual([
+      "ControlLeft+", "KeyV+", "KeyV-", "ControlLeft-",
+      "ControlLeft+", "KeyV+", "KeyV-", "ControlLeft-",
+      "ControlLeft+", "KeyA+", "KeyA-", "ControlLeft-",
+    ]);
+  });
+
+  it("taps the Windows key when Cmd is pressed and released alone", async () => {
+    const { input, calls } = setup({ mac: true });
+    input.keyDown(fakeKey("MetaLeft", meta));
+    input.keyDown(fakeKey("MetaLeft", { ...meta, repeat: true }));
+    await flushPromises();
+    expect(calls).toHaveLength(0);
+    input.keyUp(fakeKey("MetaLeft"));
+    await flushPromises();
+    expect(keys(calls)).toEqual(["MetaLeft+", "MetaLeft-"]);
+    expect(input.pressedKeys).toEqual([]);
+  });
+
+  it("does not tap the Windows key after a shortcut or a modifier was used with Cmd", async () => {
+    const { input, calls } = setup({ mac: true });
+    input.keyDown(fakeKey("MetaRight", meta));
+    input.keyDown(fakeKey("ShiftLeft", meta));
+    input.keyUp(fakeKey("ShiftLeft", meta));
+    input.keyUp(fakeKey("MetaRight"));
+    await flushPromises();
+    expect(keys(calls)).toEqual(["ShiftLeft+", "ShiftLeft-"]);
+    // The next lone press is a tap again.
+    input.keyDown(fakeKey("MetaRight", meta));
+    input.keyUp(fakeKey("MetaRight"));
+    await flushPromises();
+    expect(keys(calls).slice(2)).toEqual(["MetaRight+", "MetaRight-"]);
+  });
+
+  it("leaves a physical Ctrl alone: Ctrl is neither pressed twice nor released early", async () => {
+    const { input, calls } = setup({ mac: true });
+    input.keyDown(fakeKey("ControlLeft", { ctrlKey: true }));
+    input.keyDown(fakeKey("MetaLeft", { ctrlKey: true, metaKey: true }));
+    input.keyDown(fakeKey("KeyC", { ctrlKey: true, metaKey: true }));
+    await flushPromises();
+    expect(keys(calls)).toEqual(["ControlLeft+", "KeyC+", "KeyC-"]);
+    input.keyUp(fakeKey("ControlLeft"));
+    await flushPromises();
+    expect(keys(calls).at(-1)).toBe("ControlLeft-");
+  });
+
+  it("sends a physical Ctrl+key as it is", async () => {
+    const { input, calls } = setup({ mac: true });
+    input.keyDown(fakeKey("ControlLeft", { ctrlKey: true }));
+    input.keyDown(fakeKey("KeyC", { ctrlKey: true }));
+    input.keyUp(fakeKey("KeyC", { ctrlKey: true }));
+    input.keyUp(fakeKey("ControlLeft"));
+    await flushPromises();
+    expect(keys(calls)).toEqual(["ControlLeft+", "KeyC+", "KeyC-", "ControlLeft-"]);
+  });
+
+  it("forgets a held Cmd on releaseAll (blur, tab switch): nothing is sent, no tap follows", async () => {
+    const { input, calls } = setup({ mac: true });
+    input.keyDown(fakeKey("MetaLeft", meta));
+    input.releaseAll();
+    input.keyUp(fakeKey("MetaLeft"));
+    await flushPromises();
+    expect(calls).toHaveLength(0);
+    // A shortcut after coming back still works, whatever the controller forgot.
+    input.keyDown(fakeKey("KeyC", meta));
+    await flushPromises();
+    expect(keys(calls)).toEqual(["ControlLeft+", "KeyC+", "KeyC-", "ControlLeft-"]);
+  });
+
+  it("releases a held physical key on releaseAll as before", async () => {
+    const { input, calls } = setup({ mac: true });
+    input.keyDown(fakeKey("ShiftLeft"));
+    input.keyDown(fakeKey("MetaLeft", meta));
+    input.releaseAll();
+    await flushPromises();
+    expect(keys(calls)).toEqual(["ShiftLeft+", "ShiftLeft-"]);
+  });
+
+  it("keeps the escape chord working, with Cmd held or not", async () => {
+    const onEscape = vi.fn();
+    const { input, calls } = setup({ mac: true, onEscape });
+    input.keyDown(fakeKey("MetaLeft", meta));
+    const chord = fakeKey("Escape", { ctrlKey: true, altKey: true, metaKey: true });
+    input.keyDown(chord);
+    await flushPromises();
+    expect(onEscape).toHaveBeenCalledTimes(1);
+    expect(chord.prevented && chord.stopped).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("keeps keys the remote cannot take away from the shell and the browser alone", async () => {
+    const { input, calls } = setup({ mac: true });
+    const e = fakeKey("MediaPlayPause", meta);
+    input.keyDown(e);
+    await flushPromises();
+    expect(calls).toHaveLength(0);
+    expect(e.prevented || e.stopped).toBe(false);
+  });
+
+  it("behaves exactly as before when the option is off", async () => {
+    for (const mac of [undefined, false]) {
+      const { input, calls } = setup({ mac });
+      input.keyDown(fakeKey("MetaLeft", meta));
+      input.keyDown(fakeKey("KeyC", meta));
+      input.keyUp(fakeKey("MetaLeft"));
+      await flushPromises();
+      expect(keys(calls)).toEqual(["MetaLeft+", "KeyC+", "KeyC-", "MetaLeft-"]);
+    }
   });
 });

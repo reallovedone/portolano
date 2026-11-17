@@ -406,10 +406,13 @@ jobs:
             # The release body is shown inside the app (update dialog and "What's new"). It is
             # the CHANGELOG.md section extracted by the `verify` job, plus a short closing
             # paragraph for people who install for the first time. A file, never inline text.
+            # (latest.json carries the section alone and is what the app prefers.)
             body="release-notes/BODY.md"
             {
               cat release-notes/RELEASE_NOTES.md
-              printf '\n---\n\n'
+              # The app cuts the text from this marker on (it is invisible on GitHub); keep it
+              # identical to INSTALL_NOTE_MARKER in src-tauri/src/update/notes.rs.
+              printf '\n<!-- portolano:install-note -->\n\n---\n\n'
               printf 'First install? These builds are not signed, so macOS and Windows warn on first launch: see the Download section of the README. Check the files against `SHA256SUMS.txt`.\n'
             } > "$body"
             flags=(--draft --verify-tag --title "Portolano ${VERSION}" --notes-file "$body")

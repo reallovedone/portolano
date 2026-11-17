@@ -222,10 +222,8 @@ impl UpdateService {
             });
         }
 
-        let notes = match notes::fetch_release_notes(&version).await {
-            Some(text) => Some(text),
-            None => update.body.as_deref().and_then(notes::clean_notes),
-        };
+        // The manifest carries the changelog section only; GitHub is asked just without it.
+        let notes = notes::release_notes(update.body.as_deref(), &version).await;
         let info = UpdateInfo {
             current_version: self.current.to_string(),
             version: version.to_string(),
@@ -337,10 +335,7 @@ impl UpdateService {
         if let Err(e) = self.record_run(&current) {
             tracing::warn!(error = %e, "could not record the running version");
         }
-        let notes = match saved.as_deref().and_then(notes::clean_notes) {
-            Some(text) => Some(text),
-            None => notes::fetch_release_notes(&self.current).await,
-        };
+        let notes = notes::release_notes(saved.as_deref(), &self.current).await;
         Ok(Some(WhatsNew {
             version: current,
             notes,

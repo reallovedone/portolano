@@ -23,6 +23,7 @@ attention when you upgrade.
 - Shared clipboard in RDP, as a per-connection option (off by default): copy and paste text in both directions.
 - Copy files and folders from your computer and paste them on the remote desktop.
 - Save files copied on the remote desktop to a folder you choose.
+- *Use Mac shortcuts* for RDP on macOS, on by default for new connections: ⌘C, ⌘V and other ⌘ shortcuts work as Ctrl shortcuts on the remote desktop, and ⌘ alone opens the Start menu. Existing connections can turn it on in the editor.
 
 ### 🔄 Changed
 
@@ -54,6 +55,6 @@ First public release.
 - Light and dark themes that follow the system.
 - Apple silicon and Intel Macs, and Windows 10/11 (64-bit).
 
-[Unreleased]: https://github.com/reallovedone/portolano/compare/v0.2.0-rc1...HEAD
-[0.2.0]: https://github.com/reallovedone/portolano/compare/v0.1.0...v0.2.0-rc1
+[Unreleased]: https://github.com/reallovedone/portolano/compare/v0.2.0-rc2...HEAD
+[0.2.0]: https://github.com/reallovedone/portolano/compare/v0.1.0...v0.2.0-rc2
 [0.1.0]: https://github.com/reallovedone/portolano/releases/tag/v0.1.0
