@@ -6,7 +6,9 @@ hand.
 
 ## Cutting a release
 
-1. Pick the version `X.Y.Z` and set it in these four places (they must be identical; the
+1. Pick the version `X.Y.Z`, make sure `CHANGELOG.md` has its section (see
+   [The changelog](#the-changelog-is-the-source-of-the-release-notes) below), and set the
+   version in these four places (they must be identical; the
    workflow fails in its first step otherwise):
    - `Cargo.toml` → `[workspace.package]` `version`
    - `src-tauri/tauri.conf.json` → `version`
@@ -15,7 +17,8 @@ hand.
 
    Then run `cargo check --workspace` so that `Cargo.lock` picks up the new version (CI
    builds with `--locked` and would fail otherwise).
-2. Run `bash dev/check.sh`, commit, and merge to `main` through the usual pull request.
+2. Run `bash dev/check.sh` and `python3 .github/scripts/changelog-notes.py X.Y.Z` (it must
+   print the notes you expect), commit, and merge to `main` through the usual pull request.
 3. Tag the merged commit and push the tag:
 
    ```bash
@@ -25,11 +28,14 @@ hand.
    ```
 
 4. Open the **Actions** tab and watch the *Release* run. It checks the tag against the four
-   versions, builds three installers in parallel (macOS Apple Silicon, macOS Intel,
+   versions, extracts the release notes from `CHANGELOG.md` (the run stops here if the
+   section is missing, empty, or a final version still says *Unreleased*), builds three installers in parallel (macOS Apple Silicon, macOS Intel,
    Windows x64) together with their signed update packages, writes `latest.json` and the
    checksums, and creates the draft release.
-5. Open **Releases**, review the draft (the files listed below), **write the release notes
-   for end users** (see below) and press **Publish release**.
+5. Open **Releases**, review the draft (the files listed below and the notes, which are the
+   changelog section) and press **Publish release**.
+6. After a final release, start the next cycle: keep `## [Unreleased]` at the top of
+   `CHANGELOG.md` and update the link references at the bottom.
 
 If the run fails, fix the cause and either re-run the failed jobs (same tag), or delete the
 draft release and the tag (`git push origin :refs/tags/vX.Y.Z`), correct, and tag again.
@@ -38,14 +44,53 @@ published one.
 
 A tag with a suffix (`v0.2.0-beta.1`) produces a release marked as a pre-release.
 
-### Release notes are shown inside the app
+### The changelog is the source of the release notes
 
-The app reads the **body of the GitHub release** and shows it in the update dialog and, after
-an update, in a "What's new" dialog. If the release cannot be read it falls back to the
-`notes` field of `latest.json`, which is only a link to the release page. So edit the draft's
-notes before you publish: the generated list of pull requests is a starting point, but write
-short, plain sentences for users (what is new, what was fixed), and drop the build-related
-text you do not want them to see.
+`CHANGELOG.md` follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) and
+Semantic Versioning, and it is the single source of the release notes: the workflow copies
+the section of the version being released into the draft release (and into `latest.json`).
+The app shows that text in the update dialog and, after an update, in "What's new", so
+write the entries **for end users**: short, one line each, plain words, no crate names,
+work-package numbers or file paths.
+
+**While you work.** Add an entry under `## [Unreleased]` with every user-visible change, in
+the same pull request. Group entries under these headings, in this order, only when they
+have entries:
+
+| Heading | Use for |
+|---|---|
+| `### ⚠️ Breaking changes` | Needs action, or something stops working as before (data format, removed options, changed defaults). An extension of the standard. |
+| `### ✨ Added` | New features |
+| `### 🔄 Changed` | Changes to existing behaviour |
+| `### 🗑️ Deprecated` | Features that will go away |
+| `### 🔥 Removed` | Features that went away |
+| `### 🐛 Fixed` | Bug fixes |
+| `### 🔒 Security` | Anything security related |
+
+**At release time.** Rename or create the section of the version: `## [X.Y.Z] - YYYY-MM-DD`
+(move the entries out of `[Unreleased]`, keep that heading, empty). Then update the link
+references at the bottom (`[Unreleased]` compares the new tag with `HEAD`, `[X.Y.Z]` compares
+the previous tag with the new one).
+
+**Release candidates have no section of their own.** The tag `vX.Y.Z-rcN` uses the section
+`[X.Y.Z]` and the notes start with the line "Release candidate N of X.Y.Z, for testing."
+While X.Y.Z is not released, its heading is `## [X.Y.Z] - Unreleased`. The date is set when
+the final version ships: a final tag `vX.Y.Z` **fails** if the heading still says
+`Unreleased` (or the date is not `YYYY-MM-DD`), and any tag fails if the section is missing
+or empty. A dry run (*Run workflow*) applies the same checks to the version in the project
+files. (Until the final version exists, the `[X.Y.Z]` link reference may point to the latest
+candidate tag; correct it when you release.)
+
+Check the result locally with `python3 .github/scripts/changelog-notes.py X.Y.Z[-rcN]` and
+`python3 .github/scripts/changelog-notes.py --self-test`.
+
+**How the notes travel.** The `verify` job extracts them into a file (`release-notes`
+artifact); `package` puts the same text in `latest.json` (`notes`, the app's fallback when
+the GitHub API cannot be reached); `publish` creates the draft with that file as the body
+(`--notes-file`) plus a closing paragraph for first-time installers (unsigned builds,
+checksums), which is not part of `latest.json`. The notes are only ever passed in files or
+as one quoted argument, never interpolated into a shell script. Edit the draft's text
+before publishing only for small corrections, and fix `CHANGELOG.md` too.
 
 ## Dry run
 
@@ -102,7 +147,7 @@ unexpected. It looks like this:
 ```json
 {
   "version": "0.2.0",
-  "notes": "See the release notes: https://github.com/reallovedone/portolano/releases/tag/v0.2.0",
+  "notes": "<the CHANGELOG.md section of 0.2.0>",
   "pub_date": "2026-11-16T12:00:00Z",
   "platforms": {
     "darwin-aarch64": {"signature": "<content of the .sig file>", "url": "https://github.com/reallovedone/portolano/releases/download/v0.2.0/Portolano-0.2.0-macos-aarch64.app.tar.gz"},
@@ -121,8 +166,8 @@ The real flow cannot be simulated locally; use two pre-releases. GitHub's `relea
 ignores pre-releases, so testers point the app at the candidate's own `latest.json` with the
 `PORTOLANO_UPDATER_ENDPOINT` environment variable (https only).
 
-1. Release `v0.2.0-rc1` (bump the four versions, tag, publish the draft; it is flagged as a
-   pre-release automatically). Install it by hand from its installer.
+1. Release `v0.2.0-rc1` (add the changelog section as `## [0.2.0] - Unreleased`, bump the four
+   versions, tag, publish the draft; it is flagged as a pre-release automatically). Install it by hand from its installer.
 2. Release `v0.2.0-rc2` the same way and publish it as a pre-release.
 3. Start rc1 with the endpoint of rc2:
    `PORTOLANO_UPDATER_ENDPOINT=https://github.com/reallovedone/portolano/releases/download/v0.2.0-rc2/latest.json`
