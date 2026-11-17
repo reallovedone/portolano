@@ -2,6 +2,7 @@
 // partially typed values, with validation and conversion to the IPC node types.
 
 import type { Connection, CredentialRef, Folder, Uuid } from "../ipc";
+import { detectPlatform, type Platform } from "../design/platform";
 import type { StringKey } from "../i18n/strings";
 import type { ConnectionKind } from "../tree/model";
 
@@ -52,6 +53,7 @@ export interface ConnectionDraft {
   ignoreCert: boolean;
   allowWithoutNla: boolean;
   shareClipboard: boolean;
+  macShortcuts: boolean;
   // vnc
   viewOnly: boolean;
   // web
@@ -75,6 +77,7 @@ export type FieldErrors<F extends string> = Partial<Record<F, StringKey>>;
 export function newConnectionDraft(
   kind: ConnectionKind,
   parentId: Uuid | null,
+  platform: Platform = detectPlatform(),
 ): ConnectionDraft {
   return {
     id: null,
@@ -98,6 +101,8 @@ export function newConnectionDraft(
     ignoreCert: false,
     allowWithoutNla: false,
     shareClipboard: false,
+    // New RDP connections made on a Mac use the Mac shortcuts; elsewhere the option does nothing.
+    macShortcuts: platform === "macos",
     viewOnly: false,
     url: "",
     isolatedProfile: false,
@@ -144,6 +149,7 @@ export function draftFromConnection(c: Connection): ConnectionDraft {
       draft.ignoreCert = o.ignoreCert;
       draft.allowWithoutNla = o.allowWithoutNla === true;
       draft.shareClipboard = o.shareClipboard === true;
+      draft.macShortcuts = o.macShortcuts === true;
       break;
     case "vnc":
       draft.viewOnly = o.viewOnly;
@@ -272,6 +278,7 @@ export function draftToConnection(draft: ConnectionDraft, newId: () => Uuid): Co
         ignoreCert: draft.ignoreCert,
         allowWithoutNla: draft.allowWithoutNla,
         shareClipboard: draft.shareClipboard,
+        macShortcuts: draft.macShortcuts,
       };
       break;
     case "vnc":

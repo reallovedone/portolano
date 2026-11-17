@@ -2,6 +2,7 @@
 <script lang="ts">
   import { tick } from "svelte";
 
+  import { detectPlatform } from "../design/platform";
   import { t, type StringKey } from "../i18n/strings";
   import type { Uuid } from "../ipc";
   import { getApp } from "../state/app";
@@ -45,6 +46,8 @@
   } = $props();
 
   const { doc, ui } = getApp();
+  // The Mac shortcuts option means something only on a Mac.
+  const isMac = detectPlatform() === "macos";
   const uid = `ce-${Math.random().toString(36).slice(2, 9)}`;
 
   // The editor edits a snapshot taken when it opens.
@@ -280,6 +283,12 @@
             <Checkbox bind:checked={draft.shareClipboard} label={t("editor.rdp.shareClipboard")} />
             <p class="size-hint">{t("editor.rdp.shareClipboardHelp")}</p>
           </div>
+          {#if isMac}
+            <div class="option">
+              <Checkbox bind:checked={draft.macShortcuts} label={t("editor.rdp.macShortcuts")} />
+              <p class="size-hint">{t("editor.rdp.macShortcutsHelp")}</p>
+            </div>
+          {/if}
         {:else if draft.kind === "vnc"}
           <div class="option">
             <Checkbox bind:checked={draft.viewOnly} label={t("editor.vnc.viewOnly")} />

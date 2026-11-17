@@ -105,10 +105,12 @@ fn rdp_utf8_file_with_port_and_dropped_password() {
             ignore_cert,
             allow_without_nla,
             share_clipboard,
+            mac_shortcuts,
         } => {
             assert_eq!(*width, Some(1920));
             assert!(!allow_without_nla);
             assert!(!share_clipboard);
+            assert!(!mac_shortcuts);
             assert_eq!(*height, Some(1080));
             assert_eq!(domain.as_deref(), Some("EXAMPLE"));
             assert!(!ignore_cert);

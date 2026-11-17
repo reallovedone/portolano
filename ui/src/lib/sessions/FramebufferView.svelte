@@ -8,6 +8,7 @@
   import { onMount } from "svelte";
 
   import { toIpcError, type FbEvent, type SessionId } from "../ipc";
+  import { detectPlatform } from "../design/platform";
   import { t } from "../i18n/strings";
   import { getApp } from "../state/app";
   import { getSessionContext } from "../tabs/session";
@@ -73,6 +74,7 @@
   let chipTimer: ReturnType<typeof setTimeout> | undefined;
   /** The offer to save remote files was closed by the user (until the offer changes). */
   let dismissedOffer = $state<string | null>(null);
+  const isMac = detectPlatform() === "macos";
   const target = $derived(targetLabel(connection));
   const clip = $derived(view.clipboard);
   const offerKey = $derived(clip.offer ? `${clip.offer.count}:${clip.offer.bytes}` : null);
@@ -129,6 +131,11 @@
       },
       onEscape: () => target.blur(),
       onReconnect: () => session.retry(),
+      input: {
+        // Only RDP has the option, and only a Mac has Cmd keys to translate.
+        macShortcuts: () =>
+          isMac && connection?.options.type === "rdp" && connection.options.macShortcuts === true,
+      },
     });
     controller = live;
 

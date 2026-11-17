@@ -163,6 +163,7 @@ fn import_connection(
                     ignore_cert: false,
                     allow_without_nla: false,
                     share_clipboard: false,
+                    mac_shortcuts: false,
                 },
                 "vnc" => ConnectionOptions::Vnc { view_only: false },
                 _ => ConnectionOptions::Ssh {

@@ -160,6 +160,11 @@ pub enum ConnectionOptions {
         /// machine then sees, and can replace, what is on the local clipboard.
         #[serde(default)]
         share_clipboard: bool,
+        /// macOS only: send the Command key shortcuts (Cmd+C, Cmd+V...) as the Ctrl shortcuts they
+        /// stand for, and a lone Command press as the Windows key. Off unless the user chose it
+        /// for this connection, so documents saved before the option keep the old behaviour.
+        #[serde(default)]
+        mac_shortcuts: bool,
     },
     Vnc {
         #[serde(default)]
@@ -326,8 +331,9 @@ mod tests {
                     ignore_cert: false,
                     allow_without_nla: false,
                     share_clipboard: true,
+                    mac_shortcuts: true,
                 },
-                json!({"type": "rdp", "width": 1920, "height": 1080, "domain": "CORP", "ignoreCert": false, "allowWithoutNla": false, "shareClipboard": true}),
+                json!({"type": "rdp", "width": 1920, "height": 1080, "domain": "CORP", "ignoreCert": false, "allowWithoutNla": false, "shareClipboard": true, "macShortcuts": true}),
             ),
             (
                 ConnectionOptions::Vnc { view_only: true },
@@ -366,7 +372,30 @@ mod tests {
                 ignore_cert: true,
                 allow_without_nla: false,
                 share_clipboard: false,
+                mac_shortcuts: false,
             }
+        );
+    }
+
+    #[test]
+    fn rdp_mac_shortcuts_are_off_unless_the_document_says_otherwise() {
+        // A connection saved before the option existed keeps today's behaviour.
+        let old: ConnectionOptions = serde_json::from_value(
+            json!({"type": "rdp", "width": null, "height": null, "domain": null, "ignoreCert": false, "allowWithoutNla": false, "shareClipboard": true}),
+        )
+        .expect("parse");
+        let ConnectionOptions::Rdp { mac_shortcuts, .. } = old else {
+            panic!("not an RDP connection");
+        };
+        assert!(!mac_shortcuts);
+        // The option is written explicitly and survives a round trip.
+        let on: ConnectionOptions =
+            serde_json::from_value(json!({"type": "rdp", "macShortcuts": true})).expect("parse");
+        let value = serde_json::to_value(&on).expect("serialize");
+        assert_eq!(value["macShortcuts"], json!(true));
+        assert_eq!(
+            serde_json::from_value::<ConnectionOptions>(value).expect("parse"),
+            on
         );
     }
 

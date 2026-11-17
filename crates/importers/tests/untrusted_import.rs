@@ -203,6 +203,7 @@ fn every_other_format_yields_safe_defaults_too() {
             ignore_cert: false,
             allow_without_nla: false,
             share_clipboard: false,
+            mac_shortcuts: false,
             ..
         }
     ));

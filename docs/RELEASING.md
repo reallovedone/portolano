@@ -85,12 +85,22 @@ Check the result locally with `python3 .github/scripts/changelog-notes.py X.Y.Z[
 `python3 .github/scripts/changelog-notes.py --self-test`.
 
 **How the notes travel.** The `verify` job extracts them into a file (`release-notes`
-artifact); `package` puts the same text in `latest.json` (`notes`, the app's fallback when
-the GitHub API cannot be reached); `publish` creates the draft with that file as the body
-(`--notes-file`) plus a closing paragraph for first-time installers (unsigned builds,
-checksums), which is not part of `latest.json`. The notes are only ever passed in files or
-as one quoted argument, never interpolated into a shell script. Edit the draft's text
-before publishing only for small corrections, and fix `CHANGELOG.md` too.
+artifact); `package` puts the same text in `latest.json` (`notes`); `publish` creates the
+draft with that file as the body (`--notes-file`) plus a closing paragraph for first-time
+installers (unsigned builds, checksums), which is not part of `latest.json`. The paragraph
+is preceded by the line `<!-- portolano:install-note -->` (an HTML comment, invisible on
+GitHub). The notes are only ever passed in files or as one quoted argument, never
+interpolated into a shell script. Edit the draft's text before publishing only for small
+corrections, and fix `CHANGELOG.md` too.
+
+**Where the app reads them.** The update dialog and, after an update, "What's new" use the
+`notes` of `latest.json` whenever it has any; that is the normal case and needs no request to
+GitHub. Only if the manifest has no notes does the app fall back to the body of the GitHub
+release (API request, with a size cap and a timeout), and it then cuts everything from the
+marker on, so the install paragraph never shows inside the app. A body without the marker is
+used as it is. The notes saved for the first start after an update follow the same rule. The
+marker text lives in `release.yml` and in `INSTALL_NOTE_MARKER` (`src-tauri/src/update/notes.rs`);
+a test fails if they drift apart.
 
 ## Dry run
 

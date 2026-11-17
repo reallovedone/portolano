@@ -20,7 +20,10 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/welcome-dark.jpg" width="820" alt="Portolano welcome screen">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/welcome-dark.jpg">
+    <img src="docs/screenshots/welcome-light.jpg" width="820" alt="Portolano welcome screen">
+  </picture>
 </p>
 
 ## What "portolano" means
@@ -65,9 +68,18 @@ fix it and send a pull request.
 - Light and dark themes that follow the system.
 
 <p align="center">
-  <img src="docs/screenshots/connection-editor.jpg" width="270" alt="Connection editor">
-  <img src="docs/screenshots/import.jpg" width="270" alt="Import preview">
-  <img src="docs/screenshots/terminal.jpg" width="270" alt="Terminal session">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/connection-editor-dark.jpg">
+    <img src="docs/screenshots/connection-editor-light.jpg" width="270" alt="Connection editor">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/import-dark.jpg">
+    <img src="docs/screenshots/import-light.jpg" width="270" alt="Import preview">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/terminal-dark.jpg">
+    <img src="docs/screenshots/terminal-light.jpg" width="270" alt="Terminal session">
+  </picture>
 </p>
 
 ## Security

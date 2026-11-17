@@ -84,7 +84,7 @@ export interface ControllerOptions {
   /** Connect again (after the stored certificate was removed). */
   onReconnect?: () => void;
   renderer?: RendererOptions;
-  input?: Pick<InputOptions, "requestFrame" | "cancelFrame" | "setTimer" | "clearTimer">;
+  input?: Pick<InputOptions, "requestFrame" | "cancelFrame" | "setTimer" | "clearTimer" | "macShortcuts">;
   setTimer?: (callback: () => void, ms: number) => number;
   clearTimer?: (handle: number) => void;
   toDataUrl?: ToDataUrl;

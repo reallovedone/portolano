@@ -385,6 +385,7 @@ fn rich_document() -> Document {
                 ignore_cert: false,
                 allow_without_nla: false,
                 share_clipboard: false,
+                mac_shortcuts: false,
             },
         ),
     ];
@@ -501,6 +502,7 @@ fn rdp_export_has_the_exact_content_and_no_password() {
             ignore_cert: true,
             allow_without_nla: false,
             share_clipboard: false,
+            mac_shortcuts: false,
         },
     );
     let Node::Connection(mut conn) = node else {
@@ -544,6 +546,7 @@ fn rdp_export_omits_unset_fields_and_defaults() {
             ignore_cert: false,
             allow_without_nla: false,
             share_clipboard: false,
+            mac_shortcuts: false,
         },
     )];
     let file = dir.path("plain.rdp");
@@ -575,6 +578,7 @@ fn rdp_export_refuses_what_it_cannot_write() {
                 ignore_cert: false,
                 allow_without_nla: false,
                 share_clipboard: false,
+                mac_shortcuts: false,
             },
         ),
         connection_node(
@@ -588,6 +592,7 @@ fn rdp_export_refuses_what_it_cannot_write() {
                 ignore_cert: false,
                 allow_without_nla: false,
                 share_clipboard: false,
+                mac_shortcuts: false,
             },
         ),
     ];
@@ -613,6 +618,7 @@ fn rdp_export_refuses_what_it_cannot_write() {
             ignore_cert: false,
             allow_without_nla: false,
             share_clipboard: false,
+            mac_shortcuts: false,
         },
     })];
     assert!(matches!(
