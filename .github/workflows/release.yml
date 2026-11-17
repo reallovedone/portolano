@@ -36,7 +36,8 @@ defaults:
 jobs:
   # ---------------------------------------------------------------------------------------
   # 1. Fail early, before spending any runner minutes on the builds, if the tag and the
-  #    version numbers in the repository disagree.
+  #    version numbers in the repository disagree, or if CHANGELOG.md has no release notes
+  #    for this version.
   # ---------------------------------------------------------------------------------------
   verify:
     name: Check tag and versions
@@ -57,6 +58,25 @@ jobs:
           # Empty on a manual (dry-run) start: then only the files are compared with each other.
           TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: python3 .github/scripts/check-version.py "$TAG"
+
+      # The release notes come from CHANGELOG.md (see docs/RELEASING.md). Extracted here, with
+      # read-only access and before any build, so a missing or empty section, or a final
+      # version whose date is still "Unreleased", stops the run in the first minute. The
+      # version reaches the script as an argument from an env var; the notes are only ever
+      # written to a file and read from files, never interpolated into a script.
+      - name: Extract the release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+        run: python3 .github/scripts/changelog-notes.py "$VERSION" --out release-notes/RELEASE_NOTES.md
+
+      # A separate artifact: `release-files` is attached to the release as is, the notes are not.
+      - name: Upload the release notes
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: release-notes/RELEASE_NOTES.md
+          if-no-files-found: error
+          retention-days: 14
 
   # ---------------------------------------------------------------------------------------
   # 2. One build per platform. These jobs only need to read the repository.
@@ -292,19 +312,29 @@ jobs:
           merge-multiple: true
           path: release-files
 
+      - name: Download the release notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: release-notes
+
       # The updater downloads `latest.json` from the release (see docs/RELEASING.md). The
       # script checks that every expected file and signature is there, and nothing else.
+      # The notes in it are the same text as the release body (the app uses them when the
+      # GitHub API is not reachable). They are read from the file into a shell variable and
+      # passed as one quoted argument; nothing is interpolated into the script.
       - name: Write latest.json
         env:
           VERSION: ${{ needs.verify.outputs.version }}
           REPO: ${{ github.repository }}
         run: |
+          notes="$(cat release-notes/RELEASE_NOTES.md)"
           python3 .github/scripts/make-latest-json.py \
             --dir release-files \
             --version "$VERSION" \
             --tag "v${VERSION}" \
             --repo "$REPO" \
-            --notes "See the release notes: https://github.com/${REPO}/releases/tag/v${VERSION}"
+            --notes "$notes"
           cat release-files/latest.json
 
       # Covers every file that will be attached, except the checksum file itself.
@@ -349,6 +379,12 @@ jobs:
           name: release-files
           path: release-files
 
+      - name: Download the release notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: release-notes
+
       - name: Create (or update) the draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -367,10 +403,16 @@ jobs:
             [ "$is_draft" = "true" ] || { echo "::error::release $TAG is already published; refusing to modify it"; exit 1; }
             gh release upload "$TAG" "${files[@]}" --clobber
           else
-            # The release body is shown inside the app (update dialog and "What's new"): rewrite it for end users before publishing the draft.
-            flags=(--draft --verify-tag --title "Portolano ${VERSION}" --generate-notes)
+            # The release body is shown inside the app (update dialog and "What's new"). It is
+            # the CHANGELOG.md section extracted by the `verify` job, plus a short closing
+            # paragraph for people who install for the first time. A file, never inline text.
+            body="release-notes/BODY.md"
+            {
+              cat release-notes/RELEASE_NOTES.md
+              printf '\n---\n\n'
+              printf 'First install? These builds are not signed, so macOS and Windows warn on first launch: see the Download section of the README. Check the files against `SHA256SUMS.txt`.\n'
+            } > "$body"
+            flags=(--draft --verify-tag --title "Portolano ${VERSION}" --notes-file "$body")
             [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
-            gh release create "$TAG" "${flags[@]}" \
-              --notes "Improvements and fixes. Installing for the first time? These builds are not signed, so macOS and Windows warn on first launch: see the Download section of the README. Check the files against \`SHA256SUMS.txt\`." \
-              "${files[@]}"
+            gh release create "$TAG" "${flags[@]}" "${files[@]}"
           fi

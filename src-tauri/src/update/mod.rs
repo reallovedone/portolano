@@ -200,10 +200,10 @@ impl UpdateService {
                 .map_err(|e| map_updater_error(e, "check"))?;
         }
         let updater = builder.build().map_err(|e| map_updater_error(e, "check"))?;
-        let found = updater
-            .check()
-            .await
-            .map_err(|e| map_updater_error(e, "check"))?;
+        let found = match updater.check().await {
+            Ok(found) => found,
+            Err(e) => return check_failure_outcome(e),
+        };
         let Some(update) = found else {
             return Ok(UpdateCheck::UpToDate);
         };
@@ -374,6 +374,21 @@ fn busy_error() -> AppError {
     AppError::invalid_input("another update operation is already in progress")
 }
 
+/// What a failed *check* means. `ReleaseNotFound` is the plugin's answer when the manifest
+/// of the latest release cannot be downloaded (HTTP 404 and any other non-success status): no
+/// update manifest is published, which is not something the user can act on, so it counts as
+/// "no update available". Every other error stays an error. Only the check uses this: a missing
+/// release while installing is still an error (`map_updater_error`).
+fn check_failure_outcome(error: tauri_plugin_updater::Error) -> Result<UpdateCheck, AppError> {
+    if matches!(error, tauri_plugin_updater::Error::ReleaseNotFound) {
+        tracing::info!(
+            "no update manifest is published for the latest release: treating it as up to date"
+        );
+        return Ok(UpdateCheck::UpToDate);
+    }
+    Err(map_updater_error(error, "check"))
+}
+
 /// A message the user can act on. The detail is the plugin's own text (no secrets in it).
 fn map_updater_error(error: tauri_plugin_updater::Error, stage: &str) -> AppError {
     use tauri_plugin_updater::Error as E;
@@ -451,6 +466,30 @@ mod tests {
             .build()
             .expect("runtime")
             .block_on(future)
+    }
+
+    #[test]
+    fn a_missing_release_manifest_is_not_an_update_error_when_checking() {
+        use tauri_plugin_updater::Error as E;
+        let outcome = check_failure_outcome(E::ReleaseNotFound).expect("not an error");
+        assert!(matches!(outcome, UpdateCheck::UpToDate));
+    }
+
+    #[test]
+    fn other_check_failures_stay_errors() {
+        use tauri_plugin_updater::Error as E;
+        let network = check_failure_outcome(E::Network("boom".into())).expect_err("error");
+        assert_eq!(network.code, ErrorCode::HostUnreachable);
+        let unsupported = check_failure_outcome(E::UnsupportedOs).expect_err("error");
+        assert_eq!(unsupported.code, ErrorCode::Unsupported);
+        let unverified = check_failure_outcome(E::MissingSignedVersion).expect_err("error");
+        assert_eq!(unverified.code, ErrorCode::Internal);
+    }
+
+    #[test]
+    fn a_missing_release_is_still_an_error_outside_the_check() {
+        let error = map_updater_error(tauri_plugin_updater::Error::ReleaseNotFound, "download");
+        assert_eq!(error.code, ErrorCode::HostUnreachable);
     }
 
     #[test]

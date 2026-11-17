@@ -146,7 +146,7 @@ downloads, verifies and installs it, then restarts (*Check for updates…* does 
 the automatic check can be switched off in the settings). Updates are verified with a signing
 key of the project, which is separate from the system code signing: the builds stay unsigned,
 but updated copies do not bring the first-launch warning back. If you have 0.1.0, install
-0.2.0 by hand once.
+0.2.0 by hand once. What changed in each version is in the [changelog](CHANGELOG.md).
 
 ## Building from source
 
