@@ -13,7 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@lucide/svelte": "1.72.0",
+    "@lucide/svelte": "1.73.0",
     "@tauri-apps/api": "2.12.4",
     "@tauri-apps/plugin-dialog": "2.8.4",
     "@xterm/addon-fit": "0.11.0",
