@@ -31,6 +31,9 @@ const EXPECTED_COMMANDS = [
   "vault_reveal_secret",
   "vault_get_auto_lock",
   "vault_set_auto_lock",
+  "vault_quick_unlock_info",
+  "vault_set_quick_unlock",
+  "vault_quick_unlock",
   "term_open",
   "term_write",
   "term_ack",
@@ -96,6 +99,9 @@ describe("tauriIpc", () => {
       () => tauriIpc.vaultRevealSecret("a"),
       () => tauriIpc.vaultGetAutoLock(),
       () => tauriIpc.vaultSetAutoLock(30),
+      () => tauriIpc.vaultQuickUnlockInfo(),
+      () => tauriIpc.vaultSetQuickUnlock(true),
+      () => tauriIpc.vaultQuickUnlock(),
       () => tauriIpc.termOpen("a", 80, 24, noop),
       () => tauriIpc.termWrite("s", new Uint8Array([1])),
       () => tauriIpc.termAck("s", 1),
@@ -199,6 +205,17 @@ describe("tauriIpc", () => {
       { currentPassword: "p", newPassword: "q" },
       undefined,
     );
+  });
+
+  it("sends the quick unlock arguments and keeps its three error codes", async () => {
+    await tauriIpc.vaultSetQuickUnlock(true);
+    expect(invokeMock).toHaveBeenLastCalledWith("vault_set_quick_unlock", { enabled: true }, undefined);
+    for (const code of ["quick_unlock_cancelled", "quick_unlock_failed", "quick_unlock_not_ready"]) {
+      invokeMock.mockRejectedValueOnce({ code, message: "m" });
+      const error = await tauriIpc.vaultQuickUnlock().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(IpcError);
+      expect((error as IpcError).code).toBe(code);
+    }
   });
 
   it("normalizes backend errors into IpcError", async () => {

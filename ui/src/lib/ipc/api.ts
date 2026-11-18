@@ -12,6 +12,7 @@ import type {
   KnownHostEntry,
   Node,
   OpenOptions,
+  QuickUnlockInfo,
   QuitReply,
   RevealedSecret,
   SessionId,
@@ -50,6 +51,25 @@ export interface Ipc {
   vaultGetAutoLock(): Promise<number>;
   /** Saves the auto-lock time and applies it at once. Anything but the five choices is refused. */
   vaultSetAutoLock(minutes: number): Promise<void>;
+  /**
+   * Quick unlock with Touch ID / Windows Hello. `available`: the system has a usable biometric
+   * method (show the toggle only then); `enabled`: the option is on; `ready`: a quick unlock can
+   * be attempted now (on, and a key is held in memory since the last unlock with the password).
+   */
+  vaultQuickUnlockInfo(): Promise<QuickUnlockInfo>;
+  /**
+   * Turns quick unlock on or off. Off drops the held key at once. On does not create a key: it
+   * is created by the next unlock with the master password (`ready` stays false until then).
+   * Refused with `unsupported` when the system has no biometric method.
+   */
+  vaultSetQuickUnlock(enabled: boolean): Promise<void>;
+  /**
+   * Asks for Touch ID / Windows Hello and reopens the vault with the held key. Rejects with
+   * `quick_unlock_cancelled` (the user dismissed the prompt), `quick_unlock_failed` (the check or
+   * the unlock failed; the key may have been dropped) or `quick_unlock_not_ready` (no key held):
+   * in every case the master password is the fallback.
+   */
+  vaultQuickUnlock(): Promise<void>;
 
   // terminal family (local shell, SSH)
   termOpen(

@@ -14,6 +14,7 @@ attention when you upgrade.
 - Choose when the vault locks itself after inactivity (never, 5, 15, 30 minutes or 1 hour) in the new *Security* section of the credentials window. The default stays 15 minutes.
 - Portolano asks for confirmation before closing a tab, closing the window, quitting or installing an update when that would end a connected SSH, terminal, RDP or VNC session. Web tabs and disconnected sessions close without asking.
 - With *Use Mac shortcuts* on an RDP connection, ⌘C, ⌘V, ⌘X, ⌘A, ⌘Z and every other ⌘ combination reach Windows as Ctrl+key. ⌘Q, ⌘H, ⌘M and ⌘W stay with Portolano. ⌘W closes the current tab (asking first when a session is connected).
+- Optional unlock with Touch ID (macOS) or Windows Hello (Windows): turn it on in the *Security* section of the credentials window. After you unlock once with the master password it works for as long as Portolano stays open; the master password always works too.
 
 ## [0.2.0] - 2026-11-17
 

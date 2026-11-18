@@ -4,6 +4,7 @@
 
   import { t, type StringKey } from "../i18n/strings";
   import type { CredentialSummary, RevealedSecret, Uuid } from "../ipc";
+  import { detectMac } from "../shortcuts";
   import { getApp } from "../state/app";
   import { credentialUsers } from "../tree/model";
   import Button from "../ui/Button.svelte";
@@ -15,6 +16,7 @@
   import IconButton from "../ui/IconButton.svelte";
   import ListRow from "../ui/ListRow.svelte";
   import Select from "../ui/Select.svelte";
+  import Switch from "../ui/Switch.svelte";
   import TextArea from "../ui/TextArea.svelte";
   import ChangePasswordDialog from "./ChangePasswordDialog.svelte";
   import { CLIPBOARD_CLEAR_SECONDS, copySecret } from "./clipboard";
@@ -124,6 +126,39 @@
     savedAutoLock = String(result.value);
     autoLock = savedAutoLock;
   });
+
+  const quickPlatform = detectMac() ? "mac" : "windows";
+  let quickAvailable = $state(false);
+  let quickEnabled = $state(false);
+  /** Shown after turning it on: the key can only be captured at a password unlock. */
+  let quickReady = $state(false);
+  let quickBusy = $state(false);
+
+  async function loadQuickInfo(): Promise<void> {
+    const result = await vault.quickUnlockInfo();
+    if (!result.ok) {
+      notices.error(t("security.quickUnlockInfoFailed"), result.error);
+      return;
+    }
+    quickAvailable = result.value.available;
+    quickEnabled = result.value.enabled;
+    quickReady = result.value.ready;
+  }
+
+  onMount(loadQuickInfo);
+
+  async function changeQuickUnlock(): Promise<void> {
+    const wanted = quickEnabled;
+    quickBusy = true;
+    const result = await vault.setQuickUnlock(wanted);
+    quickBusy = false;
+    if (result.ok) {
+      quickReady = false; // on: needs a password unlock; off: the key is gone
+      return;
+    }
+    quickEnabled = !wanted;
+    notices.error(t("security.quickUnlockFailed"), result.error);
+  }
 
   async function changeAutoLock(): Promise<void> {
     const wanted = autoLock;
@@ -259,6 +294,15 @@
         bind:value={autoLock}
         onchange={changeAutoLock}
       />
+      {#if quickAvailable}
+        <Switch
+          label={t(`security.quickUnlock.${quickPlatform}`)}
+          hint={quickEnabled && !quickReady ? t("security.quickUnlockHint") : undefined}
+          bind:checked={quickEnabled}
+          disabled={quickBusy}
+          onchange={changeQuickUnlock}
+        />
+      {/if}
     </FormSection>
   {/if}
   {#snippet footer()}
@@ -284,6 +328,7 @@
   <ChangePasswordDialog
     onclose={(changed) => {
       changing = false;
+      if (changed) void loadQuickInfo();
       if (changed) notices.push("info", t("cred.passwordChanged"));
     }}
   />

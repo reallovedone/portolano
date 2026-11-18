@@ -25,6 +25,14 @@ pub enum ErrorCode {
     /// A server stopped offering the protection it offered before (a stored TLS certificate
     /// exists, the server now offers none). Additive: the connection is refused.
     SecurityDowngrade,
+    /// The user dismissed the Touch ID / Windows Hello request of quick unlock. Additive.
+    QuickUnlockCancelled,
+    /// The biometric check failed or quick unlock could not open the vault. Additive: the UI
+    /// falls back to the master password.
+    QuickUnlockFailed,
+    /// Quick unlock has no key held (never unlocked with the password in this run, turned off,
+    /// or the password changed). Additive.
+    QuickUnlockNotReady,
 }
 
 impl ErrorCode {
@@ -42,6 +50,9 @@ impl ErrorCode {
             Self::Internal => "internal",
             Self::Cancelled => "cancelled",
             Self::SecurityDowngrade => "security_downgrade",
+            Self::QuickUnlockCancelled => "quick_unlock_cancelled",
+            Self::QuickUnlockFailed => "quick_unlock_failed",
+            Self::QuickUnlockNotReady => "quick_unlock_not_ready",
         }
     }
 }
@@ -162,6 +173,10 @@ mod tests {
             ErrorCode::Unsupported,
             ErrorCode::Internal,
             ErrorCode::Cancelled,
+            ErrorCode::SecurityDowngrade,
+            ErrorCode::QuickUnlockCancelled,
+            ErrorCode::QuickUnlockFailed,
+            ErrorCode::QuickUnlockNotReady,
         ] {
             let json = serde_json::to_value(code).expect("serialize");
             assert_eq!(json, serde_json::Value::String(code.as_str().to_owned()));

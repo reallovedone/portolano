@@ -80,6 +80,9 @@ export const tauriIpc: Ipc = {
   vaultRevealSecret: (id) => call("vault_reveal_secret", { id }),
   vaultGetAutoLock: () => call("vault_get_auto_lock"),
   vaultSetAutoLock: (minutes) => call("vault_set_auto_lock", { minutes }),
+  vaultQuickUnlockInfo: () => call("vault_quick_unlock_info"),
+  vaultSetQuickUnlock: (enabled) => call("vault_set_quick_unlock", { enabled }),
+  vaultQuickUnlock: () => call("vault_quick_unlock"),
 
   termOpen: (connectionId, cols, rows, onEvent, options) =>
     call("term_open", {

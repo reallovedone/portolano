@@ -16,7 +16,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 use crate::commands::model::with_store;
-use crate::error::AppError;
+use crate::error::{AppError, ErrorCode};
+use crate::quick_unlock::{self, QuickUnlockInfo};
 use crate::settings::{auto_lock_duration, validate_auto_lock_minutes, SettingsStore};
 use crate::state::AppState;
 
@@ -60,10 +61,19 @@ where
     T: Send + 'static,
     F: FnOnce(&mut Vault) -> Result<T, VaultError> + Send + 'static,
 {
+    with_vault_state(app, move |_, vault| op(vault).map_err(AppError::from)).await
+}
+
+/// `with_vault` for operations that also need the rest of the app state (quick unlock).
+async fn with_vault_state<T, F>(app: AppHandle, op: F) -> Result<T, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce(&AppState, &mut Vault) -> Result<T, AppError> + Send + 'static,
+{
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let mut vault = lock_vault(&state)?;
-        op(&mut vault).map_err(AppError::from)
+        op(&state, &mut vault)
     })
     .await
     .map_err(|e| {
@@ -83,9 +93,41 @@ pub async fn vault_create(app: AppHandle, master_password: SecretString) -> Resu
     with_vault(app, move |v| v.create(master_password)).await
 }
 
+/// Unlocks with the master password. With quick unlock on, the key derived here is kept in
+/// memory for later Touch ID / Windows Hello unlocks. The setting is read with the vault mutex
+/// held, so it cannot change between the unlock and the capture.
+fn unlock_with_password(
+    state: &AppState,
+    vault: &mut Vault,
+    settings: &SettingsStore,
+    password: SecretString,
+) -> Result<(), AppError> {
+    // The master password always works: an unreadable setting counts as "off" (which also drops
+    // any held key) instead of blocking the unlock.
+    let enabled = match settings.get() {
+        Ok(current) => current.quick_unlock,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not read the settings; unlocking without quick unlock");
+            false
+        }
+    };
+    state
+        .quick_unlock
+        .unlock_with_password(vault, password, enabled)
+        .map_err(AppError::from)
+}
+
 #[tauri::command]
-pub async fn vault_unlock(app: AppHandle, master_password: SecretString) -> Result<(), AppError> {
-    with_vault(app, move |v| v.unlock(master_password)).await
+pub async fn vault_unlock(
+    app: AppHandle,
+    settings: State<'_, Arc<SettingsStore>>,
+    master_password: SecretString,
+) -> Result<(), AppError> {
+    let settings = Arc::clone(&settings);
+    with_vault_state(app, move |state, vault| {
+        unlock_with_password(state, vault, &settings, master_password)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -94,8 +136,11 @@ pub async fn vault_change_password(
     current_password: SecretString,
     new_password: SecretString,
 ) -> Result<(), AppError> {
-    with_vault(app, move |v| {
-        v.change_password(current_password, new_password)
+    with_vault_state(app, move |state, vault| {
+        state
+            .quick_unlock
+            .change_password(vault, current_password, new_password)
+            .map_err(AppError::from)
     })
     .await
 }
@@ -220,6 +265,111 @@ pub async fn vault_set_auto_lock(
     })?
 }
 
+/// What the UI needs for quick unlock: the system has a biometric method, the option is on, a
+/// key is held. `available` may ask the system (Windows), so this runs off the async threads.
+fn quick_unlock_info(
+    state: &AppState,
+    settings: &SettingsStore,
+) -> Result<QuickUnlockInfo, AppError> {
+    let enabled = settings.get()?.quick_unlock;
+    Ok(QuickUnlockInfo {
+        available: state.quick_unlock.available(),
+        enabled,
+        ready: state.quick_unlock.ready(enabled),
+    })
+}
+
+/// Turns quick unlock on or off. Turning it off drops the held key first. Turning it on does not
+/// create a key (there is no password at hand): the next unlock with the master password does.
+/// Holding the vault mutex orders this against a password unlock that is capturing the key.
+fn set_quick_unlock(
+    state: &AppState,
+    settings: &SettingsStore,
+    enabled: bool,
+) -> Result<(), AppError> {
+    if enabled && !state.quick_unlock.available() {
+        return Err(AppError::new(
+            ErrorCode::Unsupported,
+            "Touch ID / Windows Hello is not available on this device",
+        ));
+    }
+    let _vault = lock_vault(state)?;
+    if !enabled {
+        state.quick_unlock.clear();
+    }
+    settings.update(|s| s.quick_unlock = enabled)?;
+    Ok(())
+}
+
+/// The quick unlock sequence. The biometric prompt runs with NO lock held (it can stay open for
+/// as long as the user likes); only the final `unlock_with` takes the vault mutex, and the option
+/// is read again there, so turning it off meanwhile wins.
+fn quick_unlock_flow(
+    state: &AppState,
+    settings: &SettingsStore,
+    owner: Option<isize>,
+) -> Result<(), AppError> {
+    let enabled = settings.get()?.quick_unlock;
+    state.quick_unlock.authorize(enabled, owner)?;
+    let mut vault = lock_vault(state)?;
+    let enabled = settings.get()?.quick_unlock;
+    state.quick_unlock.open_vault(&mut vault, enabled)
+}
+
+async fn blocking<T, F>(what: &'static str, op: F) -> Result<T, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, AppError> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(op)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, task = what, "task failed");
+            AppError::internal(format!("{what} task failed"))
+        })?
+}
+
+#[tauri::command]
+pub async fn vault_quick_unlock_info(
+    app: AppHandle,
+    settings: State<'_, Arc<SettingsStore>>,
+) -> Result<QuickUnlockInfo, AppError> {
+    let settings = Arc::clone(&settings);
+    blocking("quick unlock", move || {
+        quick_unlock_info(&app.state::<AppState>(), &settings)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_set_quick_unlock(
+    app: AppHandle,
+    settings: State<'_, Arc<SettingsStore>>,
+    enabled: bool,
+) -> Result<(), AppError> {
+    let settings = Arc::clone(&settings);
+    blocking("quick unlock", move || {
+        set_quick_unlock(&app.state::<AppState>(), &settings, enabled)
+    })
+    .await
+}
+
+/// Asks for Touch ID / Windows Hello, then reopens the vault with the held key. Errors:
+/// `quick_unlock_cancelled` (the user dismissed the prompt), `quick_unlock_failed` (the check or
+/// the unlock failed: use the master password), `quick_unlock_not_ready` (no key held).
+#[tauri::command]
+pub async fn vault_quick_unlock(
+    app: AppHandle,
+    settings: State<'_, Arc<SettingsStore>>,
+) -> Result<(), AppError> {
+    let settings = Arc::clone(&settings);
+    let owner = quick_unlock::owner_handle(&app);
+    blocking("quick unlock", move || {
+        quick_unlock_flow(&app.state::<AppState>(), &settings, owner)
+    })
+    .await
+}
+
 /// One evaluation of the inactivity timer. Never blocks: when an operation holds the vault
 /// (an unlock in progress, for example) that operation is itself activity, so skipping is
 /// correct.
@@ -256,16 +406,21 @@ pub fn spawn_auto_lock(app: AppHandle) {
     });
 }
 
-/// Locks the vault immediately (application exit).
+/// Locks the vault immediately and drops the quick unlock key (application exit).
 pub fn lock_on_exit(state: &AppState) {
+    // The key is dropped with the vault mutex held, so a password unlock that is racing the
+    // exit cannot capture a new key after the clear.
     match state.vault.lock() {
         Ok(mut vault) => {
+            state.quick_unlock.clear();
             if let Err(err) = vault.lock() {
                 tracing::warn!(error = %err, "could not lock the vault on exit");
             }
         }
         Err(poison) => {
-            if let Err(err) = poison.into_inner().lock() {
+            let mut vault = poison.into_inner();
+            state.quick_unlock.clear();
+            if let Err(err) = vault.lock() {
                 tracing::warn!(error = %err, "could not lock the vault on exit");
             }
         }
@@ -525,5 +680,217 @@ mod tests {
             .expect("create");
         lock_on_exit(&state);
         assert!(!state.vault.lock().expect("lock").is_unlocked());
+    }
+
+    /// A locked vault with quick unlock switched on and a fake biometric check.
+    fn quick_state() -> (
+        tempfile::TempDir,
+        AppState,
+        SettingsStore,
+        Arc<crate::quick_unlock::testing::FakeVerifier>,
+    ) {
+        let (dir, mut state) = state_in_scratch();
+        let fake = crate::quick_unlock::testing::FakeVerifier::ok();
+        state.quick_unlock = crate::quick_unlock::QuickUnlock::new(fake.clone());
+        let settings = settings_in(&dir);
+        state
+            .vault
+            .lock()
+            .expect("lock")
+            .create(SecretString::from("fake-master"))
+            .expect("create");
+        lock_vault(&state).expect("vault").lock().expect("lock");
+        set_quick_unlock(&state, &settings, true).expect("turn on");
+        (dir, state, settings, fake)
+    }
+
+    fn password_unlock(state: &AppState, settings: &SettingsStore, password: &str) {
+        let mut vault = lock_vault(state).expect("vault");
+        unlock_with_password(state, &mut vault, settings, SecretString::from(password))
+            .expect("unlock");
+    }
+
+    fn info(state: &AppState, settings: &SettingsStore) -> QuickUnlockInfo {
+        quick_unlock_info(state, settings).expect("info")
+    }
+
+    #[test]
+    fn quick_unlock_becomes_ready_after_a_password_unlock_and_survives_lock() {
+        let (_dir, state, settings, fake) = quick_state();
+        assert_eq!(
+            info(&state, &settings),
+            QuickUnlockInfo {
+                available: true,
+                enabled: true,
+                ready: false
+            },
+            "turning it on holds no key yet"
+        );
+        password_unlock(&state, &settings, "fake-master");
+        assert!(info(&state, &settings).ready);
+
+        lock_vault(&state).expect("vault").lock().expect("lock");
+        assert!(info(&state, &settings).ready, "Lock keeps it ready");
+        quick_unlock_flow(&state, &settings, None).expect("quick unlock");
+        assert!(lock_vault(&state).expect("vault").is_unlocked());
+        assert_eq!(fake.calls(), 1);
+    }
+
+    #[test]
+    fn the_biometric_prompt_never_runs_with_the_vault_mutex_held() {
+        let (_dir, state, settings, fake) = quick_state();
+        password_unlock(&state, &settings, "fake-master");
+        lock_vault(&state).expect("vault").lock().expect("lock");
+        let vault = state.vault.clone();
+        let free = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = free.clone();
+        *fake.during.lock().expect("hook") = Some(Box::new(move || {
+            seen.store(
+                vault.try_lock().is_ok(),
+                std::sync::atomic::Ordering::SeqCst,
+            );
+        }));
+        quick_unlock_flow(&state, &settings, None).expect("quick unlock");
+        assert!(
+            free.load(std::sync::atomic::Ordering::SeqCst),
+            "the vault mutex must be free while the prompt is open"
+        );
+    }
+
+    #[test]
+    fn with_the_option_off_a_password_unlock_captures_nothing() {
+        let (_dir, state, settings, _) = quick_state();
+        set_quick_unlock(&state, &settings, false).expect("turn off");
+        password_unlock(&state, &settings, "fake-master");
+        assert_eq!(
+            info(&state, &settings),
+            QuickUnlockInfo {
+                available: true,
+                enabled: false,
+                ready: false
+            }
+        );
+        lock_vault(&state).expect("vault").lock().expect("lock");
+        let err = quick_unlock_flow(&state, &settings, None).expect_err("off");
+        assert_eq!(err.code, ErrorCode::QuickUnlockNotReady);
+    }
+
+    #[test]
+    fn turning_the_option_off_drops_the_key_and_it_needs_a_password_unlock_to_return() {
+        let (_dir, state, settings, _) = quick_state();
+        password_unlock(&state, &settings, "fake-master");
+        lock_vault(&state).expect("vault").lock().expect("lock");
+        set_quick_unlock(&state, &settings, false).expect("turn off");
+        assert!(
+            !SettingsStore::load(_dir.path())
+                .get()
+                .expect("get")
+                .quick_unlock
+        );
+        assert!(!info(&state, &settings).ready);
+
+        // Turned on again: still no key until the next unlock with the password.
+        set_quick_unlock(&state, &settings, true).expect("turn on");
+        assert!(!info(&state, &settings).ready);
+        let err = quick_unlock_flow(&state, &settings, None).expect_err("no key");
+        assert_eq!(err.code, ErrorCode::QuickUnlockNotReady);
+        password_unlock(&state, &settings, "fake-master");
+        assert!(info(&state, &settings).ready);
+    }
+
+    #[test]
+    fn the_option_cannot_be_turned_on_without_a_biometric_method() {
+        let (_dir, state, settings, fake) = quick_state();
+        set_quick_unlock(&state, &settings, false).expect("turn off");
+        fake.available
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        let err = set_quick_unlock(&state, &settings, true).expect_err("unavailable");
+        assert_eq!(err.code, ErrorCode::Unsupported);
+        assert!(!settings.get().expect("get").quick_unlock);
+        assert!(!info(&state, &settings).available);
+        // Turning it off never needs the hardware.
+        set_quick_unlock(&state, &settings, false).expect("off");
+    }
+
+    #[test]
+    fn a_failed_save_of_the_option_is_reported() {
+        let (dir, state, settings, _) = quick_state();
+        password_unlock(&state, &settings, "fake-master");
+        std::fs::remove_file(crate::settings::settings_path(dir.path())).expect("remove");
+        std::fs::create_dir_all(crate::settings::settings_path(dir.path())).expect("block");
+        set_quick_unlock(&state, &settings, false).expect_err("save fails");
+        // The key was dropped first: failing closed.
+        assert!(!state.quick_unlock.ready(true));
+    }
+
+    #[test]
+    fn a_cancelled_prompt_and_a_failed_unlock_report_their_own_errors() {
+        let (_dir, state, settings, fake) = quick_state();
+        password_unlock(&state, &settings, "fake-master");
+        lock_vault(&state).expect("vault").lock().expect("lock");
+
+        fake.set(Err(crate::quick_unlock::VerifyError::Cancelled));
+        let err = quick_unlock_flow(&state, &settings, None).expect_err("cancelled");
+        assert_eq!(err.code, ErrorCode::QuickUnlockCancelled);
+        assert!(info(&state, &settings).ready);
+        assert!(!lock_vault(&state).expect("vault").is_unlocked());
+
+        // The password changes without going through the commands: the held key is stale.
+        {
+            let mut vault = lock_vault(&state).expect("vault");
+            vault
+                .unlock(SecretString::from("fake-master"))
+                .expect("unlock");
+            vault
+                .change_password(
+                    SecretString::from("fake-master"),
+                    SecretString::from("fake-new"),
+                )
+                .expect("change");
+            vault.lock().expect("lock");
+        }
+        fake.set(Ok(()));
+        let err = quick_unlock_flow(&state, &settings, None).expect_err("stale key");
+        assert_eq!(err.code, ErrorCode::QuickUnlockFailed);
+        assert!(
+            !info(&state, &settings).ready,
+            "ready = false after a failure"
+        );
+        assert!(!lock_vault(&state).expect("vault").is_unlocked());
+    }
+
+    #[test]
+    fn an_unreadable_setting_never_blocks_the_password_unlock() {
+        let (_dir, state, settings, _) = quick_state();
+        password_unlock(&state, &settings, "fake-master");
+        assert!(state.quick_unlock.ready(true));
+        lock_vault(&state).expect("vault").lock().expect("lock");
+
+        settings.poison_for_test();
+        assert!(settings.get().is_err());
+        {
+            let mut vault = lock_vault(&state).expect("vault");
+            unlock_with_password(
+                &state,
+                &mut vault,
+                &settings,
+                SecretString::from("fake-master"),
+            )
+            .expect("the master password still unlocks");
+            assert!(vault.is_unlocked());
+        }
+        assert!(
+            !state.quick_unlock.ready(true),
+            "treated as off: key dropped"
+        );
+    }
+
+    #[test]
+    fn exit_drops_the_quick_unlock_key() {
+        let (_dir, state, settings, _) = quick_state();
+        password_unlock(&state, &settings, "fake-master");
+        assert!(info(&state, &settings).ready);
+        lock_on_exit(&state);
+        assert!(!info(&state, &settings).ready);
     }
 }

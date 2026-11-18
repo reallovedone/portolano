@@ -4,7 +4,8 @@
 //!
 //! The file holds no secret: whether to check for updates automatically, the version the user
 //! chose to skip, the last version that ran, the release notes of an update the user accepted (so
-//! that "What's new" needs no network on the first launch after it), and the vault auto-lock time.
+//! that "What's new" needs no network on the first launch after it), the vault auto-lock time
+//! and whether quick unlock is on.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -66,6 +67,9 @@ pub struct Settings {
     pub pending_notes: Option<PendingNotes>,
     /// Minutes of inactivity before the vault locks itself; `0` = never.
     pub auto_lock_minutes: u32,
+    /// "Quick unlock" with Touch ID / Windows Hello. Off by default; kept per device. It is
+    /// only a switch: the key that makes quick unlock possible never leaves the process memory.
+    pub quick_unlock: bool,
 }
 
 impl Default for Settings {
@@ -76,6 +80,7 @@ impl Default for Settings {
             last_run_version: None,
             pending_notes: None,
             auto_lock_minutes: DEFAULT_AUTO_LOCK_MINUTES,
+            quick_unlock: false,
         }
     }
 }
@@ -110,6 +115,19 @@ impl SettingsStore {
             path,
             inner: Mutex::new(settings),
         }
+    }
+
+    /// Poisons the lock the way a panic while it was held would (tests of the fail-safe paths).
+    #[cfg(test)]
+    pub(crate) fn poison_for_test(&self) {
+        let _ = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let _guard = self.inner.lock();
+                    panic!("simulated panic while the settings were locked");
+                })
+                .join()
+        });
     }
 
     pub fn get(&self) -> Result<Settings, AppError> {
@@ -223,6 +241,18 @@ mod tests {
                 .auto_lock_minutes,
             60
         );
+    }
+
+    #[test]
+    fn quick_unlock_is_off_by_default_and_survives_a_reload() {
+        let dir = scratch("quick-unlock");
+        std::fs::write(settings_path(&dir), br#"{ "autoLockMinutes": 5 }"#).expect("write");
+        let store = SettingsStore::load(&dir);
+        assert!(!store.get().expect("get").quick_unlock);
+        store.update(|s| s.quick_unlock = true).expect("update");
+        let text = std::fs::read_to_string(settings_path(&dir)).expect("read");
+        assert!(text.contains("\"quickUnlock\": true"), "{text}");
+        assert!(SettingsStore::load(&dir).get().expect("get").quick_unlock);
     }
 
     #[test]

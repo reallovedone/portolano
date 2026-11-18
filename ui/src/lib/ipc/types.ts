@@ -21,7 +21,13 @@ export type ErrorCode =
   /** The user dismissed a credential prompt (not an error to report). */
   | "cancelled"
   /** A host that used encryption before offers none now: the connection was refused. */
-  | "security_downgrade";
+  | "security_downgrade"
+  /** The user dismissed the Touch ID / Windows Hello request of quick unlock. */
+  | "quick_unlock_cancelled"
+  /** The biometric check failed or quick unlock could not open the vault: use the password. */
+  | "quick_unlock_failed"
+  /** Quick unlock holds no key (unlock with the password first). */
+  | "quick_unlock_not_ready";
 
 export interface AppError {
   code: ErrorCode;
@@ -106,6 +112,13 @@ export type WebNavAction =
 // ---- vault ----
 
 export type VaultStatus = "notCreated" | "locked" | "unlocked";
+
+/** What `vaultQuickUnlockInfo` reports (Touch ID / Windows Hello unlock). */
+export interface QuickUnlockInfo {
+  available: boolean;
+  enabled: boolean;
+  ready: boolean;
+}
 export type CredentialKind = "password" | "sshKey";
 
 export interface CredentialSummary {

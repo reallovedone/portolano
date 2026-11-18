@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { IpcError } from "./errors";
-import { createMockIpc } from "./mock";
+import { createMockIpc, MOCK_MASTER_PASSWORD } from "./mock";
 import type { Connection, Node } from "./types";
 
 const newConnection = (id: string, parentId: string | null): Node => {
@@ -124,6 +124,83 @@ describe("mock auto-lock time", () => {
     expect(await codeOf(ipc.vaultSetAutoLock(7))).toBe("invalid_input");
     expect(await ipc.vaultGetAutoLock()).toBe(0);
     expect(await createMockIpc({ autoLockMinutes: 60 }).vaultGetAutoLock()).toBe(60);
+  });
+});
+
+describe("mock quick unlock", () => {
+  async function ready() {
+    const ipc = createMockIpc({ vault: "locked" });
+    await ipc.vaultSetQuickUnlock(true);
+    await ipc.vaultUnlock(MOCK_MASTER_PASSWORD);
+    await ipc.vaultLock();
+    return ipc;
+  }
+
+  it("is off, available and not ready at the start", async () => {
+    const ipc = createMockIpc({ vault: "locked" });
+    expect(await ipc.vaultQuickUnlockInfo()).toEqual({ available: true, enabled: false, ready: false });
+    expect(await createMockIpc({ quickUnlockAvailable: false }).vaultQuickUnlockInfo()).toEqual({
+      available: false,
+      enabled: false,
+      ready: false,
+    });
+  });
+
+  it("becomes ready after a password unlock with the option on, and survives Lock", async () => {
+    const ipc = createMockIpc({ vault: "locked" });
+    await ipc.vaultSetQuickUnlock(true);
+    expect((await ipc.vaultQuickUnlockInfo()).ready).toBe(false);
+    await ipc.vaultUnlock(MOCK_MASTER_PASSWORD);
+    expect(await ipc.vaultQuickUnlockInfo()).toEqual({ available: true, enabled: true, ready: true });
+    await ipc.vaultLock();
+    expect((await ipc.vaultQuickUnlockInfo()).ready).toBe(true);
+    await ipc.vaultQuickUnlock();
+    expect(await ipc.vaultStatus()).toBe("unlocked");
+    expect(ipc.quickUnlock.prompts).toBe(1);
+  });
+
+  it("is dropped by turning the option off and by changing the password", async () => {
+    const off = await ready();
+    await off.vaultSetQuickUnlock(false);
+    expect(await codeOf(off.vaultQuickUnlock())).toBe("quick_unlock_not_ready");
+    await off.vaultSetQuickUnlock(true);
+    expect((await off.vaultQuickUnlockInfo()).ready).toBe(false);
+
+    const changed = await ready();
+    await changed.vaultUnlock(MOCK_MASTER_PASSWORD);
+    await changed.vaultChangePassword(MOCK_MASTER_PASSWORD, "other");
+    expect((await changed.vaultQuickUnlockInfo()).ready).toBe(false);
+    await changed.vaultLock();
+    expect(await codeOf(changed.vaultQuickUnlock())).toBe("quick_unlock_not_ready");
+    expect(await changed.vaultStatus()).toBe("locked");
+  });
+
+  it("captures nothing with the option off", async () => {
+    const ipc = createMockIpc({ vault: "locked" });
+    await ipc.vaultUnlock(MOCK_MASTER_PASSWORD);
+    await ipc.vaultLock();
+    expect((await ipc.vaultQuickUnlockInfo()).ready).toBe(false);
+    expect(await codeOf(ipc.vaultQuickUnlock())).toBe("quick_unlock_not_ready");
+    expect(ipc.quickUnlock.prompts).toBe(0);
+  });
+
+  it("reports a cancelled or failed prompt and a failed unlock like the backend", async () => {
+    const ipc = await ready();
+    ipc.quickUnlock.outcome = "cancelled";
+    expect(await codeOf(ipc.vaultQuickUnlock())).toBe("quick_unlock_cancelled");
+    ipc.quickUnlock.outcome = "failed";
+    expect(await codeOf(ipc.vaultQuickUnlock())).toBe("quick_unlock_failed");
+    expect((await ipc.vaultQuickUnlockInfo()).ready).toBe(true);
+    ipc.quickUnlock.outcome = "unlock-failed";
+    expect(await codeOf(ipc.vaultQuickUnlock())).toBe("quick_unlock_failed");
+    expect((await ipc.vaultQuickUnlockInfo()).ready).toBe(false);
+    expect(await ipc.vaultStatus()).toBe("locked");
+  });
+
+  it("refuses to turn on without a biometric method", async () => {
+    const ipc = createMockIpc({ quickUnlockAvailable: false });
+    expect(await codeOf(ipc.vaultSetQuickUnlock(true))).toBe("unsupported");
+    await ipc.vaultSetQuickUnlock(false);
   });
 });
 

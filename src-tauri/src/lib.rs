@@ -5,6 +5,7 @@ mod commands;
 mod error;
 #[cfg(target_os = "macos")]
 mod menu;
+mod quick_unlock;
 mod quit;
 #[cfg(target_os = "macos")]
 mod quit_macos;
@@ -36,9 +37,25 @@ fn init_tracing() {
         .ok();
 }
 
+/// Best-effort hardening: no core dump of this process (it would hold the unlocked vault and the
+/// quick unlock key). The limit is lowered for good (soft and hard).
+#[cfg(unix)]
+fn disable_core_dumps() {
+    let none = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `setrlimit` only reads the struct passed by reference.
+    if unsafe { libc::setrlimit(libc::RLIMIT_CORE, &none) } != 0 {
+        tracing::warn!("could not disable core dumps");
+    }
+}
+
 /// Starts the application.
 pub fn run() {
     init_tracing();
+    #[cfg(unix)]
+    disable_core_dumps();
     // Several TLS providers end up compiled in (the updater brings `ring`, the RDP and VNC code
     // `aws-lc-rs`): fix the process default explicitly so that no library has to guess.
     if tokio_rustls::rustls::crypto::aws_lc_rs::default_provider()
@@ -118,6 +135,9 @@ pub fn run() {
             commands::vault::vault_reveal_secret,
             commands::vault::vault_get_auto_lock,
             commands::vault::vault_set_auto_lock,
+            commands::vault::vault_quick_unlock_info,
+            commands::vault::vault_set_quick_unlock,
+            commands::vault::vault_quick_unlock,
             commands::term::term_open,
             commands::term::term_write,
             commands::term::term_ack,
@@ -300,6 +320,9 @@ mod tests {
             "vault_reveal_secret",
             "vault_get_auto_lock",
             "vault_set_auto_lock",
+            "vault_quick_unlock_info",
+            "vault_set_quick_unlock",
+            "vault_quick_unlock",
             "term_open",
             "term_write",
             "term_ack",
