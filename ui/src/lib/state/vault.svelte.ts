@@ -4,6 +4,7 @@ import {
   type CredentialSummary,
   type Ipc,
   type IpcError,
+  type QuickUnlockInfo,
   type RevealedSecret,
   type Uuid,
   type VaultStatus,
@@ -148,6 +149,23 @@ export class VaultStore {
   /** Saves the auto-lock time; the backend applies it at once. */
   async setAutoLock(minutes: number): Promise<Result<void>> {
     return attempt(() => this.#ipc.vaultSetAutoLock(minutes));
+  }
+
+  /** What quick unlock (Touch ID / Windows Hello) offers right now. */
+  async quickUnlockInfo(): Promise<Result<QuickUnlockInfo>> {
+    return attempt(() => this.#ipc.vaultQuickUnlockInfo());
+  }
+
+  /** Turns quick unlock on or off; on takes effect from the next password unlock. */
+  async setQuickUnlock(enabled: boolean): Promise<Result<void>> {
+    return attempt(() => this.#ipc.vaultSetQuickUnlock(enabled));
+  }
+
+  /** Unlocks with the biometric check. Rejections carry the `quick_unlock_*` codes. */
+  async quickUnlock(): Promise<Result<void>> {
+    const result = await attempt(() => this.#ipc.vaultQuickUnlock());
+    if (result.ok) await this.refresh();
+    return result;
   }
 
   name(id: Uuid): string | null {

@@ -100,8 +100,13 @@ vault file tampered with, even by a single bit, is rejected rather than decrypte
 256-bit data key encrypts the vault and is itself wrapped by the password-derived key, so
 changing the master password creates a new data key and encrypts the vault again (a copy
 made before the change still opens with the old password). Every save uses a fresh nonce and
-replaces the file atomically. The vault locks after 15 minutes of inactivity, counting time
-spent asleep, and when the application quits; keys and decrypted secrets are zeroed on lock.
+replaces the file atomically. The vault locks after a chosen period of inactivity (15 minutes
+by default; 5, 30 or 60 minutes, or never, can be set in the Security section of the
+credentials window), counting time spent asleep, and when the application quits. Keys and
+decrypted secrets are zeroed on lock. Optionally, quick unlock reopens the vault with Touch ID
+(macOS) or Windows Hello (Windows) after you have unlocked it once with the master password,
+which always works too. Quick unlock keeps the vault key in Portolano's memory while the app
+is open; quit the app to require the master password again.
 
 **Connections and files.**
 

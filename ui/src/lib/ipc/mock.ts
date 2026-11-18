@@ -461,8 +461,22 @@ export interface MockOptions {
   web?: boolean;
   /** Auto-lock time the mock starts with, in minutes (default 15). */
   autoLockMinutes?: number;
+  /** Whether the pretend system has Touch ID / Windows Hello (default `true`). */
+  quickUnlockAvailable?: boolean;
   /** Canned answers of the update commands (default: up to date, no "What's new"). */
   updates?: MockUpdateOptions;
+}
+
+/** Knobs and counters of the fake quick unlock (what the biometric prompt answers). */
+export interface MockQuickUnlock {
+  /**
+   * What the next `vaultQuickUnlock` does: `ok` opens the vault; `cancelled` and `failed` are the
+   * prompt's answers (the key stays); `unlock-failed` is a stale key (`quick_unlock_failed`, key
+   * dropped).
+   */
+  outcome: "ok" | "cancelled" | "failed" | "unlock-failed";
+  /** How many biometric prompts were shown. */
+  prompts: number;
 }
 
 /** The mock plus what tests need to play the backend's part. */
@@ -488,6 +502,8 @@ export interface MockIpc extends Ipc {
   readonly exports: readonly MockExport[];
   /** What the update commands received, and the knobs to steer their answers. */
   readonly updates: MockUpdates;
+  /** The fake biometric prompt of quick unlock. */
+  readonly quickUnlock: MockQuickUnlock;
 }
 
 export function createMockIpc(options: MockOptions = {}): MockIpc {
@@ -525,6 +541,10 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     for (const handler of [...lockedHandlers]) handler();
   };
   const updates = createMockUpdates(options.updates);
+  // Quick unlock mirrors the backend: a key is held only after a password unlock with the option on.
+  const quickUnlock: MockQuickUnlock = { outcome: "ok", prompts: 0 };
+  let quickEnabled = false;
+  let quickHeld = false;
   const transfer = createMockTransfer(
     () => doc,
     (next) => {
@@ -619,6 +639,7 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     sessionKeyCaptures,
     exports: transfer.exports,
     updates,
+    quickUnlock,
     async docGet() {
       return clone(doc);
     },
@@ -677,11 +698,13 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       if (vaultStatus === "notCreated") throw new IpcError("invalid_input", "no vault yet");
       if (password !== masterPassword) throw new IpcError("auth_failed", "wrong master password");
       vaultStatus = "unlocked";
+      quickHeld = quickEnabled;
     },
     async vaultChangePassword(current, next) {
       if (current !== masterPassword) throw new IpcError("auth_failed", "wrong master password");
       if (next.length === 0) throw new IpcError("invalid_input", "empty master password");
       masterPassword = next;
+      quickHeld = false;
     },
     async vaultLock() {
       lockVault();
@@ -728,6 +751,37 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
         throw new IpcError("invalid_input", "unsupported auto-lock time");
       }
       autoLockMinutes = minutes;
+    },
+    async vaultQuickUnlockInfo() {
+      return {
+        available: options.quickUnlockAvailable ?? true,
+        enabled: quickEnabled,
+        ready: quickEnabled && quickHeld,
+      };
+    },
+    async vaultSetQuickUnlock(enabled) {
+      if (enabled && !(options.quickUnlockAvailable ?? true)) {
+        throw new IpcError("unsupported", "Touch ID / Windows Hello is not available");
+      }
+      if (!enabled) quickHeld = false;
+      quickEnabled = enabled;
+    },
+    async vaultQuickUnlock() {
+      if (!quickEnabled || !quickHeld) {
+        throw new IpcError("quick_unlock_not_ready", "quick unlock needs the master password first");
+      }
+      quickUnlock.prompts += 1;
+      if (quickUnlock.outcome === "cancelled") {
+        throw new IpcError("quick_unlock_cancelled", "quick unlock was cancelled");
+      }
+      if (quickUnlock.outcome === "failed") {
+        throw new IpcError("quick_unlock_failed", "the biometric check failed");
+      }
+      if (quickUnlock.outcome === "unlock-failed") {
+        quickHeld = false;
+        throw new IpcError("quick_unlock_failed", "quick unlock could not open the vault");
+      }
+      vaultStatus = "unlocked";
     },
 
     termOpen: (connectionId, cols, rows, onEvent, openOptions) =>

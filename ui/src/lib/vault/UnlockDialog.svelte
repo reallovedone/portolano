@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onDestroy, onMount } from "svelte";
   import { t } from "../i18n/strings";
+  import { detectMac } from "../shortcuts";
   import { getApp } from "../state/app";
   import Button from "../ui/Button.svelte";
   import ChartBackdrop from "../ui/ChartBackdrop.svelte";
@@ -20,12 +22,59 @@
     onclose: (unlocked: boolean) => void;
   } = $props();
 
-  const { vault } = getApp();
+  const { vault, notices } = getApp();
   const uid = `uv-${Math.random().toString(36).slice(2, 9)}`;
 
   let password = $state("");
   let error = $state<string | null>(null);
   let busy = $state(false);
+
+  const platform = detectMac() ? "mac" : "windows";
+  /** A quick-unlock key is held: offer the biometric button. */
+  let quickReady = $state(false);
+  let quickBusy = $state(false);
+  let quickNote = $state<string | null>(null);
+  /** Set once the dialog is done (unlocked, cancelled or destroyed): later biometric answers are ignored. */
+  let finished = false;
+
+  onMount(async () => {
+    const info = await vault.quickUnlockInfo();
+    if (finished) return;
+    if (!info.ok) {
+      notices.error(t("security.quickUnlockInfoFailed"), info.error);
+      return;
+    }
+    if (!info.value.ready) return;
+    quickReady = true;
+    // One automatic attempt per opening; retrying is the user's choice.
+    await useQuickUnlock();
+  });
+
+  onDestroy(() => {
+    finished = true;
+  });
+
+  async function useQuickUnlock(): Promise<void> {
+    if (finished || quickBusy) return;
+    quickBusy = true;
+    quickNote = null;
+    const result = await vault.quickUnlock();
+    quickBusy = false;
+    if (finished) return;
+    if (result.ok) {
+      finished = true;
+      password = "";
+      onclose(true);
+      return;
+    }
+    if (result.error.code === "quick_unlock_not_ready") quickReady = false;
+    else if (result.error.code !== "quick_unlock_cancelled") {
+      // (A second request while an OS prompt is open comes back as cancelled: stays silent.)
+      quickNote = t(`vault.biometricFailed.${platform}`);
+    }
+    // The system prompt takes the focus: give it back to the password field.
+    document.getElementById(`${uid}-pw`)?.focus();
+  }
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -35,7 +84,10 @@
     const result = await vault.unlock(password);
     busy = false;
     password = "";
+    // The biometric check may have closed the dialog while this was in flight.
+    if (finished) return;
     if (result.ok) {
+      finished = true;
       onclose(true);
     } else {
       error =
@@ -46,6 +98,7 @@
   }
 
   function cancel(): void {
+    finished = true;
     password = "";
     onclose(false);
   }
@@ -74,6 +127,14 @@
       {error}
       data-autofocus
     />
+    {#if quickReady}
+      <div class="quick">
+        <Button variant="plain" onclick={useQuickUnlock} disabled={quickBusy}>
+          {t(`vault.useBiometric.${platform}`)}
+        </Button>
+        {#if quickNote}<p class="note" role="status">{quickNote}</p>{/if}
+      </div>
+    {/if}
   </form>
   {#snippet footer()}
     {#if allowManual && onmanual}
@@ -121,6 +182,19 @@
 
   .intro {
     color: var(--text-secondary);
+    text-align: center;
+  }
+
+  .quick {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .note {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm, inherit);
     text-align: center;
   }
 

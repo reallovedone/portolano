@@ -39,17 +39,31 @@ uuid.workspace = true
 secrecy.workspace = true
 sha2.workspace = true
 arboard.workspace = true
+chacha20poly1305.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
 
 # The change counter of the macOS pasteboard (readable without any permission prompt) and the
 # marker types password managers use for concealed content.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSAppleEventDescriptor", "NSAppleEventManager"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSError", "NSAppleEventDescriptor", "NSAppleEventManager"] }
+# Touch ID for quick unlock (LAContext; no app signing needed) and the block type of its reply.
+objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "LAContext", "LAError", "block2"] }
+block2 = "0.6"
+
+# Core dumps are disabled at start-up (`setrlimit`): a dump would contain the unlocked vault.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # The clipboard sequence number of Windows (the same crate `arboard` uses there).
 [target.'cfg(windows)'.dependencies]
 clipboard-win = "5.3"
+# Windows Hello for quick unlock (`UserConsentVerifier`; same `windows` version as Tauri's).
+windows = { version = "0.62", features = ["Foundation", "Security_Credentials_UI", "Win32_Foundation", "Win32_System_WinRT"] }
+# The async operation type of the WinRT calls (`join` waits for the answer); already in the lock.
+windows-future = "0.3"
 
 [build-dependencies]
 tauri-build.workspace = true

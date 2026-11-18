@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::clipboard::SystemClipboard;
 use crate::error::{poisoned, AppError};
+use crate::quick_unlock::QuickUnlock;
 
 pub type SessionId = Uuid;
 
@@ -275,6 +276,8 @@ pub struct AppState {
     pub notifier: Arc<Notifier>,
     /// The operating system's clipboard, for RDP sessions that share it (WP14).
     pub clipboard: Arc<SystemClipboard>,
+    /// The key behind Touch ID / Windows Hello unlock; in memory only (see `quick_unlock`).
+    pub quick_unlock: QuickUnlock,
 }
 
 impl AppState {
@@ -291,6 +294,7 @@ impl AppState {
             import_previews: Mutex::new(PreviewCache::default()),
             notifier: Arc::new(Notifier::default()),
             clipboard: Arc::new(SystemClipboard::default()),
+            quick_unlock: QuickUnlock::default(),
         }
     }
 }
