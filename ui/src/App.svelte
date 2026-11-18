@@ -46,6 +46,16 @@
 
   // Notices the backend sends on its own: the vault locking itself, a failed "save to vault".
   onMount(() => connectBackendEvents(app));
+  // A reload starts with the native Edit menu in place, whatever an earlier page left behind.
+  onMount(() => {
+    app.ipc
+      .menuSetSessionKeys(false)
+      .catch((e: unknown) =>
+        app.ipc
+          .uiLog("warn", `menu keys failed: ${e instanceof Error ? e.message : String(e)}`)
+          .catch(() => undefined),
+      );
+  });
 
   onMount(() => {
     void (async () => {

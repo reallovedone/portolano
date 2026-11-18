@@ -61,6 +61,11 @@ export function connectBackendEvents(app: App): () => void {
       }
       ui.open({ type: "updates" });
     }),
+    // macOS menu bar "Close Tab" (⌘W): closes the active tab, asking first if it is connected.
+    app.ipc.onCloseTabMenu(() => {
+      const id = app.tabs.state.activeId;
+      if (id) void app.closeConfirm.closeTab(id);
+    }),
     // ⌘Q, menu Quit, Dock → Quit, the window's close button: the backend stopped it and waits
     // for us (2 seconds, then it quits anyway).
     app.ipc.onQuitRequested(() => void answerQuitRequest(app)),

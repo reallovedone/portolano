@@ -371,6 +371,52 @@ describe("Mac shortcuts", () => {
     expect(e.prevented || e.stopped).toBe(false);
   });
 
+  it("leaves Cmd+Q, Cmd+H, Cmd+M and Cmd+W to the app: nothing is sent and the event goes on", async () => {
+    for (const code of ["KeyQ", "KeyH", "KeyM", "KeyW"]) {
+      const { input, calls } = setup({ mac: true });
+      input.keyDown(fakeKey("MetaLeft", meta));
+      const down = fakeKey(code, meta);
+      input.keyDown(down);
+      const up = fakeKey(code, meta);
+      input.keyUp(up);
+      input.keyUp(fakeKey("MetaLeft"));
+      await flushPromises();
+      expect(calls, code).toHaveLength(0);
+      expect(down.prevented || down.stopped, code).toBe(false);
+      expect(up.prevented || up.stopped, code).toBe(false);
+    }
+  });
+
+  it("sends Cmd+N, Cmd+K, Cmd+Shift+L and Cmd+C as Ctrl+key", async () => {
+    for (const [code, shift] of [["KeyN", false], ["KeyK", false], ["KeyL", true], ["KeyC", false]] as const) {
+      const { input, calls } = setup({ mac: true });
+      input.keyDown(fakeKey("MetaLeft", meta));
+      if (shift) input.keyDown(fakeKey("ShiftLeft", meta));
+      input.keyDown(fakeKey(code, meta));
+      await flushPromises();
+      const sent = keys(calls);
+      expect(sent, code).toContain("ControlLeft+");
+      expect(sent, code).toContain(`${code}+`);
+      expect(sent.at(-1), code).toBe("ControlLeft-");
+      expect(sent, code).not.toContain("MetaLeft+");
+    }
+  });
+
+  it("does not tap the Windows key when only the key-up of the shortcut arrives", async () => {
+    // The Edit menu took Cmd+C: the webview saw Cmd down, then the key-up of C with Cmd held.
+    const { input, calls } = setup({ mac: true });
+    input.keyDown(fakeKey("MetaLeft", meta));
+    input.keyUp(fakeKey("KeyC", meta));
+    input.keyUp(fakeKey("MetaLeft"));
+    await flushPromises();
+    expect(calls).toHaveLength(0);
+    // The next lone press is a tap again.
+    input.keyDown(fakeKey("MetaLeft", meta));
+    input.keyUp(fakeKey("MetaLeft"));
+    await flushPromises();
+    expect(keys(calls)).toEqual(["MetaLeft+", "MetaLeft-"]);
+  });
+
   it("behaves exactly as before when the option is off", async () => {
     for (const mac of [undefined, false]) {
       const { input, calls } = setup({ mac });

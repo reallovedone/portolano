@@ -13,6 +13,7 @@ attention when you upgrade.
 - The status bar shows the running version and a dot with the update status (up to date, update available, or unknown); click it to open the update dialog.
 - Choose when the vault locks itself after inactivity (never, 5, 15, 30 minutes or 1 hour) in the new *Security* section of the credentials window. The default stays 15 minutes.
 - Portolano asks for confirmation before closing a tab, closing the window, quitting or installing an update when that would end a connected SSH, terminal, RDP or VNC session. Web tabs and disconnected sessions close without asking.
+- With *Use Mac shortcuts* on an RDP connection, ⌘C, ⌘V, ⌘X, ⌘A, ⌘Z and every other ⌘ combination reach Windows as Ctrl+key. ⌘Q, ⌘H, ⌘M and ⌘W stay with Portolano. ⌘W closes the current tab (asking first when a session is connected).
 
 ## [0.2.0] - 2026-11-17
 
