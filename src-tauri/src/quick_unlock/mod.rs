@@ -48,11 +48,12 @@ mod other;
 use self::other as platform;
 
 /// The reason the system dialog shows (macOS) or the message of the Hello prompt (Windows).
+#[cfg(any(target_os = "macos", windows))]
 pub const REASON: &str = "unlock the Portolano vault";
 
 /// How long a system prompt may stay open before it is abandoned (and cancelled where the API
 /// allows) so that a prompt that never answers cannot block the request forever.
-#[cfg(any(target_os = "macos", windows, test))]
+#[cfg(any(target_os = "macos", windows))]
 pub const PROMPT_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Consecutive failed biometric checks (not cancellations) after which the held key is dropped
@@ -83,6 +84,8 @@ const WRAP_AAD: &[u8] = b"portolano quick unlock v1";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerifyError {
     /// The user dismissed the request (cancel, "use password", system or app cancel).
+    // Only the macOS/Windows verifiers construct it.
+    #[cfg_attr(not(any(target_os = "macos", windows, test)), allow(dead_code))]
     Cancelled,
     /// The check failed (no match, lockout, device busy, not configured, ...).
     Failed,
