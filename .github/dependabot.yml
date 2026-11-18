@@ -1,11 +1,11 @@
-# Weekly dependency updates. Minor and patch updates are grouped into one pull request per
+# Monthly dependency updates. Minor and patch updates are grouped into one pull request per
 # ecosystem; major updates arrive as separate pull requests so they get a proper look.
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       cargo-minor-patch:
         update-types: [minor, patch]
@@ -13,7 +13,7 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       npm-root-minor-patch:
         update-types: [minor, patch]
@@ -21,7 +21,7 @@ updates:
   - package-ecosystem: npm
     directory: /ui
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       npm-ui-minor-patch:
         update-types: [minor, patch]
@@ -29,7 +29,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       actions-minor-patch:
         update-types: [minor, patch]
