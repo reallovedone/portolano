@@ -5,7 +5,10 @@
 
   let { demo = false }: { demo?: boolean } = $props();
 
-  const { vault, tabs, doc } = getApp();
+  const { vault, tabs, doc, ui, updates } = getApp();
+
+  const version = $derived(updates.settings?.currentVersion ?? "");
+  const freshnessKey = $derived(`status.update.${updates.freshness}` as StringKey);
 
   const vaultKey = $derived(
     (vault.status === "unknown" ? "vault.locked" : `vault.${vault.status}`) as StringKey,
@@ -23,6 +26,16 @@
     </span>
   {/if}
   {#if demo}<span class="demo">{t("status.ipcMock")}</span>{/if}
+  <span class="version">
+    {#if version}<span>{t("status.version", { version })}</span>{/if}
+    <button
+      type="button"
+      class="dot {updates.freshness}"
+      aria-label={t(freshnessKey)}
+      title={t(freshnessKey)}
+      onclick={() => ui.open({ type: "updates" })}
+    ></button>
+  </span>
 </footer>
 
 <style>
@@ -39,7 +52,47 @@
     font-size: var(--font-size-sm);
   }
 
-  .demo {
+  .version {
+    display: flex;
+    gap: var(--space-1);
+    align-items: center;
     margin-left: auto;
+  }
+
+  .dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--icon-size-md);
+    height: var(--icon-size-md);
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-full);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .dot::before {
+    width: var(--space-2);
+    height: var(--space-2);
+    border-radius: var(--radius-full);
+    content: "";
+  }
+
+  .dot.upToDate::before {
+    background: var(--success-text);
+  }
+
+  .dot.available::before {
+    background: var(--warning-text);
+  }
+
+  .dot.unknown::before {
+    background: var(--text-tertiary);
+  }
+
+  .dot:focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring);
+    outline-offset: var(--focus-ring-offset);
   }
 </style>

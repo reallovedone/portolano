@@ -32,6 +32,7 @@ export const strings = {
   "tree.newConnection": "New connection",
   "tree.newFolder": "New folder",
   "tree.collapseAll": "Collapse all",
+  "tree.expandAll": "Expand all",
   "tree.moveTo": "Move to…",
   "tree.moveToRoot": "(top level)",
   "tree.moveDialogTitle": "Move “{name}”",
@@ -93,6 +94,10 @@ export const strings = {
   "status.vault": "Vault: {state}",
   "status.sessions": "{count} open",
   "status.ipcMock": "Demo data (mock backend)",
+  "status.version": "v{version}",
+  "status.update.upToDate": "Up to date",
+  "status.update.available": "Update available",
+  "status.update.unknown": "Update status unknown",
 
   "vault.notCreated": "No vault",
   "vault.locked": "Locked",

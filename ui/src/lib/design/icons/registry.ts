@@ -10,6 +10,7 @@ import Check from "@lucide/svelte/icons/check";
 import ChevronDown from "@lucide/svelte/icons/chevron-down";
 import ChevronRight from "@lucide/svelte/icons/chevron-right";
 import ChevronUp from "@lucide/svelte/icons/chevron-up";
+import ChevronsDownUp from "@lucide/svelte/icons/chevrons-down-up";
 import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
 import CircleAlert from "@lucide/svelte/icons/circle-exclamation-point";
 import CircleCheck from "@lucide/svelte/icons/circle-check";
@@ -64,6 +65,7 @@ export const ICONS = {
   "chevron-down": ChevronDown,
   "chevron-right": ChevronRight,
   "chevron-up": ChevronUp,
+  "chevrons-down-up": ChevronsDownUp,
   "chevrons-up-down": ChevronsUpDown,
   clipboard: Clipboard,
   clock: Clock,

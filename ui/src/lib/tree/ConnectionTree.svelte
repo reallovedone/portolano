@@ -268,6 +268,7 @@
   function moreMenu(): MenuItem[] {
     return [
       { label: t("tree.collapseAll"), action: () => doc.collapseAll(), icon: "chevrons-up-down" },
+      { label: t("tree.expandAll"), action: () => doc.expandAll(), icon: "chevrons-down-up" },
       ...blankMenu().map((item, index) => ({ ...item, separatorBefore: index === 0 })),
       {
         label: t("transfer.import"),
