@@ -7,6 +7,8 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+## [0.3.0] - Unreleased
+
 ### ✨ Added
 
 - *Expand all* in the sidebar menu opens every folder at once, next to *Collapse all*.
@@ -68,5 +70,6 @@ First public release.
 - Apple silicon and Intel Macs, and Windows 10/11 (64-bit).
 
 [Unreleased]: https://github.com/reallovedone/portolano/compare/v0.2.0...HEAD
+[0.3.0]: https://github.com/reallovedone/portolano/compare/v0.2.0...v0.3.0-rc1
 [0.2.0]: https://github.com/reallovedone/portolano/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/reallovedone/portolano/releases/tag/v0.1.0
