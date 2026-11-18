@@ -149,8 +149,11 @@ export const tauriIpc: Ipc = {
 
   onVaultLocked: (handler) => subscribe<null>("vault-locked", () => handler()),
   onCheckForUpdatesMenu: (handler) => subscribe<null>("menu-check-for-updates", () => handler()),
+  onQuitRequested: (handler) => subscribe<null>("quit-requested", () => handler()),
   onCredentialSaveFailed: (handler) =>
     subscribe<CredentialSaveFailed>("credential-save-failed", handler),
+
+  quitReply: (reply) => call("quit_reply", { reply }),
 
   uiLog: (level, message) => call("ui_log", { level, message }),
 };

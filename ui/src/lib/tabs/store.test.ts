@@ -316,3 +316,92 @@ describe("TabsStore", () => {
     });
   });
 });
+
+describe("TabsStore liveness", () => {
+  /** Opens succeed and keep each session's event callback, so tests can feed events. */
+  function feedIpc(base: Ipc) {
+    const feeds: Array<(e: unknown) => void> = [];
+    let counter = 0;
+    const ipc: Ipc = {
+      ...base,
+      termOpen: async (_id, _c, _r, onEvent) => {
+        feeds.push(onEvent as (e: unknown) => void);
+        return `s${++counter}`;
+      },
+      fbOpen: async (_id, _w, _h, onEvent) => {
+        feeds.push(onEvent as (e: unknown) => void);
+        return `s${++counter}`;
+      },
+      webOpen: async () => `s${++counter}`,
+      sessionClose: async () => {},
+    };
+    return { ipc, feeds };
+  }
+  const data = { type: "data", bytes: new Uint8Array([1]) };
+  const resize = { type: "resize", w: 1, h: 1 };
+
+  it("counts only tabs that are connected", async () => {
+    const { ipc, feeds } = feedIpc(createMockIpc({ vault: "unlocked" }));
+    const app = await ready(ipc);
+    const a = (await app.tabs.openConnection(MOCK_IDS.localSshd)) as string; // ssh
+    const b = (await app.tabs.openConnection(MOCK_IDS.devVm)) as string; // vnc
+    const w = (await app.tabs.openConnection(MOCK_IDS.intranet)) as string; // web
+    expect(app.tabs.liveCount()).toBe(0);
+    feeds[0]?.(data);
+    expect(app.tabs.isLive(a)).toBe(true);
+    expect(app.tabs.isLive(b)).toBe(false);
+    feeds[1]?.(resize);
+    expect(app.tabs.isLive(b)).toBe(true);
+    expect(app.tabs.isLive(w)).toBe(false);
+    expect(app.tabs.liveCount()).toBe(2);
+    expect(app.tabs.liveCount([a, w])).toBe(1);
+    feeds[0]?.({ type: "exit", code: 0 });
+    expect(app.tabs.liveCount()).toBe(1);
+  });
+
+  it("resets a tab's state on close and on retry", async () => {
+    const { ipc, feeds } = feedIpc(createMockIpc({ vault: "unlocked" }));
+    const app = await ready(ipc);
+    const a = (await app.tabs.openConnection(MOCK_IDS.localSshd)) as string;
+    const b = (await app.tabs.openConnection(MOCK_IDS.devVm)) as string;
+    feeds[0]?.(data);
+    feeds[1]?.(resize);
+    expect(app.tabs.liveCount()).toBe(2);
+    await app.tabs.close(a);
+    expect(app.tabs.isLive(a)).toBe(false);
+    expect(app.tabs.liveCount()).toBe(1);
+    await app.tabs.retry(b);
+    expect(app.tabs.isLive(b)).toBe(false);
+    // A late event of the old attempt does not revive it.
+    feeds[1]?.(resize);
+    expect(app.tabs.isLive(b)).toBe(false);
+    feeds[2]?.(resize);
+    expect(app.tabs.isLive(b)).toBe(true);
+  });
+
+  it("ignores events after fail() and resets on closeAll / closeForConnections", async () => {
+    const { ipc, feeds } = feedIpc(createMockIpc({ vault: "unlocked" }));
+    const app = await ready(ipc);
+    const a = (await app.tabs.openConnection(MOCK_IDS.localSshd)) as string;
+    feeds[0]?.(data);
+    expect(app.tabs.isLive(a)).toBe(true);
+    await app.tabs.fail(a, { code: "internal", message: "x" });
+    expect(app.tabs.isLive(a)).toBe(false);
+    feeds[0]?.(data);
+    expect(app.tabs.isLive(a)).toBe(false);
+    expect(app.tabs.liveCount()).toBe(0);
+
+    const b = (await app.tabs.openConnection(MOCK_IDS.devVm)) as string;
+    feeds[1]?.(resize);
+    expect(app.tabs.isLive(b)).toBe(true);
+    await app.tabs.closeForConnections(new Set([MOCK_IDS.devVm]));
+    expect(app.tabs.isLive(b)).toBe(false);
+
+    const c = (await app.tabs.openConnection(MOCK_IDS.localSshd)) as string;
+    feeds[2]?.(data);
+    expect(app.tabs.isLive(c)).toBe(true);
+    await app.tabs.closeAll();
+    expect(app.tabs.isLive(c)).toBe(false);
+    expect(app.tabs.liveCount()).toBe(0);
+  });
+});

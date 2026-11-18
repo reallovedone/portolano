@@ -12,7 +12,7 @@
   import Spinner from "../ui/Spinner.svelte";
   import { scrollEdges, wheelToScroll, type ScrollEdges } from "./overflow";
 
-  const { tabs, ui, doc } = getApp();
+  const { tabs, closeConfirm, ui, doc } = getApp();
   const isMac = detectMac();
 
   let menu = $state<{ x: number; y: number; tabId: string } | null>(null);
@@ -78,17 +78,17 @@
     return [
       {
         label: t("tabs.close"),
-        action: () => void tabs.close(tabId),
+        action: () => void closeConfirm.closeTab(tabId),
         icon: "close",
         shortcut: shortcutLabel("closeTab", isMac),
       },
       {
         label: t("tabs.closeOthers"),
-        action: () => void tabs.closeOthers(tabId),
+        action: () => void closeConfirm.closeOthers(tabId),
         disabled: tabs.tabs.length < 2,
         icon: "x-circle",
       },
-      { label: t("tabs.closeAll"), action: () => void tabs.closeAll(), icon: "x-circle" },
+      { label: t("tabs.closeAll"), action: () => void closeConfirm.closeAll(), icon: "x-circle" },
       {
         label: t("tabs.moveLeft"),
         action: () => tabs.move(index, index - 1),
@@ -137,7 +137,7 @@
       }
       case "Delete":
         event.preventDefault();
-        void tabs.close(id);
+        void closeConfirm.closeTab(id);
         break;
       case "ContextMenu": {
         event.preventDefault();
@@ -199,7 +199,7 @@
         onauxclick={(e) => {
           if (e.button === 1) {
             e.preventDefault();
-            void tabs.close(tab.id);
+            void closeConfirm.closeTab(tab.id);
           }
         }}
         oncontextmenu={(e) => {
@@ -235,7 +235,7 @@
             tooltip=""
             tabindex={-1}
             label={`${t("tabs.close")}: ${tabs.title(tab)}`}
-            onclick={() => void tabs.close(tab.id)}
+            onclick={() => void closeConfirm.closeTab(tab.id)}
           />
         </span>
       </div>

@@ -1,3 +1,5 @@
+import { SvelteSet } from "svelte/reactivity";
+
 import { toIpcError, type AppError, type Ipc, type SessionId, type Uuid } from "../ipc";
 import { t } from "../i18n/strings";
 import type { DocumentStore } from "../state/document.svelte";
@@ -20,7 +22,14 @@ import {
   type Tab,
   type TabsState,
 } from "./model";
-import { DEFAULT_GEOMETRY, SessionBridge, openSession, type SessionGeometry } from "./session";
+import { liveAfter } from "./liveness";
+import {
+  DEFAULT_GEOMETRY,
+  SessionBridge,
+  openSession,
+  type SessionEvent,
+  type SessionGeometry,
+} from "./session";
 
 /** Tabs and their backend sessions: the IPC side of the pure transitions in `model.ts`. */
 export class TabsStore {
@@ -29,6 +38,8 @@ export class TabsStore {
   readonly #bridges = new Map<string, SessionBridge>();
   /** Tabs whose credential is typed by hand for this session (the vault is skipped). */
   readonly #manual = new Set<string>();
+  /** Tabs whose session is connected (see `liveness.ts`). */
+  readonly #live = new SvelteSet<string>();
   readonly #ipc: Ipc;
   readonly #doc: DocumentStore;
   readonly #vault: VaultStore;
@@ -61,6 +72,27 @@ export class TabsStore {
       this.#bridges.set(tabId, bridge);
     }
     return bridge;
+  }
+
+  /** True while the tab's session is connected (not connecting, not waiting for a prompt). */
+  isLive(tabId: string): boolean {
+    return this.#live.has(tabId);
+  }
+
+  /** How many of the given tabs (default: all) have a connected session. */
+  liveCount(tabIds?: string[]): number {
+    const ids = tabIds ?? this.state.tabs.map((tab) => tab.id);
+    return ids.filter((id) => this.#live.has(id)).length;
+  }
+
+  #observe(tabId: string, attempt: number, kind: Tab["kind"], event: SessionEvent): void {
+    // Events of a closed or retried attempt must not change the tab's state.
+    if (!this.#isCurrent(tabId, attempt)) return;
+    // A failed tab keeps its attempt number: a late event must not revive it.
+    if (this.state.tabs.find((x) => x.id === tabId)?.status === "failed") return;
+    const next = liveAfter(kind, this.#live.has(tabId), event);
+    if (next) this.#live.add(tabId);
+    else this.#live.delete(tabId);
   }
 
   setGeometry(geometry: SessionGeometry): void {
@@ -108,7 +140,8 @@ export class TabsStore {
       return;
     }
 
-    const bridge = new SessionBridge();
+    this.#live.delete(tabId);
+    const bridge = new SessionBridge((event) => this.#observe(tabId, attemptNo, tab.kind, event));
     this.#bridges.set(tabId, bridge);
     let sessionId: SessionId;
     try {
@@ -118,6 +151,7 @@ export class TabsStore {
     } catch (e) {
       const error = toIpcError(e);
       if (this.#isCurrent(tabId, attemptNo)) {
+        this.#live.delete(tabId);
         this.state = sessionFailed(this.state, tabId, { code: error.code, message: error.message });
       }
       return;
@@ -158,6 +192,7 @@ export class TabsStore {
     for (const tab of tabs) {
       this.#bridges.delete(tab.id);
       this.#manual.delete(tab.id);
+      this.#live.delete(tab.id);
     }
   }
 
@@ -196,6 +231,7 @@ export class TabsStore {
     const tab = this.state.tabs.find((x) => x.id === tabId);
     if (!tab || tab.status === "opening") return;
     const stale = this.#sessionIds([tab]);
+    this.#live.delete(tabId);
     this.state = sessionRetrying(this.state, tabId);
     await this.#closeSessions(stale);
     await this.#open(tabId);
@@ -219,6 +255,7 @@ export class TabsStore {
   async fail(tabId: string, error: AppError): Promise<void> {
     const tab = this.state.tabs.find((x) => x.id === tabId);
     if (!tab) return;
+    this.#live.delete(tabId);
     this.state = sessionFailed(this.state, tabId, error);
     await this.#closeSessions(this.#sessionIds([tab]));
   }

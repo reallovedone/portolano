@@ -4,6 +4,7 @@
 import { getContext, setContext } from "svelte";
 
 import { ipcMode, type Ipc } from "../ipc";
+import { CloseConfirmStore } from "../tabs/closeConfirm.svelte";
 import { TabsStore } from "../tabs/store.svelte";
 import { createMockFilePicker, tauriFilePicker, type FilePicker } from "../transfer/files";
 import { DocumentStore } from "./document.svelte";
@@ -20,6 +21,8 @@ export interface App {
   doc: DocumentStore;
   vault: VaultStore;
   tabs: TabsStore;
+  /** Confirmation before closing tabs with connected sessions (also used to quit). */
+  closeConfirm: CloseConfirmStore;
   overlay: OverlayStore;
   notices: NoticeStore;
   ui: UiStore;
@@ -41,6 +44,7 @@ export function createApp(
     doc,
     vault,
     tabs,
+    closeConfirm: new CloseConfirmStore(tabs),
     overlay: new OverlayStore(),
     notices,
     ui: new UiStore(),

@@ -21,6 +21,7 @@ import type {
   Folder,
   KnownHostEntry,
   Node,
+  QuitReply,
   RevealedSecret,
   SecretInput,
   TermEvent,
@@ -474,7 +475,11 @@ export interface MockIpc extends Ipc {
     credentialSaveFailed(notice: CredentialSaveFailed): void;
     /** "Check for Updates…" chosen in the macOS menu bar. */
     checkForUpdatesMenu(): void;
+    /** The user asked to quit or to close the window (`quit-requested`). */
+    quitRequested(): void;
   };
+  /** Every `quitReply` call, in order. */
+  readonly quitReplies: readonly QuitReply[];
   /** Every successful `exportDocument` call. */
   readonly exports: readonly MockExport[];
   /** What the update commands received, and the knobs to steer their answers. */
@@ -505,6 +510,8 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
   const clone = <T>(value: T): T => structuredClone(value);
   const lockedHandlers = new Set<() => void>();
   const menuUpdateHandlers = new Set<() => void>();
+  const quitHandlers = new Set<() => void>();
+  const quitReplies: QuitReply[] = [];
   const saveFailedHandlers = new Set<(notice: CredentialSaveFailed) => void>();
   const lockVault = (): void => {
     if (vaultStatus !== "unlocked") return;
@@ -595,7 +602,11 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       checkForUpdatesMenu() {
         for (const handler of [...menuUpdateHandlers]) handler();
       },
+      quitRequested() {
+        for (const handler of [...quitHandlers]) handler();
+      },
     },
+    quitReplies,
     exports: transfer.exports,
     updates,
     async docGet() {
@@ -764,6 +775,13 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     onCheckForUpdatesMenu(handler) {
       menuUpdateHandlers.add(handler);
       return () => menuUpdateHandlers.delete(handler);
+    },
+    onQuitRequested(handler) {
+      quitHandlers.add(handler);
+      return () => quitHandlers.delete(handler);
+    },
+    async quitReply(reply) {
+      quitReplies.push(reply);
     },
     onCredentialSaveFailed(handler) {
       saveFailedHandlers.add(handler);

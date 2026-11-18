@@ -13,6 +13,7 @@
   import ConnectionTree from "./lib/tree/ConnectionTree.svelte";
   import ImportDialog from "./lib/transfer/ImportDialog.svelte";
   import { defaultParentFor } from "./lib/tree/model";
+  import ConfirmDialog from "./lib/ui/ConfirmDialog.svelte";
   import Splitter from "./lib/ui/Splitter.svelte";
   import StatusBar from "./lib/ui/StatusBar.svelte";
   import Toasts from "./lib/ui/Toasts.svelte";
@@ -31,7 +32,7 @@
 
   // The app object is fixed for the lifetime of the shell.
   // svelte-ignore state_referenced_locally
-  const { doc, vault, tabs, ui, overlay, notices, updates } = app;
+  const { doc, vault, tabs, closeConfirm, ui, overlay, notices, updates } = app;
   // svelte-ignore state_referenced_locally
   provideApp(app);
 
@@ -93,7 +94,7 @@
         ui.focusSearch();
         break;
       case "closeTab":
-        if (tabs.state.activeId) void tabs.close(tabs.state.activeId);
+        if (tabs.state.activeId) void closeConfirm.closeTab(tabs.state.activeId);
         break;
       case "nextTab":
         tabs.next();
@@ -170,6 +171,16 @@
   <WhatsNewDialog info={updates.whatsNew} onclose={() => updates.dismissWhatsNew()} />
 {:else if offerVisible}
   <UpdateOfferDialog />
+{/if}
+
+{#if closeConfirm.pending}
+  <ConfirmDialog
+    title={closeConfirm.title}
+    message={t("closeConfirm.message")}
+    confirmLabel={t("closeConfirm.confirm")}
+    onconfirm={() => closeConfirm.answer(true)}
+    oncancel={() => closeConfirm.answer(false)}
+  />
 {/if}
 
 <style>

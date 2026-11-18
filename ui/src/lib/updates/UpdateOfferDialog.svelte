@@ -10,7 +10,7 @@
   import Spinner from "../ui/Spinner.svelte";
   import ReleaseNotes from "./ReleaseNotes.svelte";
 
-  const { updates, tabs } = getApp();
+  const { updates, tabs, closeConfirm } = getApp();
 
   // The dialog only exists while there is an offer.
   const info = $derived(updates.offer?.info);
@@ -21,6 +21,11 @@
       : null,
   );
   const failure = $derived(install?.phase === "failed" ? install.error : null);
+
+  // Installing restarts the app and ends every session: ask first if any is connected.
+  async function installNow(): Promise<void> {
+    if (await closeConfirm.confirmClose(tabs.tabs.map((x) => x.id))) await updates.installNow();
+  }
 
   function close(): void {
     // The window stays while an installation runs: closing it would hide the progress.
@@ -81,11 +86,11 @@
         </span>
         <Button onclick={close}>{t("update.later")}</Button>
         {#if failure}
-          <Button variant="primary" data-autofocus onclick={() => void updates.installNow()}>
+          <Button variant="primary" data-autofocus onclick={() => void installNow()}>
             {t("update.retry")}
           </Button>
         {:else}
-          <Button variant="primary" data-autofocus onclick={() => void updates.installNow()}>
+          <Button variant="primary" data-autofocus onclick={() => void installNow()}>
             {t("update.now")}
           </Button>
         {/if}
