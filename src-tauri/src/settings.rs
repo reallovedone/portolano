@@ -1,13 +1,15 @@
-//! Persisted settings and state of the update feature, kept in `settings.json` inside the data
-//! directory (so `PORTOLANO_DATA_DIR` is honoured and tests never touch the user's data).
+//! Persisted application settings, kept in `settings.json` inside the data directory (so
+//! `PORTOLANO_DATA_DIR` is honoured and tests never touch the user's data). One store is shared,
+//! as Tauri managed state, by the update feature and by the commands that need a setting.
 //!
-//! The file holds no secret: whether to check automatically, the version the user chose to skip,
-//! the last version that ran, and the release notes of an update the user accepted (so that
-//! "What's new" needs no network on the first launch after it).
+//! The file holds no secret: whether to check for updates automatically, the version the user
+//! chose to skip, the last version that ran, the release notes of an update the user accepted (so
+//! that "What's new" needs no network on the first launch after it), and the vault auto-lock time.
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use portolano_core_model::private_fs::write_private_atomic;
 use serde::{Deserialize, Serialize};
@@ -21,6 +23,28 @@ pub const MAX_NOTES_BYTES: usize = 64 * 1024;
 
 pub fn settings_path(data_dir: &Path) -> PathBuf {
     data_dir.join(FILE_NAME)
+}
+
+/// Vault auto-lock times the user can choose, in minutes. `0` means never.
+pub const AUTO_LOCK_CHOICES: [u32; 5] = [0, 5, 15, 30, 60];
+
+/// Auto-lock time used when the file has none.
+pub const DEFAULT_AUTO_LOCK_MINUTES: u32 = 15;
+
+/// Accepts only the supported auto-lock times.
+pub fn validate_auto_lock_minutes(minutes: u32) -> Result<u32, AppError> {
+    if AUTO_LOCK_CHOICES.contains(&minutes) {
+        Ok(minutes)
+    } else {
+        Err(AppError::invalid_input(
+            "the auto-lock time must be 0 (never), 5, 15, 30 or 60 minutes",
+        ))
+    }
+}
+
+/// The vault inactivity timeout for `minutes`; `0` gives `Duration::ZERO` (never).
+pub fn auto_lock_duration(minutes: u32) -> Duration {
+    Duration::from_secs(u64::from(minutes) * 60)
 }
 
 /// Release notes saved when an update is accepted.
@@ -40,6 +64,8 @@ pub struct Settings {
     /// The highest version that has run on this machine.
     pub last_run_version: Option<String>,
     pub pending_notes: Option<PendingNotes>,
+    /// Minutes of inactivity before the vault locks itself; `0` = never.
+    pub auto_lock_minutes: u32,
 }
 
 impl Default for Settings {
@@ -49,6 +75,7 @@ impl Default for Settings {
             skipped_version: None,
             last_run_version: None,
             pending_notes: None,
+            auto_lock_minutes: DEFAULT_AUTO_LOCK_MINUTES,
         }
     }
 }
@@ -115,10 +142,10 @@ impl SettingsStore {
 mod tests {
     use super::*;
 
-    /// A fresh folder under `<repo>/.tmp/wp13a/`, never the user's data directory.
+    /// A fresh folder under `<repo>/.tmp/settings-tests/`, never the user's data directory.
     fn scratch(name: &str) -> PathBuf {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../.tmp/wp13a/tests")
+            .join("../.tmp/settings-tests/tests")
             .join(name);
         match std::fs::remove_dir_all(&dir) {
             Ok(()) => {}
@@ -166,6 +193,49 @@ mod tests {
             !dir.join("settings.json.tmp").exists(),
             "no temporary file is left"
         );
+    }
+
+    #[test]
+    fn a_0_2_0_file_without_the_auto_lock_field_reads_as_15_minutes() {
+        let dir = scratch("old-file");
+        std::fs::write(
+            settings_path(&dir),
+            br#"{ "autoCheckUpdates": false, "skippedVersion": "0.2.0" }"#,
+        )
+        .expect("write");
+        let settings = SettingsStore::load(&dir).get().expect("get");
+        assert_eq!(settings.auto_lock_minutes, 15);
+        assert!(!settings.auto_check_updates);
+    }
+
+    #[test]
+    fn the_auto_lock_time_survives_a_reload() {
+        let dir = scratch("auto-lock");
+        SettingsStore::load(&dir)
+            .update(|s| s.auto_lock_minutes = 60)
+            .expect("update");
+        let text = std::fs::read_to_string(settings_path(&dir)).expect("read");
+        assert!(text.contains("\"autoLockMinutes\": 60"), "{text}");
+        assert_eq!(
+            SettingsStore::load(&dir)
+                .get()
+                .expect("get")
+                .auto_lock_minutes,
+            60
+        );
+    }
+
+    #[test]
+    fn only_the_five_choices_validate() {
+        for ok in [0, 5, 15, 30, 60] {
+            assert_eq!(validate_auto_lock_minutes(ok).expect("valid"), ok);
+        }
+        for bad in [1, 7, 10, 61, 120, u32::MAX] {
+            let e = validate_auto_lock_minutes(bad).expect_err("invalid");
+            assert_eq!(e.code, ErrorCode::InvalidInput);
+        }
+        assert_eq!(auto_lock_duration(0), Duration::ZERO);
+        assert_eq!(auto_lock_duration(5), Duration::from_secs(300));
     }
 
     #[test]

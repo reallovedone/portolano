@@ -78,6 +78,8 @@ export const tauriIpc: Ipc = {
   vaultUpsert: (input) => call("vault_upsert", { input }),
   vaultDelete: (id) => call("vault_delete", { id }),
   vaultRevealSecret: (id) => call("vault_reveal_secret", { id }),
+  vaultGetAutoLock: () => call("vault_get_auto_lock"),
+  vaultSetAutoLock: (minutes) => call("vault_set_auto_lock", { minutes }),
 
   termOpen: (connectionId, cols, rows, onEvent, options) =>
     call("term_open", {

@@ -7,11 +7,9 @@
 
 pub mod logic;
 pub mod notes;
-pub mod store;
 
 use std::ffi::OsString;
-use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use semver::Version;
@@ -20,8 +18,8 @@ use tauri::{AppHandle, Url};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::error::{poisoned, AppError, ErrorCode};
+use crate::settings::{PendingNotes, Settings, SettingsStore};
 use logic::{is_skipped, parse_version, run_transition, should_offer, RunTransition};
-use store::{PendingNotes, Settings, SettingsStore};
 
 /// Environment variable that replaces the update endpoint (testing release candidates, which
 /// `releases/latest` hides). HTTPS only; signature verification stays mandatory.
@@ -95,7 +93,7 @@ struct PendingUpdate {
 }
 
 pub struct UpdateService {
-    store: SettingsStore,
+    store: Arc<SettingsStore>,
     current: Version,
     endpoint_override: Option<Url>,
     pending: Mutex<Option<PendingUpdate>>,
@@ -126,8 +124,8 @@ pub fn parse_endpoint_override(value: Option<OsString>) -> Result<Option<Url>, S
 }
 
 impl UpdateService {
-    /// Reads the settings file of `data_dir` and the endpoint override of the environment.
-    pub fn new(data_dir: &Path, current: Version) -> Self {
+    /// Uses the shared settings `store` and reads the endpoint override of the environment.
+    pub fn new(store: Arc<SettingsStore>, current: Version) -> Self {
         let endpoint_override = match parse_endpoint_override(std::env::var_os(ENDPOINT_ENV)) {
             Ok(Some(url)) => {
                 tracing::info!(
@@ -142,10 +140,14 @@ impl UpdateService {
                 None
             }
         };
-        Self::with_parts(SettingsStore::load(data_dir), current, endpoint_override)
+        Self::with_parts(store, current, endpoint_override)
     }
 
-    fn with_parts(store: SettingsStore, current: Version, endpoint_override: Option<Url>) -> Self {
+    fn with_parts(
+        store: Arc<SettingsStore>,
+        current: Version,
+        endpoint_override: Option<Url>,
+    ) -> Self {
         Self {
             store,
             current,
@@ -448,7 +450,7 @@ mod tests {
     fn service(name: &str, current: &str) -> (UpdateService, PathBuf) {
         let dir = scratch(name);
         let service = UpdateService::with_parts(
-            SettingsStore::load(&dir),
+            Arc::new(SettingsStore::load(&dir)),
             Version::parse(current).expect("version"),
             None,
         );
@@ -517,8 +519,11 @@ mod tests {
         assert!(service.settings().expect("settings").auto_check);
         service.set_auto_check(false).expect("set");
         assert!(!service.settings().expect("settings").auto_check);
-        let reloaded =
-            UpdateService::with_parts(SettingsStore::load(&dir), Version::new(0, 1, 0), None);
+        let reloaded = UpdateService::with_parts(
+            Arc::new(SettingsStore::load(&dir)),
+            Version::new(0, 1, 0),
+            None,
+        );
         assert!(!reloaded.settings().expect("settings").auto_check);
     }
 

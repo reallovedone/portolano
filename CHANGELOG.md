@@ -7,6 +7,10 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### ✨ Added
+
+- Choose when the vault locks itself after inactivity (never, 5, 15, 30 minutes or 1 hour) in the new *Security* section of the credentials window. The default stays 15 minutes.
+
 ## [0.2.0] - 2026-11-17
 
 ### ⚠️ Breaking changes
