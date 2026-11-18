@@ -17,6 +17,13 @@ const xterm = vi.hoisted(() => {
     written: Uint8Array[] = [];
     doneCallbacks: Array<() => void> = [];
     selection = "";
+    pasted: string[] = [];
+    paste = vi.fn((text: string) => {
+      this.pasted.push(text);
+    });
+    clearSelection = vi.fn(() => {
+      this.selection = "";
+    });
     focus = vi.fn();
     dispose = vi.fn();
     open = vi.fn();
@@ -106,6 +113,7 @@ interface Mounted {
     sessionCredentialCancel: ReturnType<typeof vi.fn>;
     docGet: ReturnType<typeof vi.fn>;
     vaultList: ReturnType<typeof vi.fn>;
+    clipboardReadText: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -121,6 +129,7 @@ async function mount(connectionId: string = MOCK_IDS.localSshd): Promise<Mounted
     sessionCredentialCancel: vi.fn(async () => undefined),
     docGet: vi.fn(() => base.docGet()),
     vaultList: vi.fn(() => base.vaultList()),
+    clipboardReadText: vi.fn(async (): Promise<string | null> => null),
   };
   const ipc: Ipc = { ...base, ...spies };
   const app = createApp(ipc);
@@ -423,6 +432,70 @@ describe("TerminalView", () => {
     m.term().selection = "x";
     m.term().keyHandler?.(new KeyboardEvent("keydown", { key: "C", ctrlKey: true, shiftKey: true }));
     await waitFor(() => expect(m.app.notices.items.some((n) => n.title.includes("denied"))).toBe(true));
+  });
+
+  describe("paste on Windows and Linux", () => {
+    const rightClick = (): MouseEvent => {
+      const ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      (document.querySelector(".term") as HTMLElement).dispatchEvent(ev);
+      return ev;
+    };
+
+    it("Ctrl+V pastes and is not sent to the remote as 0x16", async () => {
+      vi.stubGlobal("navigator", { ...navigator, platform: "Win32" });
+      const m = await mount();
+      const down = new KeyboardEvent("keydown", { key: "v", ctrlKey: true });
+      expect(m.term().keyHandler?.(down)).toBe(false);
+      expect(m.spies.termWrite).not.toHaveBeenCalled();
+    });
+
+    it("right-click with a selection copies it, clears it and does not paste", async () => {
+      const writeText = vi.fn(async () => undefined);
+      vi.stubGlobal("navigator", { ...navigator, platform: "Win32", clipboard: { writeText } });
+      const m = await mount();
+      m.spies.clipboardReadText.mockResolvedValue("clip");
+      m.term().selection = "chosen";
+      const ev = rightClick();
+      expect(ev.defaultPrevented).toBe(true);
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("chosen"));
+      expect(m.term().clearSelection).toHaveBeenCalled();
+      expect(m.spies.clipboardReadText).not.toHaveBeenCalled();
+      expect(m.term().pasted).toEqual([]);
+    });
+
+    it("right-click without a selection pastes the clipboard through xterm", async () => {
+      vi.stubGlobal("navigator", { ...navigator, platform: "Win32" });
+      const m = await mount();
+      m.spies.clipboardReadText.mockResolvedValue("from clipboard");
+      const ev = rightClick();
+      expect(ev.defaultPrevented).toBe(true);
+      await waitFor(() => expect(m.term().pasted).toEqual(["from clipboard"]));
+    });
+
+    it("an empty clipboard pastes nothing", async () => {
+      vi.stubGlobal("navigator", { ...navigator, platform: "Win32" });
+      const m = await mount();
+      rightClick();
+      await waitFor(() => expect(m.spies.clipboardReadText).toHaveBeenCalled());
+      expect(m.term().pasted).toEqual([]);
+    });
+
+    it("tells the user when the clipboard cannot be read", async () => {
+      vi.stubGlobal("navigator", { ...navigator, platform: "Win32" });
+      const m = await mount();
+      m.spies.clipboardReadText.mockRejectedValue(new Error("blocked"));
+      rightClick();
+      await waitFor(() => expect(m.app.notices.items.some((n) => n.title.includes("blocked"))).toBe(true));
+    });
+
+    it("leaves the native context menu alone on macOS", async () => {
+      vi.stubGlobal("navigator", { ...navigator, platform: "MacIntel" });
+      const m = await mount();
+      const ev = rightClick();
+      expect(ev.defaultPrevented).toBe(false);
+      expect(m.spies.clipboardReadText).not.toHaveBeenCalled();
+      expect(m.term().pasted).toEqual([]);
+    });
   });
 
   it("disposes the terminal when the view goes away, without closing the session itself", async () => {

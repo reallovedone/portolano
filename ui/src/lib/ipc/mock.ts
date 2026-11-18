@@ -805,6 +805,11 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       return () => saveFailedHandlers.delete(handler);
     },
 
+    async clipboardReadText() {
+      // The mock has no system clipboard.
+      return null;
+    },
+
     async uiLog() {
       // The mock has no backend log.
     },

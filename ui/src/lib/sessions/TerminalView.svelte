@@ -71,6 +71,31 @@
     }
   }
 
+  /** Reads the clipboard and feeds it to xterm's paste (bracketed paste and chunking still apply). */
+  async function pasteFromClipboard(terminal: Terminal): Promise<void> {
+    let text: string;
+    try {
+      text = (await app.ipc.clipboardReadText()) ?? "";
+    } catch (e) {
+      app.notices.push("error", t("term.pasteFailed", { message: e instanceof Error ? e.message : String(e) }));
+      return;
+    }
+    if (text !== "") terminal.paste(text);
+  }
+
+  /** Windows/Linux right-click: copy and deselect when there is a selection, otherwise paste. */
+  function onContextmenu(e: MouseEvent): void {
+    if (isMac) return;
+    e.preventDefault();
+    if (!term) return;
+    if (term.hasSelection()) {
+      void copy(term.getSelection());
+      term.clearSelection();
+    } else {
+      void pasteFromClipboard(term);
+    }
+  }
+
   /** Refits to the container and tells the backend. No-op while the pane has no size. */
   function refit(): void {
     if (!term || !fit || !container) return;
@@ -193,7 +218,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="view" data-session={sessionId ?? ctx.sessionId} onkeydown={onKeydown}>
-  <div class="term" bind:this={container} aria-label={t("term.label")}></div>
+  <div class="term" bind:this={container} oncontextmenu={onContextmenu} aria-label={t("term.label")}></div>
 
   {#if ts.phase === "connecting" && isSsh}
     <SessionState icon="terminal" busy title={t("term.connecting")} text={t("term.connectingText")}>

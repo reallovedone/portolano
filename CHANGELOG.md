@@ -15,6 +15,10 @@ attention when you upgrade.
 - Portolano asks for confirmation before closing a tab, closing the window, quitting or installing an update when that would end a connected SSH, terminal, RDP or VNC session. Web tabs and disconnected sessions close without asking.
 - With *Use Mac shortcuts* on an RDP connection, ⌘C, ⌘V, ⌘X, ⌘A, ⌘Z and every other ⌘ combination reach Windows as Ctrl+key. ⌘Q, ⌘H, ⌘M and ⌘W stay with Portolano. ⌘W closes the current tab (asking first when a session is connected).
 
+### 🔄 Changed
+
+- On Windows and Linux the terminal pastes with Ctrl+V and right-click (right-click copies the selection if there is one), like Windows Terminal.
+
 ## [0.2.0] - 2026-11-17
 
 ### ⚠️ Breaking changes

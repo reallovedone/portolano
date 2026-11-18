@@ -158,5 +158,6 @@ export const tauriIpc: Ipc = {
 
   menuSetSessionKeys: (captured) => call("menu_set_session_keys", { captured }),
 
+  clipboardReadText: () => call("clipboard_read_text"),
   uiLog: (level, message) => call("ui_log", { level, message }),
 };

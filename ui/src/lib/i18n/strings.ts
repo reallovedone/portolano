@@ -352,6 +352,7 @@ export const strings = {
   "term.connectingText": "Opening a secure channel and checking the host.",
   "term.problem": "Terminal: {message}",
   "term.copyFailed": "Could not copy to the clipboard: {message}",
+  "term.pasteFailed": "Could not read the clipboard: {message}",
   "term.hostKeyTitle": "Unknown host key",
   "term.hostKeyIntro":
     "This host is not in your known hosts yet, so its identity cannot be verified. Compare the fingerprint with the one the server's administrator published, and trust it only if they match.",
