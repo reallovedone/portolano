@@ -458,6 +458,8 @@ export interface MockOptions {
    * state only). Default `false`: the `web*` commands reject with `unsupported`.
    */
   web?: boolean;
+  /** Auto-lock time the mock starts with, in minutes (default 15). */
+  autoLockMinutes?: number;
   /** Canned answers of the update commands (default: up to date, no "What's new"). */
   updates?: MockUpdateOptions;
 }
@@ -486,6 +488,7 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       ? { schemaVersion: 1, nodes: [] }
       : seedDocument(initialVault !== "notCreated");
   let vaultStatus: VaultStatus = initialVault;
+  let autoLockMinutes = options.autoLockMinutes ?? 15;
   let masterPassword: string | null = initialVault === "notCreated" ? null : MOCK_MASTER_PASSWORD;
   const credentials = new Map<Uuid, StoredCredential>(
     initialVault === "notCreated" ? [] : seedCredentials().map((c) => [c.summary.id, c]),
@@ -694,6 +697,16 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       const stored = credentials.get(id);
       if (!stored) throw new IpcError("not_found", `credential ${id} not found`);
       return clone(stored.secret);
+    },
+
+    async vaultGetAutoLock() {
+      return autoLockMinutes;
+    },
+    async vaultSetAutoLock(minutes) {
+      if (![0, 5, 15, 30, 60].includes(minutes)) {
+        throw new IpcError("invalid_input", "unsupported auto-lock time");
+      }
+      autoLockMinutes = minutes;
     },
 
     termOpen: (connectionId, cols, rows, onEvent, openOptions) =>

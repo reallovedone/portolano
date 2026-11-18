@@ -14,7 +14,7 @@ use std::time::Duration;
 use semver::Version;
 use serde::Deserialize;
 
-use super::store::MAX_NOTES_BYTES;
+use crate::settings::MAX_NOTES_BYTES;
 
 const REPO: &str = "reallovedone/portolano";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);

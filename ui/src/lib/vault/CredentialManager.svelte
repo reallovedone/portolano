@@ -1,6 +1,6 @@
 <!-- Credential manager: list, add/edit/delete, explicit reveal/copy with auto-hide. -->
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
 
   import { t, type StringKey } from "../i18n/strings";
   import type { CredentialSummary, RevealedSecret, Uuid } from "../ipc";
@@ -10,9 +10,11 @@
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
   import Dialog from "../ui/Dialog.svelte";
   import EmptyState from "../ui/EmptyState.svelte";
+  import FormSection from "../ui/FormSection.svelte";
   import Icon from "../ui/Icon.svelte";
   import IconButton from "../ui/IconButton.svelte";
   import ListRow from "../ui/ListRow.svelte";
+  import Select from "../ui/Select.svelte";
   import TextArea from "../ui/TextArea.svelte";
   import ChangePasswordDialog from "./ChangePasswordDialog.svelte";
   import { CLIPBOARD_CLEAR_SECONDS, copySecret } from "./clipboard";
@@ -101,6 +103,37 @@
       names: names.join(", "),
     });
     return `${base}\n\n${detail}`;
+  }
+
+  /** Minutes the user can pick for the vault auto-lock (0 = never), as the backend accepts them. */
+  const AUTO_LOCK_CHOICES = [0, 5, 15, 30, 60] as const;
+  const autoLockOptions = AUTO_LOCK_CHOICES.map((minutes) => ({
+    value: String(minutes),
+    label: t(`security.autoLock.${minutes}` as StringKey),
+  }));
+  let autoLock = $state<string>("15");
+  /** The value last confirmed by the backend; the choice goes back to it when saving fails. */
+  let savedAutoLock = "15";
+
+  onMount(async () => {
+    const result = await vault.getAutoLock();
+    if (!result.ok) {
+      notices.error(t("security.title"), result.error);
+      return;
+    }
+    savedAutoLock = String(result.value);
+    autoLock = savedAutoLock;
+  });
+
+  async function changeAutoLock(): Promise<void> {
+    const wanted = autoLock;
+    const result = await vault.setAutoLock(Number(wanted));
+    if (result.ok) {
+      savedAutoLock = wanted;
+      return;
+    }
+    autoLock = savedAutoLock;
+    notices.error(t("security.autoLockFailed"), result.error);
   }
 
   async function lock(): Promise<void> {
@@ -217,6 +250,16 @@
         {/each}
       </ul>
     {/if}
+
+    <FormSection title={t("security.title")}>
+      <Select
+        label={t("security.autoLock")}
+        hint={t("security.autoLockHint")}
+        options={autoLockOptions}
+        bind:value={autoLock}
+        onchange={changeAutoLock}
+      />
+    </FormSection>
   {/if}
   {#snippet footer()}
     <Button onclick={onclose}>{t("common.close")}</Button>

@@ -5,18 +5,19 @@
 //! vault mutex. Any vault operation, successful or not, counts as activity for auto-lock
 //! (`vault_status` excepted: the UI polls it).
 
-use std::sync::MutexGuard;
+use std::sync::{Arc, MutexGuard};
 use std::time::Duration;
 
 use portolano_vault::{
     CredentialSummary, CredentialUpsert, RevealedSecret, Vault, VaultError, VaultStatus,
 };
 use secrecy::SecretString;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 use crate::commands::model::with_store;
 use crate::error::AppError;
+use crate::settings::{auto_lock_duration, validate_auto_lock_minutes, SettingsStore};
 use crate::state::AppState;
 
 /// Event (to the main webview, no payload) emitted whenever the vault becomes locked: the
@@ -166,6 +167,59 @@ pub async fn vault_reveal_secret(app: AppHandle, id: Uuid) -> Result<RevealedSec
     Ok(secret)
 }
 
+/// The saved auto-lock time, in minutes (`0` = never).
+fn get_auto_lock(settings: &SettingsStore) -> Result<u32, AppError> {
+    Ok(settings.get()?.auto_lock_minutes)
+}
+
+/// Validates, saves and applies at once a new auto-lock time. Nothing changes when it is refused
+/// or cannot be saved.
+fn set_auto_lock(state: &AppState, settings: &SettingsStore, minutes: u32) -> Result<(), AppError> {
+    let minutes = validate_auto_lock_minutes(minutes)?;
+    // The vault first: if its mutex cannot be taken nothing is saved. If saving then fails, the
+    // vault goes back to its previous timeout, so file and vault never disagree.
+    let previous = {
+        let mut vault = lock_vault(state)?;
+        let previous = vault.auto_lock_timeout();
+        vault.set_auto_lock_timeout(auto_lock_duration(minutes));
+        previous
+    };
+    if let Err(e) = settings.update(|s| s.auto_lock_minutes = minutes) {
+        lock_vault(state)?.set_auto_lock_timeout(previous);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Gives the vault the saved auto-lock time (start-up, before the first tick of the timer).
+pub fn apply_saved_auto_lock(state: &AppState, settings: &SettingsStore) -> Result<(), AppError> {
+    let minutes = get_auto_lock(settings)?;
+    lock_vault(state)?.set_auto_lock_timeout(auto_lock_duration(minutes));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn vault_get_auto_lock(settings: State<'_, Arc<SettingsStore>>) -> Result<u32, AppError> {
+    get_auto_lock(&settings)
+}
+
+#[tauri::command]
+pub async fn vault_set_auto_lock(
+    app: AppHandle,
+    settings: State<'_, Arc<SettingsStore>>,
+    minutes: u32,
+) -> Result<(), AppError> {
+    let settings = Arc::clone(&settings);
+    tauri::async_runtime::spawn_blocking(move || {
+        set_auto_lock(&app.state::<AppState>(), &settings, minutes)
+    })
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "auto-lock task failed");
+        AppError::internal("auto-lock task failed")
+    })?
+}
+
 /// One evaluation of the inactivity timer. Never blocks: when an operation holds the vault
 /// (an unlock in progress, for example) that operation is itself activity, so skipping is
 /// correct.
@@ -267,6 +321,75 @@ mod tests {
         assert!(auto_lock_tick(&state), "the tick reports that it locked");
         assert!(!state.vault.lock().expect("lock").is_unlocked());
         assert!(!auto_lock_tick(&state), "already locked: nothing to report");
+    }
+
+    fn settings_in(dir: &tempfile::TempDir) -> SettingsStore {
+        SettingsStore::load(dir.path())
+    }
+
+    #[test]
+    fn setting_the_auto_lock_time_applies_it_at_once_and_saves_it() {
+        let (dir, state) = state_in_scratch();
+        let settings = settings_in(&dir);
+        set_auto_lock(&state, &settings, 30).expect("set");
+        assert_eq!(
+            state.vault.lock().expect("lock").auto_lock_timeout(),
+            Duration::from_secs(30 * 60)
+        );
+        assert_eq!(settings.get().expect("get").auto_lock_minutes, 30);
+        set_auto_lock(&state, &settings, 0).expect("never");
+        assert_eq!(
+            state.vault.lock().expect("lock").auto_lock_timeout(),
+            Duration::ZERO
+        );
+        assert_eq!(get_auto_lock(&settings).expect("get"), 0);
+        assert_eq!(
+            SettingsStore::load(dir.path())
+                .get()
+                .expect("get")
+                .auto_lock_minutes,
+            0
+        );
+    }
+
+    #[test]
+    fn a_failed_save_leaves_the_vault_timeout_unchanged() {
+        let (dir, state) = state_in_scratch();
+        let settings = settings_in(&dir);
+        // A directory where the file should be makes the save fail.
+        std::fs::create_dir_all(crate::settings::settings_path(dir.path())).expect("block");
+        set_auto_lock(&state, &settings, 5).expect_err("save fails");
+        assert_eq!(
+            state.vault.lock().expect("lock").auto_lock_timeout(),
+            portolano_vault::DEFAULT_AUTO_LOCK
+        );
+    }
+
+    #[test]
+    fn an_unsupported_auto_lock_time_is_refused_and_changes_nothing() {
+        let (dir, state) = state_in_scratch();
+        let settings = settings_in(&dir);
+        let err = set_auto_lock(&state, &settings, 7).expect_err("7 is refused");
+        assert_eq!(err.code, crate::error::ErrorCode::InvalidInput);
+        assert_eq!(get_auto_lock(&settings).expect("get"), 15);
+        assert_eq!(
+            state.vault.lock().expect("lock").auto_lock_timeout(),
+            portolano_vault::DEFAULT_AUTO_LOCK
+        );
+    }
+
+    #[test]
+    fn the_saved_auto_lock_time_reaches_the_vault_before_the_first_tick() {
+        let (dir, state) = state_in_scratch();
+        SettingsStore::load(dir.path())
+            .update(|s| s.auto_lock_minutes = 5)
+            .expect("save");
+        let settings = settings_in(&dir);
+        apply_saved_auto_lock(&state, &settings).expect("apply");
+        assert_eq!(
+            state.vault.lock().expect("lock").auto_lock_timeout(),
+            Duration::from_secs(300)
+        );
     }
 
     fn connection_with(credential: CredentialRef) -> Node {
