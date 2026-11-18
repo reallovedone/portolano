@@ -12,6 +12,7 @@ attention when you upgrade.
 - *Expand all* in the sidebar menu opens every folder at once, next to *Collapse all*.
 - The status bar shows the running version and a dot with the update status (up to date, update available, or unknown); click it to open the update dialog.
 - Choose when the vault locks itself after inactivity (never, 5, 15, 30 minutes or 1 hour) in the new *Security* section of the credentials window. The default stays 15 minutes.
+- Portolano asks for confirmation before closing a tab, closing the window, quitting or installing an update when that would end a connected SSH, terminal, RDP or VNC session. Web tabs and disconnected sessions close without asking.
 
 ## [0.2.0] - 2026-11-17
 

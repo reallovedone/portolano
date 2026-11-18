@@ -5,13 +5,16 @@ mod commands;
 mod error;
 #[cfg(target_os = "macos")]
 mod menu;
+mod quit;
+#[cfg(target_os = "macos")]
+mod quit_macos;
 mod settings;
 mod state;
 mod update;
 
 use std::sync::Arc;
 
-use tauri::{Emitter, Manager, RunEvent};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tracing_subscriber::EnvFilter;
 
 use crate::state::AppState;
@@ -69,6 +72,10 @@ pub fn run() {
                 }
             });
             app.manage(state);
+            app.manage(quit::Quit::default());
+            // ⌘Q, the Quit menu item and Dock → Quit do not raise `ExitRequested` on macOS.
+            #[cfg(target_os = "macos")]
+            quit_macos::install(app.handle());
             // One settings store for the whole app: the update service and the commands share it.
             let settings = Arc::new(settings::SettingsStore::load(&data_dir));
             app.manage(Arc::clone(&settings));
@@ -137,19 +144,39 @@ pub fn run() {
             commands::update::update_install,
             commands::update::whats_new,
             commands::update::update_open_release_page,
+            quit::quit_reply,
             // Not in the contract table: UI-to-backend log line.
             commands::ui_log,
         ])
         .build(tauri::generate_context!());
 
     match app {
-        Ok(app) => app.run(|handle, event| {
-            if let RunEvent::Exit = event {
+        Ok(app) => app.run(|handle, event| match event {
+            // The user asked to quit (⌘Q, the menu, the Dock) or closed the last window:
+            // the UI decides. `code: Some(_)` is our own `exit(0)` (or the updater's restart).
+            RunEvent::ExitRequested { code, api, .. } if quit::intercepts_exit(code) => {
+                api.prevent_exit();
+                if let Some(quit) = handle.try_state::<quit::Quit>() {
+                    quit.request(handle);
+                }
+            }
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::CloseRequested { api, .. },
+                ..
+            } if label == "main" => {
+                api.prevent_close();
+                if let Some(quit) = handle.try_state::<quit::Quit>() {
+                    quit.request(handle);
+                }
+            }
+            RunEvent::Exit => {
                 if let Some(state) = handle.try_state::<AppState>() {
                     state.sessions.close_all();
                     commands::vault::lock_on_exit(&state);
                 }
             }
+            _ => {}
         }),
         Err(err) => {
             tracing::error!(%err, "failed to build the application");
@@ -290,6 +317,7 @@ mod tests {
             "update_install",
             "whats_new",
             "update_open_release_page",
+            "quit_reply",
         ];
         let source = include_str!("lib.rs");
         let handler = source

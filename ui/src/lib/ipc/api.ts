@@ -12,6 +12,7 @@ import type {
   KnownHostEntry,
   Node,
   OpenOptions,
+  QuitReply,
   RevealedSecret,
   SessionId,
   TermEvent,
@@ -155,12 +156,22 @@ export interface Ipc {
   whatsNew(): Promise<WhatsNew | null>;
   /** Opens the GitHub release page of `version` in the browser. */
   updateOpenReleasePage(version: string): Promise<void>;
+  /**
+   * Answers `quit-requested`: `asking` (a confirmation is about to show; stops the backend's
+   * 2 second timer), `quit` (nothing to ask or the user confirmed) or `cancel`.
+   */
+  quitReply(reply: QuitReply): Promise<void>;
 
   // backend notices (events, not commands). Each returns the function that unsubscribes.
   /** The vault locked itself (inactivity) or was locked: update the state at once. */
   onVaultLocked(handler: () => void): () => void;
   /** macOS menu bar: "Check for Updates…" was chosen (the event never fires elsewhere). */
   onCheckForUpdatesMenu(handler: () => void): () => void;
+  /**
+   * The user asked to quit (⌘Q, the menu, the Dock) or to close the window; the backend stopped
+   * it and waits for `quitReply`. Without an answer within 2 seconds the application quits.
+   */
+  onQuitRequested(handler: () => void): () => void;
   /** "Save to the vault" failed at connect time; the session stays connected. */
   onCredentialSaveFailed(handler: (notice: CredentialSaveFailed) => void): () => void;
 

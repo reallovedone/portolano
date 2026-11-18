@@ -140,6 +140,9 @@ export type RevealedSecret =
 
 // ---- backend notices (Tauri events to the main webview) ----
 
+/** Answer to `quit-requested` (command `quit_reply`). */
+export type QuitReply = "asking" | "quit" | "cancel";
+
 /**
  * `credential-save-failed`: "save to the vault" failed after a successful connection (the
  * session stays connected). The message never contains the secret.

@@ -46,8 +46,15 @@ const CELL_HEIGHT = 17;
 export class SessionBridge {
   #buffer: SessionEvent[] = [];
   #handler: ((event: SessionEvent) => void) | null = null;
+  readonly #observer: ((event: SessionEvent) => void) | undefined;
+
+  /** `observer` sees every event as it arrives, whether or not a consumer is subscribed. */
+  constructor(observer?: (event: SessionEvent) => void) {
+    this.#observer = observer;
+  }
 
   emit(event: SessionEvent): void {
+    this.#observer?.(event);
     if (this.#handler) this.#handler(event);
     else this.#buffer.push(event);
   }

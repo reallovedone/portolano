@@ -45,7 +45,7 @@ arboard.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSAppleEventDescriptor", "NSAppleEventManager"] }
 
 # The clipboard sequence number of Windows (the same crate `arboard` uses there).
 [target.'cfg(windows)'.dependencies]

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { IpcError } from "./errors";
 import { createMockIpc } from "./mock";
@@ -132,5 +132,21 @@ describe("mock sessions", () => {
     const ipc = createMockIpc();
     expect(await codeOf(ipc.sessionClose("x"))).toBe("unsupported");
     expect(await ipc.knownHostsList()).toEqual([]);
+  });
+});
+
+describe("mock quit", () => {
+  it("records the replies and plays quit-requested to its subscribers", async () => {
+    const ipc = createMockIpc();
+    const seen = vi.fn();
+    const off = ipc.onQuitRequested(seen);
+    ipc.simulate.quitRequested();
+    expect(seen).toHaveBeenCalledTimes(1);
+    await ipc.quitReply("asking");
+    await ipc.quitReply("quit");
+    expect(ipc.quitReplies).toEqual(["asking", "quit"]);
+    off();
+    ipc.simulate.quitRequested();
+    expect(seen).toHaveBeenCalledTimes(1);
   });
 });
