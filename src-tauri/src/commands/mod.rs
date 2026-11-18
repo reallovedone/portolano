@@ -68,6 +68,20 @@ pub async fn ui_log(level: String, message: String) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Not part of the §4.3 contract: the text on the system clipboard, for pasting into a terminal
+/// with the right mouse button (the webview's own clipboard read may prompt or be refused).
+/// `None` when the clipboard holds no text. The text is never logged.
+#[tauri::command]
+pub async fn clipboard_read_text() -> Result<Option<String>, AppError> {
+    tauri::async_runtime::spawn_blocking(crate::clipboard::read_text_for_paste)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "clipboard read task failed");
+            AppError::internal("clipboard read task failed")
+        })?
+        .map_err(|e| AppError::internal(e.0))
+}
+
 /// Not part of the §4.3 contract: while the keyboard belongs to a graphical session (Mac
 /// shortcuts on), the native Edit menu leaves the menu bar so that ⌘C, ⌘V, ⌘X, ⌘A and ⌘Z reach
 /// the webview and then the remote machine; `false` puts it back. Does nothing outside macOS.

@@ -182,6 +182,10 @@ export interface Ipc {
   // ⌘A and ⌘Z reach the remote machine; `false` puts it back. No effect elsewhere.
   menuSetSessionKeys(captured: boolean): Promise<void>;
 
+  // not part of the §4.3 contract: text on the system clipboard (read by the backend, so the
+  // webview needs no clipboard permission); null when the clipboard holds no text.
+  clipboardReadText(): Promise<string | null>;
+
   // not part of the §4.3 contract: lifecycle line in the backend log (never pass secrets)
   uiLog(level: "info" | "warn" | "error", message: string): Promise<void>;
 }

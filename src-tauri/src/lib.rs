@@ -156,6 +156,7 @@ pub fn run() {
             // Not in the contract table: UI-to-backend log line.
             commands::ui_log,
             commands::menu_set_session_keys,
+            commands::clipboard_read_text,
         ])
         .build(tauri::generate_context!());
 

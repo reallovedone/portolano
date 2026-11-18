@@ -100,6 +100,26 @@ fn describe(e: &arboard::Error) -> LocalClipboardError {
     LocalClipboardError(format!("clipboard: {kind}"))
 }
 
+/// Text of a clipboard read for pasting: `None` when the clipboard holds no text (empty, an
+/// image, files), an error only when the clipboard itself cannot be read.
+fn paste_text(
+    result: Result<String, arboard::Error>,
+) -> Result<Option<String>, LocalClipboardError> {
+    match result {
+        Ok(text) if text.is_empty() => Ok(None),
+        Ok(text) => Ok(Some(text)),
+        Err(arboard::Error::ContentNotAvailable | arboard::Error::ConversionFailure) => Ok(None),
+        Err(e) => Err(describe(&e)),
+    }
+}
+
+/// Reads the clipboard's text for the terminal's paste (right-click). Blocking: call it on the
+/// blocking pool. The text is never logged.
+pub fn read_text_for_paste() -> Result<Option<String>, LocalClipboardError> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| describe(&e))?;
+    paste_text(clipboard.get_text())
+}
+
 impl LocalClipboard for SystemClipboard {
     fn change_token(&self) -> Option<u64> {
         platform::change_token()
@@ -189,6 +209,22 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paste_text_maps_clipboard_results() {
+        assert_eq!(paste_text(Ok("hi".into())).unwrap(), Some("hi".into()));
+        assert_eq!(paste_text(Ok(String::new())).unwrap(), None);
+        assert_eq!(
+            paste_text(Err(arboard::Error::ContentNotAvailable)).unwrap(),
+            None
+        );
+        assert_eq!(
+            paste_text(Err(arboard::Error::ConversionFailure)).unwrap(),
+            None
+        );
+        let err = paste_text(Err(arboard::Error::ClipboardOccupied)).unwrap_err();
+        assert!(err.0.contains("occupied"));
+    }
 
     #[test]
     fn a_marked_secret_is_recognised_until_it_expires() {

@@ -67,6 +67,7 @@ const EXPECTED_COMMANDS = [
   "update_open_release_page",
   "quit_reply",
   "menu_set_session_keys",
+  "clipboard_read_text",
   "ui_log",
 ];
 
@@ -137,6 +138,7 @@ describe("tauriIpc", () => {
       () => tauriIpc.updateOpenReleasePage("0.2.0"),
       () => tauriIpc.quitReply("asking"),
       () => tauriIpc.menuSetSessionKeys(true),
+      () => tauriIpc.clipboardReadText(),
       () => tauriIpc.uiLog("info", "m"),
     ];
     for (const run of calls) await run();

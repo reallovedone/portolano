@@ -26,6 +26,8 @@ export class FakeTerminal {
   getSelection(): string {
     return "";
   }
+  clearSelection(): void {}
+  paste(): void {}
   focus(): void {}
   dispose(): void {}
 }

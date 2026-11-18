@@ -23,6 +23,10 @@ describe("clipboardAction on macOS", () => {
     expect(clipboardAction(key("v", { metaKey: true }), true, false)).toBe("paste");
   });
 
+  it("Ctrl+V is not a paste (it stays with the remote program)", () => {
+    expect(clipboardAction(key("v", { ctrlKey: true }), true, false)).toBeNull();
+  });
+
   it("Ctrl+C is the interrupt, never a copy", () => {
     expect(clipboardAction(key("c", { ctrlKey: true }), true, true)).toBeNull();
   });
@@ -44,8 +48,9 @@ describe("clipboardAction on Windows and Linux", () => {
     expect(clipboardAction(key("Insert", { shiftKey: true }), false, false)).toBe("paste");
   });
 
-  it("plain Ctrl+V stays with the remote program", () => {
-    expect(clipboardAction(key("v", { ctrlKey: true }), false, false)).toBeNull();
+  it("plain Ctrl+V pastes, like Windows Terminal", () => {
+    expect(clipboardAction(key("v", { ctrlKey: true }), false, false)).toBe("paste");
+    expect(clipboardAction(key("v", { ctrlKey: true }), false, true)).toBe("paste");
   });
 
   it("ignores Alt and Meta combinations", () => {
