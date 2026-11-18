@@ -140,6 +140,16 @@ export class VaultStore {
     return result;
   }
 
+  /** The saved auto-lock time in minutes (0 = never). Works while the vault is locked. */
+  async getAutoLock(): Promise<Result<number>> {
+    return attempt(() => this.#ipc.vaultGetAutoLock());
+  }
+
+  /** Saves the auto-lock time; the backend applies it at once. */
+  async setAutoLock(minutes: number): Promise<Result<void>> {
+    return attempt(() => this.#ipc.vaultSetAutoLock(minutes));
+  }
+
   name(id: Uuid): string | null {
     return this.credentials.find((c) => c.id === id)?.name ?? null;
   }

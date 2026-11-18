@@ -115,6 +115,18 @@ describe("mock vault", () => {
   });
 });
 
+describe("mock auto-lock time", () => {
+  it("defaults to 15 minutes, keeps a valid choice and refuses any other", async () => {
+    const ipc = createMockIpc();
+    expect(await ipc.vaultGetAutoLock()).toBe(15);
+    await ipc.vaultSetAutoLock(0);
+    expect(await ipc.vaultGetAutoLock()).toBe(0);
+    expect(await codeOf(ipc.vaultSetAutoLock(7))).toBe("invalid_input");
+    expect(await ipc.vaultGetAutoLock()).toBe(0);
+    expect(await createMockIpc({ autoLockMinutes: 60 }).vaultGetAutoLock()).toBe(60);
+  });
+});
+
 describe("mock sessions", () => {
   it("rejects with unsupported", async () => {
     const ipc = createMockIpc();

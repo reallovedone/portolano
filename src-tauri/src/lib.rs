@@ -5,8 +5,11 @@ mod commands;
 mod error;
 #[cfg(target_os = "macos")]
 mod menu;
+mod settings;
 mod state;
 mod update;
+
+use std::sync::Arc;
 
 use tauri::{Emitter, Manager, RunEvent};
 use tracing_subscriber::EnvFilter;
@@ -66,8 +69,17 @@ pub fn run() {
                 }
             });
             app.manage(state);
+            // One settings store for the whole app: the update service and the commands share it.
+            let settings = Arc::new(settings::SettingsStore::load(&data_dir));
+            app.manage(Arc::clone(&settings));
+            // The saved auto-lock time must reach the vault before the timer's first tick.
+            if let Err(e) =
+                commands::vault::apply_saved_auto_lock(&app.state::<AppState>(), &settings)
+            {
+                tracing::warn!(error = %e, "could not apply the saved auto-lock time");
+            }
             app.manage(update::UpdateService::new(
-                &data_dir,
+                settings,
                 app.package_info().version.clone(),
             ));
             // Vault auto-lock timer (WP3).
@@ -89,6 +101,8 @@ pub fn run() {
             commands::vault::vault_upsert,
             commands::vault::vault_delete,
             commands::vault::vault_reveal_secret,
+            commands::vault::vault_get_auto_lock,
+            commands::vault::vault_set_auto_lock,
             commands::term::term_open,
             commands::term::term_write,
             commands::term::term_ack,
@@ -240,6 +254,8 @@ mod tests {
             "vault_upsert",
             "vault_delete",
             "vault_reveal_secret",
+            "vault_get_auto_lock",
+            "vault_set_auto_lock",
             "term_open",
             "term_write",
             "term_ack",

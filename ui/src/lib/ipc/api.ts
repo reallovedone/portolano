@@ -45,6 +45,10 @@ export interface Ipc {
   vaultUpsert(input: CredentialInput): Promise<CredentialSummary>;
   vaultDelete(id: Uuid): Promise<void>;
   vaultRevealSecret(id: Uuid): Promise<RevealedSecret>;
+  /** Minutes of inactivity before the vault locks itself: 0 (never), 5, 15, 30 or 60. */
+  vaultGetAutoLock(): Promise<number>;
+  /** Saves the auto-lock time and applies it at once. Anything but the five choices is refused. */
+  vaultSetAutoLock(minutes: number): Promise<void>;
 
   // terminal family (local shell, SSH)
   termOpen(
