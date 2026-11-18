@@ -9,6 +9,9 @@ members = [
     "crates/importers",
     "src-tauri",
 ]
+# Vendored third-party crate (see docs/VENDORED.md): never a workspace member, so it is not
+# formatted, linted or tested together with our crates.
+exclude = ["vendor/sspi"]
 
 [workspace.package]
 version = "0.3.0"
@@ -71,6 +74,8 @@ ironrdp-dvc = "0.10"
 ironrdp-svc = "0.10"
 ironrdp-core = "0.3"
 ironrdp-cliprdr = "0.9"
+# Parses and normalises the optional Kerberos KDC address of an RDP connection.
+url = "2.5"
 # WP14: the operating system's clipboard, used from Rust only. No image support (no `image`).
 arboard = { version = "3.7", default-features = false }
 x509-cert = "0.3"
@@ -97,3 +102,8 @@ opt-level = 3
 # wrapped value must stop the session (a panic) rather than silently corrupt a calculation.
 [profile.release]
 overflow-checks = true
+
+# sspi 0.23.0 with the upstream Kerberos mechListMIC sequence-number fix backported.
+# Temporary: see docs/VENDORED.md for the reason and how to remove it.
+[patch.crates-io]
+sspi = { path = "vendor/sspi" }

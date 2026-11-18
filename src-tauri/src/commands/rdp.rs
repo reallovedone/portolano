@@ -40,6 +40,7 @@ struct Target {
     options_domain: Option<String>,
     ignore_cert: bool,
     allow_without_nla: bool,
+    kerberos_kdc: Option<String>,
     share_clipboard: bool,
     credential: Option<Uuid>,
     connection_name: String,
@@ -63,6 +64,7 @@ fn read_target(state: &AppState, connection_id: Uuid) -> Result<Target, AppError
             domain,
             ignore_cert,
             allow_without_nla,
+            kerberos_kdc,
             share_clipboard,
             ..
         } = &connection.options
@@ -82,6 +84,7 @@ fn read_target(state: &AppState, connection_id: Uuid) -> Result<Target, AppError
             options_domain: domain.clone().filter(|d| !d.trim().is_empty()),
             ignore_cert: *ignore_cert,
             allow_without_nla: *allow_without_nla,
+            kerberos_kdc: kerberos_kdc.clone().filter(|k| !k.trim().is_empty()),
             share_clipboard: *share_clipboard,
             credential: resolve_credential(doc, connection_id)?,
             connection_name: connection.name.clone(),
@@ -142,6 +145,7 @@ fn build_config(
     config.fixed_size = fixed_size;
     config.ignore_cert = target.ignore_cert;
     config.allow_without_nla = target.allow_without_nla;
+    config.kerberos_kdc = target.kerberos_kdc;
     // The clipboard channel is negotiated only when the connection asks for it.
     if target.share_clipboard {
         let local: Arc<dyn LocalClipboard> = state.clipboard.clone();
@@ -346,6 +350,7 @@ mod tests {
                 domain: Some("CONNDOM".into()),
                 ignore_cert: false,
                 allow_without_nla: false,
+                kerberos_kdc: None,
                 share_clipboard: false,
                 mac_shortcuts: false,
             },
@@ -434,6 +439,7 @@ mod tests {
                 domain: None,
                 ignore_cert: true,
                 allow_without_nla: true,
+                kerberos_kdc: None,
                 share_clipboard: false,
                 mac_shortcuts: false,
             };
@@ -456,6 +462,49 @@ mod tests {
     }
 
     #[test]
+    fn the_kerberos_kdc_of_the_connection_reaches_the_session() {
+        let dir = TempDir::new("kdc-option");
+        let state = AppState::new(dir.0.clone());
+        put(&state, rdp_connection(2, None, CredentialRef::None));
+        let config = build_config(&state, u(2), 800, 600, false).expect("config");
+        assert_eq!(config.kerberos_kdc, None, "found through DNS by default");
+
+        let mut node = rdp_connection(3, None, CredentialRef::None);
+        if let Node::Connection(c) = &mut node {
+            c.options = ConnectionOptions::Rdp {
+                width: None,
+                height: None,
+                domain: None,
+                ignore_cert: false,
+                allow_without_nla: false,
+                kerberos_kdc: Some("dc.corp.example.com".into()),
+                share_clipboard: false,
+                mac_shortcuts: false,
+            };
+        }
+        put(&state, node);
+        let config = build_config(&state, u(3), 800, 600, false).expect("config");
+        assert_eq!(config.kerberos_kdc.as_deref(), Some("dc.corp.example.com"));
+        // A blank value is "not set".
+        let mut node = rdp_connection(4, None, CredentialRef::None);
+        if let Node::Connection(c) = &mut node {
+            c.options = ConnectionOptions::Rdp {
+                width: None,
+                height: None,
+                domain: None,
+                ignore_cert: false,
+                allow_without_nla: false,
+                kerberos_kdc: Some("   ".into()),
+                share_clipboard: false,
+                mac_shortcuts: false,
+            };
+        }
+        put(&state, node);
+        let config = build_config(&state, u(4), 800, 600, false).expect("config");
+        assert_eq!(config.kerberos_kdc, None);
+    }
+
+    #[test]
     fn the_clipboard_channel_is_wired_only_when_the_connection_shares_it() {
         let dir = TempDir::new("clipboard-option");
         let state = AppState::new(dir.0.clone());
@@ -473,6 +522,7 @@ mod tests {
                 domain: None,
                 ignore_cert: false,
                 allow_without_nla: false,
+                kerberos_kdc: None,
                 share_clipboard: true,
                 mac_shortcuts: false,
             };
@@ -625,6 +675,7 @@ mod tests {
                 domain: None,
                 ignore_cert: false,
                 allow_without_nla: true,
+                kerberos_kdc: None,
                 share_clipboard: false,
                 mac_shortcuts: false,
             };
@@ -727,6 +778,7 @@ mod tests {
                 domain: None,
                 ignore_cert: false,
                 allow_without_nla: true,
+                kerberos_kdc: None,
                 share_clipboard: false,
                 mac_shortcuts: false,
             };

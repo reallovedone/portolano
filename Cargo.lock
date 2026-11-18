@@ -4577,6 +4577,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
+ "url",
  "uuid",
  "x509-cert",
 ]
@@ -6084,8 +6085,6 @@ dependencies = [
 [[package]]
 name = "sspi"
 version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "256b74a75c961d4eb11e0e302a4451cdc51d713d5f26b2ede8156ba61cca5d7e"
 dependencies = [
  "async-dnssd",
  "async-recursion",

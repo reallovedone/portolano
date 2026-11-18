@@ -64,6 +64,7 @@ use crate::clipboard::guard::GuardedCliprdr;
 use crate::clipboard::{ClipboardConfig, Command as ClipboardCommand};
 use crate::dirty::{DirtyRegion, Rect};
 use crate::error::{self, from_connector, RdpError};
+use crate::kerberos::{self, TimeoutNetworkClient};
 use crate::keymap;
 
 /// Receives the events of the session. Returns `false` when nobody listens any more, which
@@ -124,6 +125,9 @@ pub struct RdpConfig {
     /// is sent. Off by default: with a credential only CredSSP (NLA) is offered, so an
     /// attacker cannot downgrade the session and receive the password in the Client Info PDU.
     pub allow_without_nla: bool,
+    /// The connection's optional "Kerberos KDC", as typed (see [`crate::kerberos::normalize_kdc`]).
+    /// Used only when the sign-in uses Kerberos; `None`: the KDC is found through DNS.
+    pub kerberos_kdc: Option<String>,
     pub cert_store: CertStore,
     pub keyboard_layout: u32,
     /// Share the clipboard with the remote desktop. `None`: the clipboard channel is not
@@ -150,6 +154,7 @@ impl RdpConfig {
             domain: None,
             ignore_cert: false,
             allow_without_nla: false,
+            kerberos_kdc: None,
             cert_store,
             keyboard_layout: DEFAULT_KEYBOARD_LAYOUT,
             clipboard: None,
@@ -591,6 +596,57 @@ async fn establish(
     width: u16,
     height: u16,
 ) -> Result<Option<Established>, RdpError> {
+    match establish_once(config, sink, cert_rx, close, width, height, true).await {
+        // The stock network client aborts the login when the KDC cannot be reached, instead of
+        // letting sspi fall back to NTLM. The fallback is done here: one new connection with
+        // NTLM only, which is what Portolano did before it knew Kerberos. Its own failure is
+        // reported as it is (a wrong password still asks again); only a network-class failure
+        // is blamed on the domain controller, the likelier cause.
+        Err(RdpError::KdcUnreachable) => {
+            tracing::info!("the Kerberos KDC could not be reached, trying NTLM");
+            let retry = establish_once(config, sink, cert_rx, close, width, height, false).await;
+            retry.map_err(after_ntlm_retry)
+        }
+        other => other,
+    }
+}
+
+const KDC_UNREACHABLE_NTLM_REFUSED: &str = "Kerberos: the domain controller could not be reached, and the server refused the fallback sign-in. Check the Kerberos KDC setting and the password";
+
+/// The error to report when the NTLM retry, made after the KDC was unreachable, failed too.
+/// Only a host or I/O failure is attributed to the unreachable KDC; authentication problems, an
+/// unsupported server, a changed certificate or a cancellation are reported unchanged. An
+/// authentication failure keeps its kind (the user can be asked again) but says that the KDC
+/// was unreachable, which is the likelier real cause where NTLM is restricted.
+fn after_ntlm_retry(error: RdpError) -> RdpError {
+    match error {
+        RdpError::AuthFailed(_) => RdpError::AuthFailed(KDC_UNREACHABLE_NTLM_REFUSED.into()),
+        RdpError::HostUnreachable(_) | RdpError::Io(_) => RdpError::KdcUnreachable,
+        other => other,
+    }
+}
+
+/// One connection attempt. `allow_kerberos: false` forces NTLM.
+async fn establish_once(
+    config: &RdpConfig,
+    sink: &EventSink,
+    cert_rx: &mut mpsc::UnboundedReceiver<bool>,
+    close: &mut watch::Receiver<bool>,
+    width: u16,
+    height: u16,
+    allow_kerberos: bool,
+) -> Result<Option<Established>, RdpError> {
+    // Decided (and an invalid KDC reported) before anything goes on the network.
+    let kerberos = match (&config.credentials, allow_kerberos) {
+        (Some(cred), true) => kerberos::config_for(
+            &config.host,
+            &cred.username,
+            config.domain.as_deref(),
+            true,
+            config.kerberos_kdc.as_deref(),
+        )?,
+        _ => None,
+    };
     let tcp = cancellable(close, connect_tcp(&config.host, config.port)).await?;
     let client_addr: SocketAddr = tcp
         .local_addr()
@@ -650,7 +706,8 @@ async fn establish(
         .ok_or_else(|| RdpError::Io("the server certificate has no public key".into()))?;
     let upgraded = ironrdp_tokio::mark_as_upgraded(should_upgrade, &mut connector);
     let mut framed = TokioFramed::new(tls);
-    let mut network_client = ReqwestNetworkClient::new();
+    let mut network_client =
+        TimeoutNetworkClient::new(ReqwestNetworkClient::new(), kerberos::KDC_REQUEST_TIMEOUT);
     let outcome = cancellable(
         close,
         with_timeout("RDP login", FINALIZE_TIMEOUT, async {
@@ -661,7 +718,7 @@ async fn establish(
                 &mut network_client,
                 config.host.clone().into(),
                 server_public_key,
-                None,
+                kerberos,
             )
             .await
             .map_err(|e| from_connector(&e, nla))
@@ -1614,6 +1671,43 @@ mod tests {
         assert!(credentials_from_answer(answer("  ", Some("pw"), None)).is_err());
         assert!(credentials_from_answer(answer("bob", None, None)).is_err());
         assert!(credentials_from_answer(answer("bob", Some(""), None)).is_err());
+    }
+
+    #[test]
+    fn a_failed_ntlm_retry_keeps_its_own_error_unless_it_is_a_network_one() {
+        // The credential re-prompt depends on AuthFailed surviving the retry.
+        let auth = after_ntlm_retry(RdpError::AuthFailed("wrong".into()));
+        assert!(matches!(&auth, RdpError::AuthFailed(m) if m == KDC_UNREACHABLE_NTLM_REFUSED));
+        assert!(!KDC_UNREACHABLE_NTLM_REFUSED.contains("wrong"));
+        assert!(asks_again(&auth, 1));
+        assert!(matches!(
+            after_ntlm_retry(RdpError::Unsupported("no nla".into())),
+            RdpError::Unsupported(_)
+        ));
+        assert!(matches!(
+            after_ntlm_retry(RdpError::CertificateChanged),
+            RdpError::CertificateChanged
+        ));
+        assert!(matches!(
+            after_ntlm_retry(RdpError::Cancelled),
+            RdpError::Cancelled
+        ));
+        assert!(matches!(
+            after_ntlm_retry(RdpError::InvalidInput("x".into())),
+            RdpError::InvalidInput(_)
+        ));
+        assert!(matches!(
+            after_ntlm_retry(RdpError::PromptCancelled),
+            RdpError::PromptCancelled
+        ));
+        assert!(matches!(
+            after_ntlm_retry(RdpError::Io("reset".into())),
+            RdpError::KdcUnreachable
+        ));
+        assert!(matches!(
+            after_ntlm_retry(RdpError::HostUnreachable("down".into())),
+            RdpError::KdcUnreachable
+        ));
     }
 
     #[test]

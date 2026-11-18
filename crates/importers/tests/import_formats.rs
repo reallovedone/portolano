@@ -104,11 +104,13 @@ fn rdp_utf8_file_with_port_and_dropped_password() {
             domain,
             ignore_cert,
             allow_without_nla,
+            kerberos_kdc,
             share_clipboard,
             mac_shortcuts,
         } => {
             assert_eq!(*width, Some(1920));
             assert!(!allow_without_nla);
+            assert_eq!(*kerberos_kdc, None);
             assert!(!share_clipboard);
             assert!(!mac_shortcuts);
             assert_eq!(*height, Some(1080));

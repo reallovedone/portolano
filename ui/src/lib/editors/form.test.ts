@@ -137,7 +137,7 @@ describe("draftToConnection", () => {
     const samples: Connection[] = [
       { ...base, host: "", username: null, credential: { type: "inherit" }, options: { type: "localShell", program: "/bin/zsh", args: ["-l"], cwd: "/tmp" } },
       { ...base, host: "h", port: 2222, username: "deploy", credential: { type: "id", id: "c" }, options: { type: "ssh", jumpHost: "j", keepaliveSecs: 15 } },
-      { ...base, host: "h", port: 3390, username: "CORP\\ann", credential: { type: "none" }, options: { type: "rdp", width: 800, height: 600, domain: "D", ignoreCert: true, allowWithoutNla: true, shareClipboard: false, macShortcuts: true } },
+      { ...base, host: "h", port: 3390, username: "CORP\\ann", credential: { type: "none" }, options: { type: "rdp", width: 800, height: 600, domain: "D", ignoreCert: true, allowWithoutNla: true, kerberosKdc: "tcp://dc.example.com:88", shareClipboard: false, macShortcuts: true } },
       { ...base, host: "h", username: null, credential: { type: "inherit" }, options: { type: "vnc", viewOnly: true } },
       { ...base, host: "example.org", username: null, credential: { type: "inherit" }, options: { type: "web", url: "https://example.org/", isolatedProfile: true } },
     ];
@@ -163,6 +163,7 @@ describe("RDP clipboard sharing", () => {
       domain: null,
       ignoreCert: false,
       allowWithoutNla: false,
+      kerberosKdc: null,
       shareClipboard,
       macShortcuts: false,
     },
@@ -181,6 +182,59 @@ describe("RDP clipboard sharing", () => {
       const converted = draftToConnection(draftFromConnection(rdp(on)), newId);
       expect(converted.options).toMatchObject({ type: "rdp", shareClipboard: on });
     }
+  });
+});
+
+describe("RDP Kerberos KDC", () => {
+  const kdcError = (value: string) =>
+    validateConnectionDraft(valid("rdp", { kerberosKdc: value })).kerberosKdc;
+
+  it("is empty in a new draft, a blank value is saved as none", () => {
+    expect(newConnectionDraft("rdp", null).kerberosKdc).toBe("");
+    expect(draftToConnection(valid("rdp"), newId).options).toMatchObject({ kerberosKdc: null });
+    expect(draftToConnection(valid("rdp", { kerberosKdc: "   " }), newId).options).toMatchObject({
+      kerberosKdc: null,
+    });
+  });
+
+  it("is trimmed and saved", () => {
+    const saved = draftToConnection(valid("rdp", { kerberosKdc: "  dc.example.com:88 " }), newId);
+    expect(saved.options).toMatchObject({ type: "rdp", kerberosKdc: "dc.example.com:88" });
+  });
+
+  it("loads empty for a document that predates the field", () => {
+    const c = draftToConnection(valid("rdp", { kerberosKdc: "dc.example.com" }), newId);
+    delete (c.options as { kerberosKdc?: string | null }).kerberosKdc;
+    expect(draftFromConnection(c).kerberosKdc).toBe("");
+  });
+
+  it("accepts every documented form and an empty value", () => {
+    for (const ok of [
+      "",
+      "dc.example.com",
+      "dc.example.com:88",
+      "10.0.0.5",
+      "[fe80::1]",
+      "tcp://dc.example.com",
+      "tcp://dc.example.com:88",
+      "udp://10.0.0.5:88",
+      "https://proxy.example.com/KdcProxy",
+    ]) {
+      expect(kdcError(ok), ok).toBeUndefined();
+    }
+  });
+
+  it("refuses an invalid value with a message instead of saving it", () => {
+    for (const bad of ["dc example.com", "tcp://", "dc.example.com:notaport", "dc.example.com:70000", "tcp://dc.example.com/path"]) {
+      expect(kdcError(bad), bad).toBe("validation.kdcInvalid");
+    }
+    expect(kdcError("http://proxy.example.com/KdcProxy")).toBe("validation.kdcScheme");
+    expect(kdcError("ldap://dc.example.com")).toBe("validation.kdcScheme");
+    expect(kdcError("tcp://ann:pw@dc.example.com")).toBe("validation.kdcInvalid");
+  });
+
+  it("is only checked for RDP", () => {
+    expect(validateConnectionDraft(valid("ssh", { kerberosKdc: "bad value" })).kerberosKdc).toBeUndefined();
   });
 });
 
@@ -244,6 +298,7 @@ describe("RDP Mac shortcuts", () => {
       domain: null,
       ignoreCert: false,
       allowWithoutNla: false,
+      kerberosKdc: null,
       shareClipboard: false,
       macShortcuts,
     },

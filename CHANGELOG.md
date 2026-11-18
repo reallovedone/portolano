@@ -7,6 +7,10 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### ✨ Added
+
+- RDP connections to Active Directory servers can sign in with Kerberos, needed where NTLM is disabled; Portolano uses it automatically with a full server name and a domain account, and an optional KDC can be set per connection.
+
 ## [0.3.0] - 2026-11-18
 
 ### ✨ Added

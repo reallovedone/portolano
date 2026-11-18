@@ -162,6 +162,7 @@ fn import_connection(
                         .map(str::to_owned),
                     ignore_cert: false,
                     allow_without_nla: false,
+                    kerberos_kdc: None,
                     share_clipboard: false,
                     mac_shortcuts: false,
                 },

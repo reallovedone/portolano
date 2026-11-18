@@ -20,19 +20,41 @@ use tracing_subscriber::EnvFilter;
 
 use crate::state::AppState;
 
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    // The clipboard channel of IronRDP logs file names of the remote clipboard when it has to
-    // fix or skip one. File names are never logged by Portolano, so that crate stays silent
-    // whatever `RUST_LOG` says.
-    let filter = match "ironrdp_cliprdr=off".parse() {
-        Ok(directive) => filter.add_directive(directive),
-        Err(_) => filter,
+/// Whether an event of `target` at `level` may be logged at all, whatever `RUST_LOG` says. It
+/// only ever removes events, so a stricter user level (`RUST_LOG=error`) stays as it is.
+///
+/// - `ironrdp_cliprdr` logs file names of the remote clipboard when it has to fix or skip one;
+///   file names are never logged by Portolano.
+/// - `sspi` (Kerberos and NTLM) is off completely: even its error-level events can carry
+///   secrets or personal data (for example the whole KDC error, with user and realm names, in
+///   the AS exchange).
+/// - `ironrdp_connector` can log the connection configuration, including the KDC address, at
+///   debug level: it is capped at warnings.
+fn log_allowed(target: &str, level: &tracing::Level) -> bool {
+    let is = |name: &str| {
+        target == name
+            || target
+                .strip_prefix(name)
+                .is_some_and(|rest| rest.starts_with("::"))
     };
+    if is("ironrdp_cliprdr") || is("sspi") {
+        return false;
+    }
+    !is("ironrdp_connector") || *level <= tracing::Level::WARN
+}
+
+fn init_tracing() {
+    use tracing_subscriber::filter::{filter_fn, FilterExt};
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::Layer;
+
+    let env = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = env.and(filter_fn(|meta| log_allowed(meta.target(), meta.level())));
     // `try_init` only fails when a global subscriber is already installed (for example in
     // tests); logging then goes to that subscriber, so there is nothing to recover.
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(filter))
         .try_init()
         .ok();
 }
@@ -225,6 +247,38 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    use tracing::Level;
+
+    /// Even `RUST_LOG=trace` must not turn on the logs of the sign-in libraries, and the cap
+    /// never makes a stricter level noisier (it only removes events).
+    #[test]
+    fn sensitive_crates_stay_quiet_whatever_the_log_level() {
+        for level in [
+            Level::ERROR,
+            Level::WARN,
+            Level::INFO,
+            Level::DEBUG,
+            Level::TRACE,
+        ] {
+            assert!(!super::log_allowed("sspi", &level));
+            assert!(!super::log_allowed("sspi::kerberos::client", &level));
+            assert!(!super::log_allowed("ironrdp_cliprdr", &level));
+            assert!(super::log_allowed("portolano_session_rdp::session", &level));
+            assert!(super::log_allowed("sspix", &level), "only the crate itself");
+        }
+        assert!(super::log_allowed("ironrdp_connector", &Level::ERROR));
+        assert!(super::log_allowed(
+            "ironrdp_connector::credssp",
+            &Level::WARN
+        ));
+        assert!(!super::log_allowed("ironrdp_connector", &Level::INFO));
+        assert!(!super::log_allowed(
+            "ironrdp_connector::credssp",
+            &Level::DEBUG
+        ));
+        assert!(!super::log_allowed("ironrdp_connector", &Level::TRACE));
+    }
+
     /// Release builds keep integer overflow checks (sizes and offsets come from remote servers),
     /// and every crate of the workspace declares the licence.
     #[test]

@@ -55,7 +55,7 @@ fix it and send a pull request.
 
 - **SSH and local shells** in a real terminal: password or key authentication,
   jump hosts, host-key verification.
-- **RDP** with Network Level Authentication and remote cursor.
+- **RDP** with Network Level Authentication (Kerberos for domain accounts, NTLM otherwise) and remote cursor.
 - **VNC**, with password authentication, and TLS encryption (VeNCrypt) when the
   server provides a certificate.
 - **Web** consoles in tabs, optionally each with its own isolated cookie store.
@@ -121,6 +121,12 @@ is open; quit the app to require the master password again.
   **changes**, Portolano refuses until you remove the stored one: no "connect anyway".
 - RDP requires Network Level Authentication when a password is sent; a TLS-only server is
   refused unless you turn on "Allow connections without NLA" for that connection.
+- NLA signs in with Kerberos when it can: the connection host is a name (not an IP address)
+  and the account is a domain one (`user@corp.example.com`, or a user plus a dotted domain
+  such as `corp.example.com`). Anything else, including `DOMAIN\user`, signs in with NTLM as
+  before. The domain controller is found through DNS; the optional "Kerberos KDC" in the RDP
+  options sets one. Kerberos tickets are never written to disk, and an imported connection
+  never keeps a KDC.
 - A VNC host that has used TLS is never downgraded. For a server without TLS, Portolano asks
   before sending the password, once per host, and a banner says the session is not encrypted.
 - Copied secrets are cleared from the clipboard after 30 seconds if it still holds them
@@ -178,6 +184,9 @@ pnpm ui:install
 pnpm dev        # run in development
 pnpm build      # optimised build
 ```
+
+The repository vendors one patched third-party crate (`vendor/sspi`); see
+[docs/VENDORED.md](docs/VENDORED.md).
 
 Your data is stored in the operating system's application-data folder
 (`~/Library/Application Support/portolano` on macOS), never inside the repository.
