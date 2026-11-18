@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../../App.svelte";
 import { MOCK_IDS, createMockIpc, type MockIpc, type MockOptions } from "../ipc/mock";
+import type { MockUpdateOptions } from "../ipc/mock-updates";
 import { createApp, type App as AppState } from "../state/app";
+import { NoticeStore } from "../state/notices.svelte";
+import { UpdateStore } from "../state/updates.svelte";
 
 vi.mock("@xterm/xterm", async () => ({
   Terminal: (await import("../sessions/term/fakeXterm")).FakeTerminal,
@@ -290,5 +293,84 @@ describe("What's new", () => {
     await waitFor(() => expect(mock.updates.checks).toEqual([false]));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("freshness of the update status", () => {
+  function store(updates: MockUpdateOptions = {}) {
+    const mock = createMockIpc({ vault: "unlocked", updates });
+    return { mock, store: new UpdateStore(mock, new NoticeStore(), FAST) };
+  }
+
+  it("starts unknown, before any check", () => {
+    const { store: updates } = store();
+    expect(updates.freshness).toBe("unknown");
+  });
+
+  it("is upToDate after a scheduled check that finds nothing new", async () => {
+    const { store: updates } = store();
+    await updates.checkInBackground();
+    expect(updates.freshness).toBe("upToDate");
+  });
+
+  it("is available when a scheduled check finds a version", async () => {
+    const { store: updates } = store({ available: offered });
+    await updates.checkInBackground();
+    expect(updates.freshness).toBe("available");
+  });
+
+  it("stays available for a skipped version", async () => {
+    const { mock, store: updates } = store();
+    await updates.checkInBackground();
+    expect(updates.freshness).toBe("upToDate");
+    mock.updates.options.available = offered;
+    mock.updates.skipped.push(offered.version);
+    await updates.checkInBackground();
+    expect(updates.freshness).toBe("available");
+  });
+
+  it("becomes unknown when the backend answers disabled", async () => {
+    const { mock, store: updates } = store();
+    await updates.checkInBackground();
+    expect(updates.freshness).toBe("upToDate");
+    mock.updates.settings = { ...mock.updates.settings, autoCheck: false };
+    await updates.checkInBackground();
+    expect(updates.freshness).toBe("unknown");
+  });
+
+  it("keeps the previous value when a scheduled check fails", async () => {
+    const { mock, store: updates } = store({ available: offered });
+    await updates.checkInBackground();
+    mock.updates.options.checkError = "could not reach the update server";
+    await updates.checkInBackground();
+    expect(updates.freshness).toBe("available");
+  });
+
+  it("keeps the previous value when a manual check fails", async () => {
+    const { mock, store: updates } = store();
+    await updates.checkNow();
+    expect(updates.freshness).toBe("upToDate");
+    mock.updates.options.checkError = "could not reach the update server";
+    await expect(updates.checkNow()).rejects.toMatchObject({ code: "host_unreachable" });
+    expect(updates.freshness).toBe("upToDate");
+  });
+
+  it("follows the answer of a manual check", async () => {
+    const { mock, store: updates } = store();
+    await updates.checkNow();
+    expect(updates.freshness).toBe("upToDate");
+    mock.updates.options.available = offered;
+    await updates.checkNow();
+    expect(updates.freshness).toBe("available");
+  });
+
+  it("is unknown after automatic checks are turned off, and a manual check sets it again", async () => {
+    const { store: updates } = store();
+    await updates.checkInBackground();
+    expect(updates.freshness).toBe("upToDate");
+    expect(await updates.setAutoCheck(false)).toBe(true);
+    expect(updates.freshness).toBe("unknown");
+    await updates.checkNow();
+    expect(updates.freshness).toBe("upToDate");
   });
 });

@@ -102,6 +102,24 @@ describe("sidebar header and tab strip", () => {
     expect(app.doc.expanded.size).toBe(0);
   });
 
+  it("offers Expand all right after Collapse all and opens every folder", async () => {
+    const app = await mountApp();
+    const toolbar = screen.getByRole("toolbar", { name: "Connection actions" });
+    await fireEvent.click(within(toolbar).getByRole("button", { name: "More actions" }));
+    const menu = screen.getByRole("menu");
+    const names = within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent ?? "");
+    expect(names[0]).toMatch(/Collapse all/);
+    expect(names[1]).toMatch(/Expand all/);
+
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: /Expand all/ }));
+    const folderIds = app.doc.nodes.filter((n) => n.type === "folder").map((n) => n.id);
+    expect(folderIds.length).toBeGreaterThan(0);
+    expect(app.doc.expanded.size).toBe(folderIds.length);
+    for (const id of folderIds) expect(app.doc.isExpanded(id)).toBe(true);
+  });
+
   it("marks the title-bar strips as window drag handles", async () => {
     await mountApp();
     expect(screen.getByTestId("sidebar-header").hasAttribute("data-tauri-drag-region")).toBe(true);

@@ -102,4 +102,10 @@ export class DocumentStore {
     this.expanded = new Set();
     saveJson(EXPANDED_KEY, []);
   }
+
+  expandAll(): void {
+    const folderIds = this.nodes.filter((n) => n.type === "folder").map((n) => n.id);
+    this.expanded = new Set(folderIds);
+    saveJson(EXPANDED_KEY, folderIds);
+  }
 }

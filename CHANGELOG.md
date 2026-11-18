@@ -7,6 +7,11 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### ✨ Added
+
+- *Expand all* in the sidebar menu opens every folder at once, next to *Collapse all*.
+- The status bar shows the running version and a dot with the update status (up to date, update available, or unknown); click it to open the update dialog.
+
 ## [0.2.0] - 2026-11-17
 
 ### ⚠️ Breaking changes

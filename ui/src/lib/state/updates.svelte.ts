@@ -20,6 +20,13 @@ export interface UpdateOffer {
   manual: boolean;
 }
 
+/**
+ * What the status bar shows: "upToDate" after a check found nothing newer, "available" when a
+ * newer version exists (also when the user skipped it), "unknown" before any answer or while
+ * automatic checks are off.
+ */
+export type Freshness = "unknown" | "upToDate" | "available";
+
 export type InstallState =
   | { phase: "downloading"; downloaded: number; total: number | null }
   | { phase: "installing" }
@@ -45,6 +52,7 @@ export class UpdateStore {
   /** An update waiting for the user's decision. */
   offer = $state<UpdateOffer | null>(null);
   install = $state<InstallState | null>(null);
+  freshness = $state<Freshness>("unknown");
 
   readonly #ipc: Ipc;
   readonly #notices: NoticeStore;
@@ -122,6 +130,7 @@ export class UpdateStore {
         autoCheck: enabled,
         currentVersion: this.settings?.currentVersion ?? "",
       };
+      if (!enabled) this.freshness = "unknown";
       return true;
     } catch (e) {
       this.#notices.error(t("update.autoFailed"), e);
@@ -134,6 +143,7 @@ export class UpdateStore {
     if (!this.autoCheck || this.offer || this.installing) return;
     try {
       const result = await this.#ipc.updateCheck(false);
+      this.#recordFreshness(result);
       if (result.status === "available" && !this.offer && !this.installing) {
         this.offer = { info: result.update, manual: false };
       }
@@ -146,6 +156,7 @@ export class UpdateStore {
   async checkNow(): Promise<UpdateCheck> {
     try {
       const result = await this.#ipc.updateCheck(true);
+      this.#recordFreshness(result);
       if (result.status === "available") this.offer = { info: result.update, manual: true };
       return result;
     } catch (e) {
@@ -200,6 +211,21 @@ export class UpdateStore {
       await this.#ipc.updateOpenReleasePage(version);
     } catch (e) {
       this.#notices.error(t("update.openNotesFailed"), e);
+    }
+  }
+
+  #recordFreshness(result: UpdateCheck): void {
+    switch (result.status) {
+      case "upToDate":
+        this.freshness = "upToDate";
+        break;
+      case "available":
+      case "skipped":
+        this.freshness = "available";
+        break;
+      case "disabled":
+        this.freshness = "unknown";
+        break;
     }
   }
 

@@ -174,6 +174,26 @@ describe("document store", () => {
     }
   });
 
+  it("expandAll opens every folder and persists it", async () => {
+    const store = memoryStore();
+    vi.stubGlobal("localStorage", store);
+    try {
+      const app = createApp(createMockIpc());
+      expect(await app.doc.load()).toBe(true);
+      const folderIds = app.doc.nodes.filter((n) => n.type === "folder").map((n) => n.id);
+      expect(folderIds.length).toBeGreaterThan(0);
+
+      app.doc.expandAll();
+      for (const id of folderIds) expect(app.doc.isExpanded(id)).toBe(true);
+      expect(app.doc.expanded.size).toBe(folderIds.length);
+
+      const saved = JSON.parse(store.data["portolano.tree.expanded"] ?? "[]") as string[];
+      expect([...saved].sort()).toEqual([...folderIds].sort());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("exposes a load failure with its code", async () => {
     const ipc: Ipc = {
       ...createMockIpc(),
