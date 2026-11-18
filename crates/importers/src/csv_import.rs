@@ -161,6 +161,7 @@ fn import_row(
                         domain: None,
                         ignore_cert: false,
                         allow_without_nla: false,
+                        kerberos_kdc: None,
                         share_clipboard: false,
                         mac_shortcuts: false,
                     },

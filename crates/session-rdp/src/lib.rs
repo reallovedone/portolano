@@ -7,6 +7,7 @@ pub mod cert;
 pub mod clipboard;
 pub mod dirty;
 mod error;
+pub mod kerberos;
 pub mod keymap;
 mod session;
 pub mod tls;

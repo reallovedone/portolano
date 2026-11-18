@@ -222,7 +222,8 @@ impl Draft {
     /// - every credential reference becomes `None` (never `Inherit` from the folder the import
     ///   lands in, never an id of a vault the file knows nothing about);
     /// - "do not verify the server certificate", "allow without NLA" and "share the clipboard"
-    ///   are switched off;
+    ///   are switched off, and a Kerberos KDC is removed (it would receive the sign-in request of
+    ///   the domain account);
     /// - a local shell with a custom program, arguments or working directory is not imported
     ///   (it would run that program when opened). A plain local shell is fine.
     ///
@@ -231,6 +232,7 @@ impl Draft {
         let mut credentials: Vec<String> = Vec::new();
         let mut ignore_cert: Vec<String> = Vec::new();
         let mut without_nla: Vec<String> = Vec::new();
+        let mut kdc: Vec<String> = Vec::new();
         let mut clipboard: Vec<String> = Vec::new();
         let mut programs: Vec<String> = Vec::new();
 
@@ -251,6 +253,7 @@ impl Draft {
                         ConnectionOptions::Rdp {
                             ignore_cert: ignore,
                             allow_without_nla: without,
+                            kerberos_kdc,
                             share_clipboard: share,
                             ..
                         } => {
@@ -262,6 +265,9 @@ impl Draft {
                             }
                             if std::mem::take(without) {
                                 without_nla.push(c.name.clone());
+                            }
+                            if kerberos_kdc.take().is_some() {
+                                kdc.push(c.name.clone());
                             }
                         }
                         ConnectionOptions::LocalShell { program, args, cwd } => {
@@ -330,6 +336,15 @@ impl Draft {
                 "RDP connection",
                 "allowed connections without NLA: the option was turned off",
                 "allowed connections without NLA: the option was turned off",
+            );
+            self.warn(None, message);
+        }
+        if !kdc.is_empty() {
+            let message = grouped(
+                &kdc,
+                "RDP connection",
+                "had a Kerberos KDC: it was removed, so the domain controller is found through DNS",
+                "had a Kerberos KDC: it was removed, so the domain controller is found through DNS",
             );
             self.warn(None, message);
         }

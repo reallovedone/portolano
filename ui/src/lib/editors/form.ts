@@ -52,6 +52,7 @@ export interface ConnectionDraft {
   domain: string;
   ignoreCert: boolean;
   allowWithoutNla: boolean;
+  kerberosKdc: string;
   shareClipboard: boolean;
   macShortcuts: boolean;
   // vnc
@@ -70,6 +71,7 @@ export type ConnectionField =
   | "keepaliveSecs"
   | "width"
   | "height"
+  | "kerberosKdc"
   | "url";
 
 export type FieldErrors<F extends string> = Partial<Record<F, StringKey>>;
@@ -100,6 +102,7 @@ export function newConnectionDraft(
     domain: "",
     ignoreCert: false,
     allowWithoutNla: false,
+    kerberosKdc: "",
     shareClipboard: false,
     // New RDP connections made on a Mac use the Mac shortcuts; elsewhere the option does nothing.
     macShortcuts: platform === "macos",
@@ -148,6 +151,7 @@ export function draftFromConnection(c: Connection): ConnectionDraft {
       draft.domain = text(o.domain);
       draft.ignoreCert = o.ignoreCert;
       draft.allowWithoutNla = o.allowWithoutNla === true;
+      draft.kerberosKdc = text(o.kerberosKdc);
       draft.shareClipboard = o.shareClipboard === true;
       draft.macShortcuts = o.macShortcuts === true;
       break;
@@ -202,6 +206,31 @@ function parseWebUrl(value: string): URL | null {
   }
 }
 
+/**
+ * Checks the optional "Kerberos KDC" the way the backend does when a session starts: a server
+ * name (optionally with a port), `tcp://`, `udp://` or an `https://` KDC proxy. Returns the
+ * message key of the problem, or null when the value is empty or acceptable.
+ */
+function checkKdc(value: string): StringKey | null {
+  const input = value.trim();
+  if (input === "") return null;
+  if (/\s/.test(input)) return "validation.kdcInvalid";
+  let url: URL;
+  try {
+    url = new URL(input.includes("://") ? input : `tcp://${input}`);
+  } catch {
+    return "validation.kdcInvalid";
+  }
+  if (url.username !== "" || url.password !== "") return "validation.kdcInvalid";
+  const scheme = url.protocol.replace(/:$/, "");
+  if (scheme === "tcp" || scheme === "udp") {
+    const hasExtras = (url.pathname !== "" && url.pathname !== "/") || url.search !== "" || url.hash !== "";
+    return url.hostname === "" || hasExtras ? "validation.kdcInvalid" : null;
+  }
+  if (scheme === "https") return url.hostname === "" ? "validation.kdcInvalid" : null;
+  return "validation.kdcScheme";
+}
+
 export function validateConnectionDraft(draft: ConnectionDraft): FieldErrors<ConnectionField> {
   const errors: FieldErrors<ConnectionField> = {};
   if (draft.name.trim() === "") errors.name = "validation.nameRequired";
@@ -229,6 +258,8 @@ export function validateConnectionDraft(draft: ConnectionDraft): FieldErrors<Con
       if (w !== undefined && h !== undefined && (w === null) !== (h === null)) {
         errors[w === null ? "width" : "height"] = "validation.dimensionPair";
       }
+      const kdc = checkKdc(draft.kerberosKdc);
+      if (kdc !== null) errors.kerberosKdc = kdc;
       break;
     }
     case "web":
@@ -277,6 +308,7 @@ export function draftToConnection(draft: ConnectionDraft, newId: () => Uuid): Co
         domain: orNull(draft.domain),
         ignoreCert: draft.ignoreCert,
         allowWithoutNla: draft.allowWithoutNla,
+        kerberosKdc: orNull(draft.kerberosKdc),
         shareClipboard: draft.shareClipboard,
         macShortcuts: draft.macShortcuts,
       };

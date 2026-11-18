@@ -239,6 +239,8 @@ export const strings = {
   "editor.rdp.domain": "Domain",
   "editor.rdp.ignoreCert": "Do not verify the server certificate",
   "editor.rdp.allowWithoutNla": "Allow connections without NLA (less secure)",
+  "editor.rdp.kerberosKdc": "Kerberos KDC",
+  "editor.rdp.kerberosKdcHint": "Optional. Found through DNS when empty.",
   "editor.rdp.shareClipboard": "Share the clipboard with the remote desktop",
   "editor.rdp.shareClipboardHelp":
     "While this tab is active, text and files you copy here can be pasted into the remote desktop, and text copied there arrives on your clipboard. The remote machine can read what you copy and replace what is on your clipboard. Passwords you copy from the Portolano vault are never shared; anything you copy from other programs is. Files copied on the remote desktop are not pasted here: Portolano offers to save them into a folder you choose. Off unless you turn it on.",
@@ -273,6 +275,9 @@ export const strings = {
   "validation.portRange": "The port must be a whole number between 1 and 65535.",
   "validation.keepalive": "Keepalive must be a whole number of seconds, 1 or more.",
   "validation.dimension": "Use a whole number between 1 and 16384.",
+  "validation.kdcInvalid":
+    "The Kerberos KDC is not a valid address. Use a server name such as dc.example.com, optionally with a port, or an https:// KDC proxy address.",
+  "validation.kdcScheme": "The Kerberos KDC must start with tcp://, udp:// or https://.",
   "validation.dimensionPair": "Set both width and height, or neither.",
   "validation.urlRequired": "A URL is required.",
   "validation.urlInvalid": "Enter a valid http:// or https:// URL.",

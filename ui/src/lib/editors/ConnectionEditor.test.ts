@@ -166,6 +166,50 @@ describe("ConnectionEditor RDP clipboard sharing", () => {
   });
 });
 
+describe("ConnectionEditor RDP Kerberos KDC", () => {
+  const LABEL = "Kerberos KDC";
+  const HINT = "Optional. Found through DNS when empty.";
+
+  it("is offered for RDP only, with its hint", async () => {
+    const rdp = await open(null, "rdp");
+    expect((within(rdp).getByLabelText(LABEL) as HTMLInputElement).value).toBe("");
+    expect(within(rdp).getByText(HINT)).toBeTruthy();
+    cleanup();
+    expect(within(await open(null, "ssh")).queryByLabelText(LABEL)).toBeNull();
+    cleanup();
+    expect(within(await open(null, "vnc")).queryByLabelText(LABEL)).toBeNull();
+  });
+
+  async function fillRdp(kdc: string) {
+    const app = createApp(createMockIpc({ vault: "unlocked" }));
+    await app.doc.load();
+    render(EditorHarness, { props: { app, id: null, kind: "rdp" } });
+    const dialog = await screen.findByRole("dialog");
+    await fireEvent.input(within(dialog).getByLabelText("Name"), { target: { value: "Domain PC" } });
+    await fireEvent.input(within(dialog).getByLabelText("Host"), { target: { value: "pc.corp.example.com" } });
+    await fireEvent.input(within(dialog).getByLabelText(LABEL), { target: { value: kdc } });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    return { app, dialog };
+  }
+
+  it("is saved with the connection", async () => {
+    const { app } = await fillRdp("dc.corp.example.com");
+    await vi.waitFor(() => {
+      const saved = app.doc.nodes.find((n) => n.type === "connection" && n.name === "Domain PC");
+      expect(saved?.type === "connection" && saved.options).toMatchObject({
+        type: "rdp",
+        kerberosKdc: "dc.corp.example.com",
+      });
+    });
+  });
+
+  it("shows a validation message and does not save an invalid value", async () => {
+    const { app, dialog } = await fillRdp("tcp://");
+    expect(await within(dialog).findByText(/not a valid address/)).toBeTruthy();
+    expect(app.doc.nodes.some((n) => n.type === "connection" && n.name === "Domain PC")).toBe(false);
+  });
+});
+
 describe("ConnectionEditor RDP Mac shortcuts", () => {
   const LABEL = "Use Mac shortcuts";
   const HELP = "⌘C, ⌘V and other ⌘ shortcuts are sent as Ctrl shortcuts; ⌘ alone opens the Start menu.";

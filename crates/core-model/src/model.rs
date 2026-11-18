@@ -155,6 +155,11 @@ pub enum ConnectionOptions {
         /// is sent. Off unless the user chose it for this connection.
         #[serde(default)]
         allow_without_nla: bool,
+        /// Optional Kerberos KDC (or KDC proxy) used for NLA sign-in with a domain account, as
+        /// typed by the user (`dc.example.com`, `tcp://...`, `https://proxy/KdcProxy`). `None`:
+        /// the KDC is found through DNS. Normalised and validated when a session starts.
+        #[serde(default)]
+        kerberos_kdc: Option<String>,
         /// Share the clipboard (text and files) with the remote desktop while this session's
         /// tab is the active one. Off unless the user chose it for this connection: the remote
         /// machine then sees, and can replace, what is on the local clipboard.
@@ -330,10 +335,11 @@ mod tests {
                     domain: Some("CORP".into()),
                     ignore_cert: false,
                     allow_without_nla: false,
+                    kerberos_kdc: None,
                     share_clipboard: true,
                     mac_shortcuts: true,
                 },
-                json!({"type": "rdp", "width": 1920, "height": 1080, "domain": "CORP", "ignoreCert": false, "allowWithoutNla": false, "shareClipboard": true, "macShortcuts": true}),
+                json!({"type": "rdp", "width": 1920, "height": 1080, "domain": "CORP", "ignoreCert": false, "allowWithoutNla": false, "kerberosKdc": null, "shareClipboard": true, "macShortcuts": true}),
             ),
             (
                 ConnectionOptions::Vnc { view_only: true },
@@ -371,9 +377,30 @@ mod tests {
                 domain: None,
                 ignore_cert: true,
                 allow_without_nla: false,
+                kerberos_kdc: None,
                 share_clipboard: false,
                 mac_shortcuts: false,
             }
+        );
+    }
+
+    #[test]
+    fn rdp_kerberos_kdc_defaults_to_none_and_round_trips() {
+        let old: ConnectionOptions =
+            serde_json::from_value(json!({"type": "rdp", "ignoreCert": false})).expect("parse");
+        let ConnectionOptions::Rdp { kerberos_kdc, .. } = old else {
+            panic!("not an RDP connection");
+        };
+        assert_eq!(kerberos_kdc, None);
+        let set: ConnectionOptions = serde_json::from_value(
+            json!({"type": "rdp", "kerberosKdc": "tcp://dc.example.com:88"}),
+        )
+        .expect("parse");
+        let value = serde_json::to_value(&set).expect("serialize");
+        assert_eq!(value["kerberosKdc"], json!("tcp://dc.example.com:88"));
+        assert_eq!(
+            serde_json::from_value::<ConnectionOptions>(value).expect("parse"),
+            set
         );
     }
 

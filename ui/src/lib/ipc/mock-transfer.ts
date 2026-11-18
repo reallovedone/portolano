@@ -58,7 +58,7 @@ function folder(parentId: Uuid | null, name: string): Node {
 }
 
 const ssh = { type: "ssh", jumpHost: null, keepaliveSecs: null } as const;
-const rdp = { type: "rdp", width: null, height: null, domain: null, ignoreCert: false, allowWithoutNla: false, shareClipboard: false, macShortcuts: false } as const;
+const rdp = { type: "rdp", width: null, height: null, domain: null, ignoreCert: false, allowWithoutNla: false, kerberosKdc: null, shareClipboard: false, macShortcuts: false } as const;
 
 function cannedPreview(format: ImportFormat): { nodes: Node[]; warnings: ImportWarning[] } {
   if (format === "rdp") {

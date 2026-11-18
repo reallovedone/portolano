@@ -81,6 +81,12 @@ export type ConnectionOptions =
        */
       allowWithoutNla: boolean;
       /**
+       * Optional Kerberos KDC or KDC proxy for signing in with a domain account (`dc.example.com`,
+       * `tcp://...`, `https://proxy/KdcProxy`). Null: found through DNS. Null for documents saved
+       * before the option existed; the backend always writes it.
+       */
+      kerberosKdc: string | null;
+      /**
        * Share the clipboard (text and files) with the remote desktop while the tab is the active
        * one. Off for documents saved before the option existed. The backend always writes it.
        */

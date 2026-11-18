@@ -270,6 +270,15 @@
           <FormRow label={t("editor.rdp.domain")} for="{uid}-domain">
             <TextField id="{uid}-domain" bind:value={draft.domain} autocomplete="off" />
           </FormRow>
+          <FormRow label={t("editor.rdp.kerberosKdc")} for="{uid}-kdc">
+            <TextField
+              id="{uid}-kdc"
+              bind:value={draft.kerberosKdc}
+              autocomplete="off"
+              error={errorText("kerberosKdc")}
+            />
+            <p class="size-hint">{t("editor.rdp.kerberosKdcHint")}</p>
+          </FormRow>
           <div class="option">
             <Checkbox bind:checked={draft.ignoreCert} label={t("editor.rdp.ignoreCert")} />
           </div>

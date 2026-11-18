@@ -3,6 +3,7 @@
 //! Messages never contain credentials: connector errors are summarised, not echoed blindly
 //! when they come from the authentication layer.
 
+use ironrdp_connector::sspi::{Error as SspiError, ErrorKind as SspiErrorKind};
 use ironrdp_connector::{ConnectorError, ConnectorErrorKind};
 use ironrdp_pdu::nego::FailureCode;
 use portolano_core_model::{AppError, ErrorCode};
@@ -16,6 +17,10 @@ pub enum RdpError {
     HostUnreachable(String),
     #[error("{0}")]
     AuthFailed(String),
+    /// Kerberos was used and the domain controller (KDC) could not be reached or did not answer
+    /// in time. The connection may be retried with NTLM.
+    #[error("Kerberos: the domain controller could not be reached")]
+    KdcUnreachable,
     #[error("{0}")]
     Unsupported(String),
     #[error("{0}")]
@@ -37,7 +42,7 @@ pub enum RdpError {
 impl RdpError {
     pub fn code(&self) -> ErrorCode {
         match self {
-            Self::HostUnreachable(_) => ErrorCode::HostUnreachable,
+            Self::HostUnreachable(_) | Self::KdcUnreachable => ErrorCode::HostUnreachable,
             Self::AuthFailed(_) => ErrorCode::AuthFailed,
             Self::Unsupported(_) => ErrorCode::Unsupported,
             Self::InvalidInput(_) => ErrorCode::InvalidInput,
@@ -75,10 +80,10 @@ impl NlaPolicy {
 pub(crate) fn from_connector(e: &ConnectorError, nla: NlaPolicy) -> RdpError {
     let has_credentials = nla.has_credentials;
     match e.kind() {
-        // The CredSSP error text comes from the authentication stack: do not echo it.
-        ConnectorErrorKind::Credssp(_) | ConnectorErrorKind::AccessDenied => {
-            RdpError::AuthFailed("authentication failed (user name, password or domain)".into())
-        }
+        // The CredSSP error text comes from the authentication stack: do not echo it. Only the
+        // fixed error kind decides the message.
+        ConnectorErrorKind::Credssp(c) => credssp_error(c.error_type),
+        ConnectorErrorKind::AccessDenied => generic_auth_failure(),
         ConnectorErrorKind::EntraAuth(_) => {
             RdpError::Unsupported("Microsoft Entra ID authentication is not supported".into())
         }
@@ -99,12 +104,52 @@ pub(crate) fn from_connector(e: &ConnectorError, nla: NlaPolicy) -> RdpError {
                 RdpError::Unsupported(format!("security negotiation failed: {failure}"))
             }
         }
+        // The network client reports an unreachable KDC (or a timeout) as a custom error that
+        // carries sspi's own error kind.
+        _ if sspi_kind_in_chain(e) == Some(SspiErrorKind::NoAuthenticatingAuthority) => {
+            RdpError::KdcUnreachable
+        }
         // The server picked a protocol that was not offered (TLS-only after a CredSSP-only offer).
         _ if nla.nla_only && e.to_string().contains("server selected") => {
             RdpError::Unsupported(NO_NLA_MESSAGE.to_owned())
         }
         _ => RdpError::Io(format!("RDP connection failed: {e}")),
     }
+}
+
+fn generic_auth_failure() -> RdpError {
+    RdpError::AuthFailed("authentication failed (user name, password or domain)".into())
+}
+
+/// Maps the kind of a CredSSP (sspi) error. Messages are fixed texts: never the description of
+/// the error, which may quote names or tokens.
+fn credssp_error(kind: SspiErrorKind) -> RdpError {
+    match kind {
+        SspiErrorKind::NoAuthenticatingAuthority => RdpError::KdcUnreachable,
+        SspiErrorKind::TimeSkew => {
+            RdpError::Io("Kerberos: the clock differs too much from the domain controller".into())
+        }
+        SspiErrorKind::UnknownCredentials => RdpError::AuthFailed(
+            "Kerberos: user or server not found in the domain (use the server's full name)".into(),
+        ),
+        // Failed pre-authentication (Kerberos) and refused logon (NTLM).
+        SspiErrorKind::LogonDenied | SspiErrorKind::KdcInvalidRequest => {
+            RdpError::AuthFailed("wrong user name or password".into())
+        }
+        _ => generic_auth_failure(),
+    }
+}
+
+/// The kind of the first sspi error found in the cause chain of a connector error.
+pub(crate) fn sspi_kind_in_chain(e: &ConnectorError) -> Option<SspiErrorKind> {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(e);
+    while let Some(err) = current {
+        if let Some(sspi) = err.downcast_ref::<SspiError>() {
+            return Some(sspi.error_type);
+        }
+        current = err.source();
+    }
+    None
 }
 
 #[cfg(test)]
@@ -132,5 +177,96 @@ mod tests {
         assert_eq!(RdpError::Io("x".into()).code(), ErrorCode::Io);
         let app: AppError = RdpError::AuthFailed("denied".into()).into();
         assert_eq!(app.message, "denied");
+    }
+
+    fn credssp(kind: SspiErrorKind) -> ConnectorError {
+        // The description is what must never reach the user.
+        ConnectorError::new(
+            "CredSSP",
+            ConnectorErrorKind::Credssp(SspiError::new(kind, "ann@corp.example.com tgt=SECRET")),
+        )
+    }
+
+    fn message(kind: SspiErrorKind) -> String {
+        from_connector(&credssp(kind), NlaPolicy::of(true, false)).to_string()
+    }
+
+    #[test]
+    fn credssp_errors_map_by_kind_to_distinct_messages() {
+        assert_eq!(
+            message(SspiErrorKind::NoAuthenticatingAuthority),
+            "Kerberos: the domain controller could not be reached"
+        );
+        assert_eq!(
+            message(SspiErrorKind::TimeSkew),
+            "Kerberos: the clock differs too much from the domain controller"
+        );
+        assert_eq!(
+            message(SspiErrorKind::UnknownCredentials),
+            "Kerberos: user or server not found in the domain (use the server's full name)"
+        );
+        assert_eq!(
+            message(SspiErrorKind::LogonDenied),
+            "wrong user name or password"
+        );
+        assert_eq!(
+            message(SspiErrorKind::KdcInvalidRequest),
+            "wrong user name or password"
+        );
+        assert_eq!(
+            message(SspiErrorKind::InternalError),
+            "authentication failed (user name, password or domain)"
+        );
+    }
+
+    #[test]
+    fn credssp_error_codes_let_the_session_decide_what_to_do() {
+        let nla = NlaPolicy::of(true, false);
+        let unreachable = from_connector(&credssp(SspiErrorKind::NoAuthenticatingAuthority), nla);
+        assert!(matches!(unreachable, RdpError::KdcUnreachable));
+        assert_eq!(unreachable.code(), ErrorCode::HostUnreachable);
+        // A wrong password asks the user again; a clock problem does not.
+        assert_eq!(
+            from_connector(&credssp(SspiErrorKind::LogonDenied), nla).code(),
+            ErrorCode::AuthFailed
+        );
+        assert_eq!(
+            from_connector(&credssp(SspiErrorKind::TimeSkew), nla).code(),
+            ErrorCode::Io
+        );
+    }
+
+    #[test]
+    fn no_credssp_message_echoes_the_error_text() {
+        for kind in [
+            SspiErrorKind::NoAuthenticatingAuthority,
+            SspiErrorKind::TimeSkew,
+            SspiErrorKind::UnknownCredentials,
+            SspiErrorKind::LogonDenied,
+            SspiErrorKind::KdcInvalidRequest,
+            SspiErrorKind::InternalError,
+            SspiErrorKind::Unknown,
+        ] {
+            let text = message(kind);
+            assert!(!text.contains("SECRET") && !text.contains("ann@"), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_network_client_failure_is_an_unreachable_kdc() {
+        let e = crate::kerberos::unreachable_error("connection refused");
+        assert!(matches!(
+            from_connector(&e, NlaPolicy::of(true, false)),
+            RdpError::KdcUnreachable
+        ));
+    }
+
+    #[test]
+    fn an_unrelated_custom_error_keeps_the_generic_text() {
+        let e = ConnectorError::new("x", ConnectorErrorKind::General);
+        assert!(matches!(
+            from_connector(&e, NlaPolicy::of(true, false)),
+            RdpError::Io(_)
+        ));
     }
 }

