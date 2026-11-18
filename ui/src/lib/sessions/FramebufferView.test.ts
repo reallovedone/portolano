@@ -281,6 +281,89 @@ describe("FramebufferView", () => {
         "key:MetaLeft:up",
       ]);
     });
+
+    describe("native Edit menu", () => {
+      async function mountMac(macShortcuts: boolean) {
+        vi.spyOn(globalThis.navigator, "platform", "get").mockReturnValue("MacIntel");
+        const mock = createMockIpc();
+        const { ipc, calls } = recordingIpc(mock);
+        const app = createApp(ipc);
+        await app.doc.load();
+        const node = app.doc.node(MOCK_IDS.rdpServer);
+        if (!node || node.type !== "connection" || node.options.type !== "rdp") throw new Error("no rdp node");
+        await app.doc.upsert({ ...node, options: { ...node.options, macShortcuts } });
+        const session = createTestSession();
+        // Not a spread: `visible` and `overlayOpen` are getters that must stay live.
+        const context = Object.create(session.context, {
+          connectionId: { value: MOCK_IDS.rdpServer },
+        }) as typeof session.context;
+        render(FbHarness, { props: { app, context } });
+        session.bridge.emit({ type: "resize", w: 800, h: 600 });
+        return { mock, calls, session, canvas: canvasOf() };
+      }
+
+      it("is taken out while the canvas has the keyboard and put back on every way out", async () => {
+        const { mock, session, canvas } = await mountMac(true);
+        expect(mock.sessionKeyCaptures).toEqual([]);
+        canvas.focus();
+        await waitFor(() => expect(mock.sessionKeyCaptures).toEqual([true]));
+        // Focus events that change nothing send nothing.
+        canvas.focus();
+        canvas.blur();
+        await waitFor(() => expect(mock.sessionKeyCaptures).toEqual([true, false]));
+        canvas.focus();
+        await waitFor(() => expect(mock.sessionKeyCaptures).toEqual([true, false, true]));
+        // A dialog over the session (overlay) or another tab: back at once.
+        session.state.overlayOpen = true;
+        await waitFor(() => expect(mock.sessionKeyCaptures.at(-1)).toBe(false));
+        session.state.overlayOpen = false;
+        await waitFor(() => expect(mock.sessionKeyCaptures.at(-1)).toBe(true));
+        session.state.visible = false;
+        await waitFor(() => expect(mock.sessionKeyCaptures.at(-1)).toBe(false));
+        session.state.visible = true;
+        await waitFor(() => expect(mock.sessionKeyCaptures.at(-1)).toBe(true));
+        // The window loses the keyboard: back; unmount: back as well.
+        await fireEvent.blur(window);
+        await waitFor(() => expect(mock.sessionKeyCaptures.at(-1)).toBe(false));
+        await fireEvent.focus(window);
+        await waitFor(() => expect(mock.sessionKeyCaptures.at(-1)).toBe(true));
+        // A window focus without a preceding blur (the backend restored the menu on its own):
+        // the capture is sent again.
+        const before = mock.sessionKeyCaptures.length;
+        await fireEvent.focus(window);
+        await waitFor(() => expect(mock.sessionKeyCaptures).toHaveLength(before + 1));
+        expect(mock.sessionKeyCaptures.at(-1)).toBe(true);
+        cleanup();
+        expect(mock.sessionKeyCaptures.at(-1)).toBe(false);
+      });
+
+      it("is put back when the session ends, even with the canvas still focused", async () => {
+        const { mock, session, canvas } = await mountMac(true);
+        canvas.focus();
+        await waitFor(() => expect(mock.sessionKeyCaptures).toEqual([true]));
+        session.bridge.emit({ type: "closed", reason: "server initiated disconnect" });
+        await waitFor(() => expect(mock.sessionKeyCaptures).toEqual([true, false]));
+      });
+
+      it("is left alone when the Mac shortcuts are off", async () => {
+        const { mock, canvas } = await mountMac(false);
+        canvas.focus();
+        canvas.blur();
+        cleanup();
+        expect(mock.sessionKeyCaptures).toEqual([]);
+      });
+
+      it("keeps Cmd+C away from the remote while a dialog is open over the session", async () => {
+        const { calls, session, canvas } = await mountMac(true);
+        canvas.focus();
+        session.state.overlayOpen = true;
+        await fireEvent.keyDown(canvas, { code: "MetaLeft", metaKey: true });
+        await fireEvent.keyDown(canvas, { code: "KeyC", metaKey: true });
+        await fireEvent.keyUp(canvas, { code: "MetaLeft" });
+        await new Promise((r) => setTimeout(r, 20));
+        expect(calls.filter((c) => c.startsWith("key:"))).toEqual([]);
+      });
+    });
   });
 
   it("fades the keyboard hint after a few seconds and shows it again on capture", async () => {

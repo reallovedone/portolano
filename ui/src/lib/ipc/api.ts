@@ -172,8 +172,15 @@ export interface Ipc {
    * it and waits for `quitReply`. Without an answer within 2 seconds the application quits.
    */
   onQuitRequested(handler: () => void): () => void;
+  /** macOS menu bar: "Close Tab" (⌘W) was chosen; the active tab is to be closed. */
+  onCloseTabMenu(handler: () => void): () => void;
   /** "Save to the vault" failed at connect time; the session stays connected. */
   onCredentialSaveFailed(handler: (notice: CredentialSaveFailed) => void): () => void;
+
+  // not part of the §4.3 contract: while a graphical session holds the keyboard with the Mac
+  // shortcuts on, the native Edit menu is taken out of the macOS menu bar so that ⌘C, ⌘V, ⌘X,
+  // ⌘A and ⌘Z reach the remote machine; `false` puts it back. No effect elsewhere.
+  menuSetSessionKeys(captured: boolean): Promise<void>;
 
   // not part of the §4.3 contract: lifecycle line in the backend log (never pass secrets)
   uiLog(level: "info" | "warn" | "error", message: string): Promise<void>;

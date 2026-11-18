@@ -51,7 +51,15 @@ pub fn run() {
     let builder = tauri::Builder::default();
     // macOS only: the default menu bar plus "Check for Updates…". Elsewhere there is no menu bar.
     #[cfg(target_os = "macos")]
-    let builder = builder.menu(menu::build).on_menu_event(menu::on_event);
+    let builder = builder
+        .menu(menu::build)
+        .on_menu_event(menu::on_event)
+        // A new page of the main webview (reload, crash recovery) starts without any capture.
+        .on_page_load(|webview, payload| {
+            if menu::restores_on_page_load(webview.label(), payload.event()) {
+                menu::set_session_keys(webview.app_handle(), false);
+            }
+        });
     let app = builder
         // Native open/save file dialogs (import and export). Only the `open` and `save`
         // permissions are granted, in `capabilities/main.json`.
@@ -147,6 +155,7 @@ pub fn run() {
             quit::quit_reply,
             // Not in the contract table: UI-to-backend log line.
             commands::ui_log,
+            commands::menu_set_session_keys,
         ])
         .build(tauri::generate_context!());
 
@@ -169,6 +178,14 @@ pub fn run() {
                 if let Some(quit) = handle.try_state::<quit::Quit>() {
                     quit.request(handle);
                 }
+            }
+            // The window lost the keyboard or went away while a session held it: the Edit menu
+            // must not stay out of the menu bar.
+            #[cfg(target_os = "macos")]
+            RunEvent::WindowEvent { label, event, .. }
+                if menu::restores_on_window_event(&label, &event) =>
+            {
+                menu::set_session_keys(handle, false);
             }
             RunEvent::Exit => {
                 if let Some(state) = handle.try_state::<AppState>() {

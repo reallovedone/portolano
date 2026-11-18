@@ -137,3 +137,36 @@ describe("quit-requested", () => {
     expect(ipc.quitReplies).toEqual(["asking"]);
   });
 });
+
+describe("menu-close-tab (⌘W, macOS menu bar)", () => {
+  it("closes the active tab at once when it holds no connected session", async () => {
+    const { ipc, app } = await mount();
+    await app.tabs.openConnection(MOCK_IDS.intranet);
+    ipc.simulate.closeTabMenu();
+    await waitFor(() => expect(app.tabs.tabs).toHaveLength(0));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("asks first for a connected session, and Cancel keeps the tab", async () => {
+    const { ipc, app, feeds } = await mount();
+    await app.tabs.openConnection(MOCK_IDS.localSshd);
+    feeds[0]?.(data);
+    ipc.simulate.closeTabMenu();
+    await screen.findByRole("dialog", { name: "Close 1 active session?" });
+    await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(app.tabs.tabs).toHaveLength(1);
+    ipc.simulate.closeTabMenu();
+    await screen.findByRole("dialog", { name: "Close 1 active session?" });
+    await fireEvent.click(confirmButton());
+    await waitFor(() => expect(app.tabs.tabs).toHaveLength(0));
+    expect(ipc.quitReplies).toEqual([]);
+  });
+
+  it("does nothing without tabs", async () => {
+    const { ipc, app } = await mount();
+    ipc.simulate.closeTabMenu();
+    expect(app.tabs.tabs).toHaveLength(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});

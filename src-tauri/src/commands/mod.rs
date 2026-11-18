@@ -68,6 +68,20 @@ pub async fn ui_log(level: String, message: String) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Not part of the §4.3 contract: while the keyboard belongs to a graphical session (Mac
+/// shortcuts on), the native Edit menu leaves the menu bar so that ⌘C, ⌘V, ⌘X, ⌘A and ⌘Z reach
+/// the webview and then the remote machine; `false` puts it back. Does nothing outside macOS.
+#[tauri::command]
+pub async fn menu_set_session_keys(app: tauri::AppHandle, captured: bool) -> Result<(), AppError> {
+    #[cfg(target_os = "macos")]
+    crate::menu::set_session_keys(&app, captured);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (&app, captured);
+    }
+    Ok(())
+}
+
 /// Where the generated test credentials are (tests only). `PORTOLANO_TEST_KEYS_DIR` moves the
 /// folder (CI simulation); `PORTOLANO_TEST_SERVERS_DOWN` makes every integration test skip as
 /// if the servers and their credentials did not exist.

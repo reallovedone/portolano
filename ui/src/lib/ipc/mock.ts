@@ -475,9 +475,13 @@ export interface MockIpc extends Ipc {
     credentialSaveFailed(notice: CredentialSaveFailed): void;
     /** "Check for Updates…" chosen in the macOS menu bar. */
     checkForUpdatesMenu(): void;
+    /** "Close Tab" (⌘W) chosen in the macOS menu bar. */
+    closeTabMenu(): void;
     /** The user asked to quit or to close the window (`quit-requested`). */
     quitRequested(): void;
   };
+  /** Every `menuSetSessionKeys` call, in order. */
+  readonly sessionKeyCaptures: readonly boolean[];
   /** Every `quitReply` call, in order. */
   readonly quitReplies: readonly QuitReply[];
   /** Every successful `exportDocument` call. */
@@ -512,6 +516,8 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
   const menuUpdateHandlers = new Set<() => void>();
   const quitHandlers = new Set<() => void>();
   const quitReplies: QuitReply[] = [];
+  const sessionKeyCaptures: boolean[] = [];
+  const menuCloseTabHandlers = new Set<() => void>();
   const saveFailedHandlers = new Set<(notice: CredentialSaveFailed) => void>();
   const lockVault = (): void => {
     if (vaultStatus !== "unlocked") return;
@@ -602,11 +608,15 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       checkForUpdatesMenu() {
         for (const handler of [...menuUpdateHandlers]) handler();
       },
+      closeTabMenu() {
+        for (const handler of [...menuCloseTabHandlers]) handler();
+      },
       quitRequested() {
         for (const handler of [...quitHandlers]) handler();
       },
     },
     quitReplies,
+    sessionKeyCaptures,
     exports: transfer.exports,
     updates,
     async docGet() {
@@ -775,6 +785,13 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     onCheckForUpdatesMenu(handler) {
       menuUpdateHandlers.add(handler);
       return () => menuUpdateHandlers.delete(handler);
+    },
+    onCloseTabMenu(handler) {
+      menuCloseTabHandlers.add(handler);
+      return () => menuCloseTabHandlers.delete(handler);
+    },
+    async menuSetSessionKeys(captured) {
+      sessionKeyCaptures.push(captured);
     },
     onQuitRequested(handler) {
       quitHandlers.add(handler);

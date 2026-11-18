@@ -63,6 +63,9 @@ export function isEscapeChord(e: Pick<KeyLike, "code" | "ctrlKey" | "altKey">): 
   return e.code === "Escape" && e.ctrlKey && e.altKey;
 }
 
+/** Cmd+key combinations that stay with the app (Quit, Hide, Minimize, Close Tab). */
+const APP_KEYS = new Set(["KeyQ", "KeyH", "KeyM", "KeyW"]);
+
 function isMeta(code: string): boolean {
   return code === "MetaLeft" || code === "MetaRight";
 }
@@ -108,6 +111,11 @@ export class InputController {
       this.#o.onEscape?.();
       return;
     }
+    if (this.#macShortcuts() && e.metaKey && APP_KEYS.has(e.code)) {
+      // Left alone: the event goes on to the app. It also means Cmd is no lone tap.
+      if (this.#metaDown.size > 0) this.#metaUsed = true;
+      return;
+    }
     if (!isMappedKey(e.code)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -129,6 +137,12 @@ export class InputController {
   }
 
   keyUp(e: KeyLike): void {
+    if (this.#macShortcuts() && !isModifier(e.code) && this.#metaDown.size > 0) {
+      // The key-up of a key pressed with Cmd: its key-down may never have arrived (the menu bar
+      // takes some combinations), but Cmd was used all the same.
+      this.#metaUsed = true;
+      if (e.metaKey && APP_KEYS.has(e.code)) return;
+    }
     if (!isMappedKey(e.code)) return;
     e.preventDefault();
     e.stopPropagation();

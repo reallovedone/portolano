@@ -5,7 +5,7 @@
      from the shell and the browser. Ctrl+Alt+Esc releases the keyboard (the canvas loses
      focus and held keys are released). -->
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
 
   import { toIpcError, type FbEvent, type SessionId } from "../ipc";
   import { detectPlatform } from "../design/platform";
@@ -16,6 +16,7 @@
   import Button from "../ui/Button.svelte";
   import Icon from "../ui/Icon.svelte";
   import { CLIPBOARD_IDLE, formatBytes, percent } from "./fb/clipboard";
+  import { sessionKeysMenu } from "./fb/menuKeys";
   import { FbController, type FbViewState } from "./fb/controller";
   import { fitToArea } from "./fb/geometry";
   import CredentialPromptDialog from "./CredentialPromptDialog.svelte";
@@ -75,6 +76,21 @@
   /** The offer to save remote files was closed by the user (until the offer changes). */
   let dismissedOffer = $state<string | null>(null);
   const isMac = detectPlatform() === "macos";
+  /** Only RDP has the option, and only a Mac has Cmd keys to translate. */
+  const macShortcutsOn = $derived(
+    isMac && connection?.options.type === "rdp" && connection.options.macShortcuts === true,
+  );
+  let windowFocused = $state(true);
+  // While this view holds the keyboard with the Mac shortcuts on, the native Edit menu leaves the
+  // menu bar (its ⌘C, ⌘V... would be taken before the remote sees them). Only changes are sent.
+  const keysCaptured = $derived(
+    macShortcutsOn && view.phase === "live" && focused && windowFocused && session.shouldShow,
+  );
+  const keysMenu = sessionKeysMenu(ipc);
+  const holder = {};
+  $effect(() => keysMenu.set(holder, keysCaptured));
+  // Unmount (tab closed): the menu comes back.
+  onDestroy(() => keysMenu.set(holder, false));
   const target = $derived(targetLabel(connection));
   const clip = $derived(view.clipboard);
   const offerKey = $derived(clip.offer ? `${clip.offer.count}:${clip.offer.bytes}` : null);
@@ -133,8 +149,7 @@
       onReconnect: () => session.retry(),
       input: {
         // Only RDP has the option, and only a Mac has Cmd keys to translate.
-        macShortcuts: () =>
-          isMac && connection?.options.type === "rdp" && connection.options.macShortcuts === true,
+        macShortcuts: () => macShortcutsOn,
       },
     });
     controller = live;
@@ -157,8 +172,13 @@
     target.addEventListener("wheel", onWheel, { passive: false });
     // Svelte delegates `onkeydown` to the root, after the event has already bubbled past every
     // element in between: keys must be stopped on the canvas itself to stay away from the shell.
-    const onKeyDown = (e: KeyboardEvent): void => live.input.keyDown(e);
-    const onKeyUp = (e: KeyboardEvent): void => live.input.keyUp(e);
+    // With the Mac shortcuts on and a dialog open over the session, the keyboard is the dialog's.
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (session.shouldShow || !macShortcutsOn) live.input.keyDown(e);
+    };
+    const onKeyUp = (e: KeyboardEvent): void => {
+      if (session.shouldShow || !macShortcutsOn) live.input.keyUp(e);
+    };
     target.addEventListener("keydown", onKeyDown);
     target.addEventListener("keyup", onKeyUp);
 
@@ -197,7 +217,18 @@
   });
 </script>
 
-<svelte:window onblur={() => controller?.input.releaseAll()} />
+<svelte:window
+  onblur={() => {
+    windowFocused = false;
+    controller?.input.releaseAll();
+  }}
+  onfocus={() => {
+    windowFocused = true;
+    // The backend put the Edit menu back when the window lost the keyboard, whether or not the
+    // blur reached us: ask again if the session holds the keyboard.
+    if (keysCaptured) keysMenu.set(holder, true, true);
+  }}
+/>
 
 <div class="view" bind:this={area} data-session={sessionId}>
   <div
