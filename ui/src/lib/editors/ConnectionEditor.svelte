@@ -13,6 +13,7 @@
   import Dialog from "../ui/Dialog.svelte";
   import FormRow from "../ui/FormRow.svelte";
   import FormSection from "../ui/FormSection.svelte";
+  import HelpDisclosure from "../ui/HelpDisclosure.svelte";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
   import Select from "../ui/Select.svelte";
   import TextArea from "../ui/TextArea.svelte";
@@ -66,6 +67,36 @@
   let busy = $state(false);
   let form: HTMLFormElement | undefined = $state();
 
+  // RDP sections. Sign-in and Security start closed unless they hold a non-default value, so
+  // nothing that matters is hidden; a validation error opens the section that owns the field.
+  let displayOpen = $state(true);
+  let signInOpen = $state(draft.domain.trim() !== "" || draft.kerberosKdc.trim() !== "");
+  let clipboardOpen = $state(true);
+  let securityOpen = $state(draft.ignoreCert || draft.allowWithoutNla);
+  const FIELD_SECTION: Partial<Record<ConnectionField, "display" | "signIn">> = {
+    width: "display",
+    height: "display",
+    kerberosKdc: "signIn",
+  };
+  function openSectionsWithErrors(): void {
+    for (const field of Object.keys(errors) as ConnectionField[]) {
+      const section = FIELD_SECTION[field];
+      if (section === "display") displayOpen = true;
+      if (section === "signIn") signInOpen = true;
+    }
+  }
+  const securitySummary = $derived(
+    t(
+      draft.ignoreCert && draft.allowWithoutNla
+        ? "editor.section.securitySummary.both"
+        : draft.ignoreCert
+          ? "editor.section.securitySummary.noCert"
+          : draft.allowWithoutNla
+            ? "editor.section.securitySummary.noNla"
+            : "editor.section.securitySummary.default",
+    ),
+  );
+
   const sshJumpTargets = $derived(
     doc.nodes.filter((n) => isConnection(n) && n.options.type === "ssh" && n.id !== draft.id),
   );
@@ -90,6 +121,7 @@
     errors = validateConnectionDraft(draft);
     saveError = null;
     if (Object.keys(errors).length > 0) {
+      openSectionsWithErrors();
       await tick();
       form?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
       return;
@@ -229,7 +261,7 @@
       />
     </FormSection>
 
-    {#if hasOptions}
+    {#if hasOptions && draft.kind !== "rdp"}
       <FormSection title={t("editor.section.options")} grouped>
         {#if draft.kind === "ssh"}
           <FormRow label={t("editor.ssh.jumpHost")} for="{uid}-jump">
@@ -245,67 +277,115 @@
               />
             </div>
           </FormRow>
-        {:else if draft.kind === "rdp"}
-          <FormRow label={t("editor.rdp.width")} for="{uid}-width">
-            <div class="narrow">
-              <TextField
-                id="{uid}-width"
-                inputmode="numeric"
-                bind:value={draft.width}
-                error={errorText("width")}
-              />
-            </div>
-          </FormRow>
-          <FormRow label={t("editor.rdp.height")} for="{uid}-height">
-            <div class="narrow">
-              <TextField
-                id="{uid}-height"
-                inputmode="numeric"
-                bind:value={draft.height}
-                error={errorText("height")}
-              />
-            </div>
-            <p class="size-hint">{t("editor.rdp.sizeHint")}</p>
-          </FormRow>
-          <FormRow label={t("editor.rdp.domain")} for="{uid}-domain">
-            <TextField id="{uid}-domain" bind:value={draft.domain} autocomplete="off" />
-          </FormRow>
-          <FormRow label={t("editor.rdp.kerberosKdc")} for="{uid}-kdc">
-            <TextField
-              id="{uid}-kdc"
-              bind:value={draft.kerberosKdc}
-              autocomplete="off"
-              error={errorText("kerberosKdc")}
-            />
-            <p class="size-hint">{t("editor.rdp.kerberosKdcHint")}</p>
-          </FormRow>
-          <div class="option">
-            <Checkbox bind:checked={draft.ignoreCert} label={t("editor.rdp.ignoreCert")} />
-          </div>
-          <div class="option">
-            <Checkbox bind:checked={draft.allowWithoutNla} label={t("editor.rdp.allowWithoutNla")} />
-          </div>
-          {#if draft.allowWithoutNla}
-            <Banner variant="warning" role="note">{t("editor.rdp.nlaWarning")}</Banner>
-          {/if}
-          <div class="option">
-            <Checkbox bind:checked={draft.shareClipboard} label={t("editor.rdp.shareClipboard")} />
-            <p class="size-hint">{t("editor.rdp.shareClipboardHelp")}</p>
-          </div>
-          {#if isMac}
-            <div class="option">
-              <Checkbox bind:checked={draft.macShortcuts} label={t("editor.rdp.macShortcuts")} />
-              <p class="size-hint">{t("editor.rdp.macShortcutsHelp")}</p>
-            </div>
-          {/if}
         {:else if draft.kind === "vnc"}
           <div class="option">
             <Checkbox bind:checked={draft.viewOnly} label={t("editor.vnc.viewOnly")} />
           </div>
-          <Banner variant="info" role="note">{t("editor.vnc.securityNote")}</Banner>
+          <Banner variant="info" role="note">
+            <HelpDisclosure
+              short={t("editor.vnc.securityNote")}
+              more={t("editor.vnc.securityNoteMore")}
+            />
+          </Banner>
         {:else}
           <div class="option">
             <Checkbox bind:checked={draft.isolatedProfile} label={t("editor.web.isolated")} />
+          </div>
+        {/if}
+      </FormSection>
+    {/if}
+
+    {#if draft.kind === "rdp"}
+      <FormSection title={t("editor.section.display")} grouped collapsible bind:open={displayOpen}>
+        <FormRow label={t("editor.rdp.resolution")} hint={t("editor.rdp.sizeHint")}>
+          <div class="pair">
+            <TextField
+              id="{uid}-width"
+              aria-label={t("editor.rdp.width")}
+              placeholder={t("editor.rdp.width")}
+              inputmode="numeric"
+              bind:value={draft.width}
+              error={errorText("width")}
+            />
+            <span class="times" aria-hidden="true">×</span>
+            <TextField
+              id="{uid}-height"
+              aria-label={t("editor.rdp.height")}
+              placeholder={t("editor.rdp.height")}
+              inputmode="numeric"
+              bind:value={draft.height}
+              error={errorText("height")}
+            />
+          </div>
+        </FormRow>
+      </FormSection>
+
+      <FormSection
+        title={t("editor.section.signIn")}
+        summary={t("editor.section.signInSummary")}
+        grouped
+        collapsible
+        bind:open={signInOpen}
+      >
+        <FormRow label={t("editor.rdp.domain")} for="{uid}-domain">
+          <TextField id="{uid}-domain" bind:value={draft.domain} autocomplete="off" />
+        </FormRow>
+        <FormRow label={t("editor.rdp.kerberosKdc")} for="{uid}-kdc">
+          <TextField
+            id="{uid}-kdc"
+            bind:value={draft.kerberosKdc}
+            autocomplete="off"
+            error={errorText("kerberosKdc")}
+          />
+          <HelpDisclosure
+            short={t("editor.rdp.kerberosKdcHint")}
+            more={t("editor.rdp.kerberosKdcMore")}
+          />
+        </FormRow>
+      </FormSection>
+
+      <FormSection
+        title={t("editor.section.clipboardKeyboard")}
+        grouped
+        collapsible
+        bind:open={clipboardOpen}
+      >
+        <div class="option">
+          <Checkbox bind:checked={draft.shareClipboard} label={t("editor.rdp.shareClipboard")} />
+          <HelpDisclosure
+            inset
+            short={t("editor.rdp.shareClipboardHelp")}
+            more={t("editor.rdp.shareClipboardMore")}
+          />
+        </div>
+        {#if isMac}
+          <div class="option">
+            <Checkbox bind:checked={draft.macShortcuts} label={t("editor.rdp.macShortcuts")} />
+            <HelpDisclosure
+              inset
+              short={t("editor.rdp.macShortcutsHelp")}
+              more={t("editor.rdp.macShortcutsMore")}
+            />
+          </div>
+        {/if}
+      </FormSection>
+
+      <FormSection
+        title={t("editor.section.security")}
+        summary={securitySummary}
+        grouped
+        collapsible
+        bind:open={securityOpen}
+      >
+        <div class="option">
+          <Checkbox bind:checked={draft.ignoreCert} label={t("editor.rdp.ignoreCert")} />
+        </div>
+        <div class="option">
+          <Checkbox bind:checked={draft.allowWithoutNla} label={t("editor.rdp.allowWithoutNla")} />
+        </div>
+        {#if draft.allowWithoutNla}
+          <div class="option">
+            <Banner variant="warning" role="note">{t("editor.rdp.nlaWarning")}</Banner>
           </div>
         {/if}
       </FormSection>
@@ -337,9 +417,22 @@
     max-inline-size: calc(var(--space-12) * 3);
   }
 
-  .size-hint {
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
+  .pair {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .pair > :global(.field) {
+    flex: 1 1 0;
+    min-inline-size: 0;
+  }
+
+  .times {
+    display: flex;
+    align-items: center;
+    min-block-size: var(--control-h-regular);
+    color: var(--text-tertiary);
   }
 
   .option {

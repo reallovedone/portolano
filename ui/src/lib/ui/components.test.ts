@@ -11,6 +11,7 @@ import Checkbox from "./Checkbox.svelte";
 import EmptyState from "./EmptyState.svelte";
 import FormRow from "./FormRow.svelte";
 import FormSection from "./FormSection.svelte";
+import HelpDisclosure from "./HelpDisclosure.svelte";
 import Icon from "./Icon.svelte";
 import IconButton from "./IconButton.svelte";
 import Kbd from "./Kbd.svelte";
@@ -691,5 +692,58 @@ describe("Dialog hero and widths, ListRow states, Toolbar flush", () => {
   it("Toolbar can be flush", () => {
     render(Toolbar, { label: "Flat", flush: true, children: button("A") });
     expect(screen.getByRole("toolbar", { name: "Flat" }).classList.contains("flush")).toBe(true);
+  });
+});
+
+describe("FormSection collapsible", () => {
+  it("is a button with aria-expanded that shows and hides its rows", async () => {
+    render(FormSection, {
+      title: "Security",
+      summary: "Closed summary",
+      collapsible: true,
+      open: false,
+      children: text("rows"),
+    });
+    const toggle = screen.getByRole("button", { name: /Security/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("Closed summary");
+    const body = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+    expect(body?.hidden).toBe(true);
+    toggle.focus();
+    await fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(body?.hidden).toBe(false);
+    expect(toggle.textContent).not.toContain("Closed summary");
+  });
+
+  it("keeps the rows in the DOM while closed", () => {
+    render(FormSection, { title: "T", collapsible: true, open: false, children: text("kept") });
+    expect(screen.getByText("kept")).toBeTruthy();
+  });
+
+  it("is not collapsible by default", () => {
+    render(FormSection, { title: "T", children: text("rows") });
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+});
+
+describe("HelpDisclosure", () => {
+  it("shows the short text and reveals the long text on Learn more", async () => {
+    render(HelpDisclosure, { short: "Short line.", more: "The long explanation." });
+    const toggle = screen.getByRole("button", { name: "Learn more" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect((screen.getByText("The long explanation.") as HTMLElement).hidden).toBe(true);
+    await fireEvent.click(toggle);
+    expect(toggle.textContent?.trim()).toBe("Show less");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect((screen.getByText("The long explanation.") as HTMLElement).hidden).toBe(false);
+  });
+
+  it("Escape closes the long text and returns focus to the button", async () => {
+    render(HelpDisclosure, { short: "Short.", more: "Long.", open: true });
+    const toggle = screen.getByRole("button", { name: "Show less" });
+    await fireEvent.keyDown(screen.getByText("Long."), { key: "Escape" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
   });
 });
