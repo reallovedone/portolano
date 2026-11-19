@@ -17,6 +17,10 @@ attention when you upgrade.
 - After an update, the release notes of every version you skipped are shown; they are no longer shown before installing.
 - The RDP connection editor is shorter: options are grouped into Display, Sign-in, Clipboard & keyboard and Security sections, and long explanations open with "Learn more".
 
+### 🐛 Fixed
+
+- RDP sessions left in a background tab no longer drop with "operation timed out": the connection is kept alive while idle. If it is lost anyway, the tab says "The connection to the server was lost." and offers Reconnect.
+
 ## [0.3.1] - 2026-11-18
 
 ### ✨ Added

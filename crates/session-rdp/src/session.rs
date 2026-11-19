@@ -518,6 +518,11 @@ async fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, RdpError> {
     stream
         .set_nodelay(true)
         .map_err(|e| RdpError::Io(format!("cannot configure the socket: {e}")))?;
+    // Best effort: without keep-alive the session still works, it just may not survive long
+    // idle periods behind a firewall.
+    if let Err(e) = crate::keepalive::enable(&stream) {
+        tracing::warn!("cannot enable TCP keep-alive on the RDP socket: {e}");
+    }
     Ok(stream)
 }
 
@@ -1396,7 +1401,7 @@ impl Active {
             framed
                 .write_all(&frame)
                 .await
-                .map_err(|e| RdpError::Io(format!("cannot write to the server: {e}")))?;
+                .map_err(|e| RdpError::from_io(&e))?;
         }
         Ok(())
     }
@@ -1410,7 +1415,10 @@ impl Active {
             loop {
                 single_sequence_step(framed, &mut sequence, &mut buf)
                     .await
-                    .map_err(|e| RdpError::Io(format!("reactivation failed: {e}")))?;
+                    .map_err(|e| match crate::error::io_in_chain(&e) {
+                        Some(io) => RdpError::from_io(io),
+                        None => RdpError::Io(format!("reactivation failed: {e}")),
+                    })?;
                 match sequence.connection_activation_state() {
                     ConnectionActivationState::Finalized { .. } => {
                         return Ok(sequence.connection_activation_state())
@@ -1548,12 +1556,7 @@ impl Active {
                     }
                 }
                 pdu = framed.read_pdu() => {
-                    let (action, payload) = pdu.map_err(|e| match e.kind() {
-                        std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionReset => {
-                            RdpError::Io("the server closed the connection".into())
-                        }
-                        _ => RdpError::Io(format!("network error: {e}")),
-                    })?;
+                    let (action, payload) = pdu.map_err(|e| RdpError::from_io(&e))?;
                     let outputs = self
                         .stage
                         .process(&mut self.image, action, &payload, framed.last_read_at())

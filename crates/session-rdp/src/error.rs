@@ -27,6 +27,13 @@ pub enum RdpError {
     InvalidInput(String),
     #[error("{0}")]
     Io(String),
+    /// The connection dropped while the session was active (timeout, reset, closed by the
+    /// server). The raw OS text is only logged; the user sees a fixed message.
+    #[error("The connection to the server was lost.")]
+    ConnectionLost,
+    /// The server ended the stream without a Terminate PDU (unexpected end of file).
+    #[error("The server closed the connection.")]
+    ServerClosed,
     /// The session was closed from our side while a step was running. Not an error for the user.
     #[error("session closed")]
     Cancelled,
@@ -40,13 +47,28 @@ pub enum RdpError {
 }
 
 impl RdpError {
+    /// Maps a network I/O failure of the active session. The raw OS text goes only to the log;
+    /// the user sees a fixed message. A bare end of stream is reported as the server closing
+    /// the connection, everything else (timeout, reset, broken pipe) as a lost connection.
+    pub(crate) fn from_io(e: &std::io::Error) -> Self {
+        tracing::warn!(kind = ?e.kind(), "RDP connection lost: {e}");
+        match e.kind() {
+            std::io::ErrorKind::UnexpectedEof => Self::ServerClosed,
+            _ => Self::ConnectionLost,
+        }
+    }
+
     pub fn code(&self) -> ErrorCode {
         match self {
             Self::HostUnreachable(_) | Self::KdcUnreachable => ErrorCode::HostUnreachable,
             Self::AuthFailed(_) => ErrorCode::AuthFailed,
             Self::Unsupported(_) => ErrorCode::Unsupported,
             Self::InvalidInput(_) => ErrorCode::InvalidInput,
-            Self::Io(_) | Self::Cancelled | Self::CertificateChanged => ErrorCode::Io,
+            Self::Io(_)
+            | Self::ConnectionLost
+            | Self::ServerClosed
+            | Self::Cancelled
+            | Self::CertificateChanged => ErrorCode::Io,
             Self::PromptCancelled => ErrorCode::Cancelled,
         }
     }
@@ -140,6 +162,20 @@ fn credssp_error(kind: SspiErrorKind) -> RdpError {
     }
 }
 
+/// The first I/O error found in the cause chain of an error, if any.
+pub(crate) fn io_in_chain<'a>(
+    e: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a std::io::Error> {
+    let mut current: Option<&'a (dyn std::error::Error + 'static)> = Some(e);
+    while let Some(err) = current {
+        if let Some(io) = err.downcast_ref::<std::io::Error>() {
+            return Some(io);
+        }
+        current = err.source();
+    }
+    None
+}
+
 /// The kind of the first sspi error found in the cause chain of a connector error.
 pub(crate) fn sspi_kind_in_chain(e: &ConnectorError) -> Option<SspiErrorKind> {
     let mut current: Option<&(dyn std::error::Error + 'static)> = Some(e);
@@ -177,6 +213,39 @@ mod tests {
         assert_eq!(RdpError::Io("x".into()).code(), ErrorCode::Io);
         let app: AppError = RdpError::AuthFailed("denied".into()).into();
         assert_eq!(app.message, "denied");
+    }
+
+    #[test]
+    fn network_failures_map_to_fixed_messages() {
+        use std::io::{Error, ErrorKind};
+        // 60 is ETIMEDOUT on macOS; the OS text must not reach the user.
+        for e in [
+            Error::from_raw_os_error(60),
+            Error::new(ErrorKind::TimedOut, "operation timed out"),
+            Error::new(ErrorKind::ConnectionReset, "reset"),
+            Error::new(ErrorKind::BrokenPipe, "pipe"),
+        ] {
+            let err = RdpError::from_io(&e);
+            assert!(matches!(err, RdpError::ConnectionLost));
+            assert_eq!(err.code(), ErrorCode::Io);
+            let app: AppError = err.into();
+            assert_eq!(app.message, "The connection to the server was lost.");
+        }
+        let eof = RdpError::from_io(&Error::new(ErrorKind::UnexpectedEof, "eof"));
+        assert_eq!(eof.to_string(), "The server closed the connection.");
+        assert_eq!(eof.code(), ErrorCode::Io);
+    }
+
+    #[test]
+    fn io_errors_are_found_in_a_cause_chain() {
+        use std::io::{Error, ErrorKind};
+        let inner = Error::new(ErrorKind::TimedOut, "t");
+        assert_eq!(
+            io_in_chain(&inner).map(Error::kind),
+            Some(ErrorKind::TimedOut)
+        );
+        let other = ConnectorError::new("x", ConnectorErrorKind::General);
+        assert!(io_in_chain(&other).is_none());
     }
 
     fn credssp(kind: SspiErrorKind) -> ConnectorError {
