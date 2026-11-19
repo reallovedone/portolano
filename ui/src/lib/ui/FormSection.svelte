@@ -3,30 +3,57 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
+  import Icon from "./Icon.svelte";
+
   let {
     title,
     description,
     grouped = false,
+    collapsible = false,
+    open = $bindable(true),
+    summary,
     children,
   }: {
     title?: string;
     description?: string;
     grouped?: boolean;
+    /** The title becomes a button that shows or hides the rows (needs a `title`). The rows stay
+     *  in the DOM while hidden, so their values and validation keep working. */
+    collapsible?: boolean;
+    open?: boolean;
+    /** One line shown next to the title while the section is closed. */
+    summary?: string;
     children: Snippet;
   } = $props();
 
   const uid = $props.id();
   const headingId = `section-${uid}`;
+  const bodyId = `${headingId}-body`;
+  const canCollapse = $derived(collapsible && !!title);
 </script>
 
 <section class="section" aria-labelledby={title ? headingId : undefined}>
   {#if title || description}
     <header>
-      {#if title}<h3 id={headingId}>{title}</h3>{/if}
+      {#if title && canCollapse}
+        <h3 id={headingId}>
+          <button
+            type="button"
+            class="toggle"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onclick={() => (open = !open)}
+          >
+            <span class="chevron" class:open><Icon name="chevron-right" size={14} /></span>
+            <span class="title">{title}</span>
+            {#if summary && !open}<span class="summary">{summary}</span>{/if}
+          </button>
+        </h3>
+      {:else if title}<h3 id={headingId}>{title}</h3>{/if}
       {#if description}<p class="description">{description}</p>{/if}
     </header>
   {/if}
-  <div class="rows" class:grouped>{@render children()}</div>
+  <div id={bodyId} class="rows" class:grouped hidden={canCollapse && !open}>{@render children()}</div>
 </section>
 
 <style>
@@ -48,6 +75,37 @@
   .description {
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
+  }
+  .toggle {
+    all: unset;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    inline-size: 100%;
+    cursor: pointer;
+    border-radius: var(--radius-control);
+  }
+  .toggle:focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring);
+    outline-offset: var(--focus-ring-offset);
+  }
+  .chevron {
+    display: inline-flex;
+    color: var(--text-secondary);
+    transition: transform var(--duration-base) var(--ease-standard);
+  }
+  .chevron.open {
+    transform: rotate(90deg);
+  }
+  .summary {
+    margin-inline-start: auto;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-regular);
+  }
+  .rows[hidden] {
+    display: none;
   }
   .rows {
     display: flex;
