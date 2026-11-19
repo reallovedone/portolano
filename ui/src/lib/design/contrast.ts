@@ -150,6 +150,11 @@ export const PAIRS: Pair[] = [
   ...SURFACES.flatMap((bg) =>
     ["--text-primary", "--text-secondary", "--text-tertiary"].map((fg) => ({ fg, bg, min: TEXT })),
   ),
+  // The VNC security note puts a HelpDisclosure (secondary text, link button) inside an info banner.
+  { fg: "--text-secondary", bg: "--info-bg", min: TEXT, note: "help text in an info banner" },
+  { fg: "--text-link", bg: "--info-bg", min: TEXT, note: "link in an info banner" },
+  // "Learn more" buttons sit on the grouped-section panel (surface-window).
+  { fg: "--text-link", bg: "--surface-window", min: TEXT, note: "link inside a grouped section" },
   ...["--surface-content", "--surface-sidebar", "--surface-raised"].flatMap((bg) => [
     { fg: "--accent-text", bg, min: TEXT },
     { fg: "--text-link", bg, min: TEXT },

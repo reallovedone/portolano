@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { t, type StringKey } from "../i18n/strings";
 import { createMockIpc, MOCK_IDS } from "../ipc/mock";
 import { createApp } from "../state/app";
 import type { ConnectionKind } from "../tree/model";
@@ -82,10 +83,13 @@ describe("ConnectionEditor VNC security note", () => {
 
   it("tells honestly that VNC is encrypted only through TLS, in the VNC options only", async () => {
     const vnc = await open(null, "vnc");
-    const note = within(vnc).getByText(NOTE);
+    const note = within(vnc).getByText(NOTE, { selector: ".short" });
     expect(note.closest("[role='note']")).toBeTruthy();
     expect(note.textContent).toMatch(/asks before it sends the password/);
-    expect(note.textContent).toMatch(/refused if it stops offering it/);
+    await fireEvent.click(within(vnc).getByRole("button", { name: "Learn more" }));
+    expect(within(vnc).getByText(/once for each server/)).toBeTruthy();
+    expect(within(vnc).getByText(/refused if it stops offering it/)).toBeTruthy();
+    expect(within(vnc).getByText(/travels without encryption/)).toBeTruthy();
     cleanup();
 
     expect(within(await open(null, "rdp")).queryByText(NOTE)).toBeNull();
@@ -94,7 +98,9 @@ describe("ConnectionEditor VNC security note", () => {
   });
 
   it("shows the note when an existing VNC connection is edited", async () => {
-    expect(within(await open(MOCK_IDS.devVm)).getByText(NOTE)).toBeTruthy();
+    expect(
+      within(await open(MOCK_IDS.devVm)).getByText(NOTE, { selector: ".short" }),
+    ).toBeTruthy();
   });
 });
 
@@ -105,13 +111,13 @@ describe("ConnectionEditor RDP without NLA", () => {
     const rdp = await open(null, "rdp");
     const box = within(rdp).getByLabelText(LABEL) as HTMLInputElement;
     expect(box.checked).toBe(false);
-    expect(within(rdp).queryByText(/someone who can pose as the server/)).toBeNull();
+    expect(within(rdp).queryByText(/someone posing as the server/)).toBeNull();
     await fireEvent.click(box);
-    const warning = within(rdp).getByText(/someone who can pose as the server/);
+    const warning = within(rdp).getByText(/someone posing as the server/);
     expect(warning.closest("[role='note']")).toBeTruthy();
     // Turning it off again removes the warning.
     await fireEvent.click(box);
-    expect(within(rdp).queryByText(/someone who can pose as the server/)).toBeNull();
+    expect(within(rdp).queryByText(/someone posing as the server/)).toBeNull();
     cleanup();
 
     expect(within(await open(null, "vnc")).queryByLabelText(LABEL)).toBeNull();
@@ -134,8 +140,14 @@ describe("ConnectionEditor RDP clipboard sharing", () => {
     const box = within(rdp).getByLabelText(LABEL) as HTMLInputElement;
     expect(box.checked).toBe(false);
     // The explanation says who sees what, and that vault passwords are not shared.
-    expect(within(rdp).getByText(/can read what you copy/)).toBeTruthy();
     expect(within(rdp).getByText(/never shared/)).toBeTruthy();
+    // The "Learn more" that belongs to the clipboard option, found through its own row.
+    const row = box.closest<HTMLElement>(".option");
+    expect(row).toBeTruthy();
+    const more = within(row!).getByText(/can read and replace what you copy/) as HTMLElement;
+    expect(more.hidden).toBe(true);
+    await fireEvent.click(within(row!).getByRole("button", { name: "Learn more" }));
+    expect(more.hidden).toBe(false);
     cleanup();
     expect(within(await open(null, "vnc")).queryByLabelText(LABEL)).toBeNull();
     cleanup();
@@ -168,7 +180,7 @@ describe("ConnectionEditor RDP clipboard sharing", () => {
 
 describe("ConnectionEditor RDP Kerberos KDC", () => {
   const LABEL = "Kerberos KDC";
-  const HINT = "Optional. Found through DNS when empty.";
+  const HINT = "Optional. Leave empty to find it automatically.";
 
   it("is offered for RDP only, with its hint", async () => {
     const rdp = await open(null, "rdp");
@@ -212,7 +224,7 @@ describe("ConnectionEditor RDP Kerberos KDC", () => {
 
 describe("ConnectionEditor RDP Mac shortcuts", () => {
   const LABEL = "Use Mac shortcuts";
-  const HELP = "⌘C, ⌘V and other ⌘ shortcuts are sent as Ctrl shortcuts; ⌘ alone opens the Start menu.";
+  const HELP = "⌘C and ⌘V work as on your Mac.";
 
   /** Pretends to run on this platform (the editor reads it once when it opens). */
   function platform(name: string): void {
@@ -265,6 +277,133 @@ describe("ConnectionEditor RDP Mac shortcuts", () => {
         });
       });
       cleanup();
+    }
+  });
+});
+
+describe("ConnectionEditor RDP sections", () => {
+  const header = (root: HTMLElement, name: string) =>
+    within(root).getByRole("button", { name: new RegExp(`^${name}`) });
+
+  it("groups the RDP fields into titled sections, closed where the plan says", async () => {
+    const rdp = await open(null, "rdp");
+    const titles = [...rdp.querySelectorAll("section h3")].map(
+      (h) => h.querySelector(".title")?.textContent ?? h.textContent,
+    );
+    expect(titles).toEqual([
+      "General",
+      "Connection",
+      "Credentials",
+      "Display",
+      "Sign-in",
+      "Clipboard & keyboard",
+      "Security",
+      "Notes",
+    ]);
+    expect(header(rdp, "Display").getAttribute("aria-expanded")).toBe("true");
+    expect(header(rdp, "Clipboard & keyboard").getAttribute("aria-expanded")).toBe("true");
+    expect(header(rdp, "Sign-in").getAttribute("aria-expanded")).toBe("false");
+    expect(header(rdp, "Security").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("toggles a section from its header and links it with aria-controls", async () => {
+    const rdp = await open(null, "rdp");
+    const signIn = header(rdp, "Sign-in");
+    const body = rdp.querySelector<HTMLElement>(`#${signIn.getAttribute("aria-controls")}`);
+    expect(body?.hidden).toBe(true);
+    await fireEvent.click(signIn);
+    expect(signIn.getAttribute("aria-expanded")).toBe("true");
+    expect(body?.hidden).toBe(false);
+  });
+
+  async function openSaved(options: Record<string, unknown>) {
+    const app = createApp(createMockIpc({ vault: "unlocked" }));
+    await app.doc.load();
+    const id = "00000000-0000-4000-8000-0000000000aa";
+    await app.doc.upsert({
+      type: "connection",
+      id,
+      parentId: null,
+      name: "Saved",
+      host: "h.example",
+      port: null,
+      username: null,
+      tags: [],
+      notes: "",
+      credential: { type: "inherit" },
+      options: {
+        type: "rdp",
+        ignoreCert: false,
+        allowWithoutNla: false,
+        shareClipboard: false,
+        macShortcuts: false,
+        ...options,
+      },
+    } as never);
+    render(EditorHarness, { props: { app, id } });
+    return screen.findByRole("dialog");
+  }
+
+  it("opens Sign-in and Security when they hold non-default values", async () => {
+    const dialog = await openSaved({ ignoreCert: true, domain: "corp.example.com" });
+    expect(header(dialog, "Sign-in").getAttribute("aria-expanded")).toBe("true");
+    expect(header(dialog, "Security").getAttribute("aria-expanded")).toBe("true");
+    // Closing it again shows what is relaxed, in the header.
+    await fireEvent.click(header(dialog, "Security"));
+    expect(header(dialog, "Security").textContent).toMatch(/Certificate not checked/);
+  });
+
+  it("opens Sign-in for a connection that only has a KDC", async () => {
+    const dialog = await openSaved({ kerberosKdc: "dc.corp.example.com" });
+    expect(header(dialog, "Sign-in").getAttribute("aria-expanded")).toBe("true");
+    expect(header(dialog, "Security").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("opens Security for a connection that only allows no NLA", async () => {
+    const dialog = await openSaved({ allowWithoutNla: true });
+    expect(header(dialog, "Security").getAttribute("aria-expanded")).toBe("true");
+    expect(header(dialog, "Sign-in").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("opens the section of a field with a validation error and focuses the field", async () => {
+    const app = createApp(createMockIpc({ vault: "unlocked" }));
+    await app.doc.load();
+    render(EditorHarness, { props: { app, id: null, kind: "rdp" } });
+    const dialog = await screen.findByRole("dialog");
+    await fireEvent.input(within(dialog).getByLabelText("Name"), { target: { value: "X" } });
+    await fireEvent.input(within(dialog).getByLabelText("Host"), { target: { value: "h.example" } });
+    await fireEvent.input(within(dialog).getByLabelText("Kerberos KDC"), { target: { value: "tcp://" } });
+    // The field is typed into while its section is still closed.
+    expect(header(dialog, "Sign-in").getAttribute("aria-expanded")).toBe("false");
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await vi.waitFor(() =>
+      expect(header(dialog, "Sign-in").getAttribute("aria-expanded")).toBe("true"),
+    );
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(within(dialog).getByLabelText("Kerberos KDC")),
+    );
+  });
+
+  it("keeps the NLA warning visible once Security is open and the option is on", async () => {
+    const rdp = await open(null, "rdp");
+    await fireEvent.click(header(rdp, "Security"));
+    await fireEvent.click(within(rdp).getByLabelText("Allow connections without NLA (less secure)"));
+    expect(within(rdp).getByText(/someone posing as the server/)).toBeTruthy();
+  });
+});
+
+describe("editor help texts", () => {
+  const PAIRS: [StringKey, StringKey][] = [
+    ["editor.vnc.securityNote", "editor.vnc.securityNoteMore"],
+    ["editor.rdp.shareClipboardHelp", "editor.rdp.shareClipboardMore"],
+    ["editor.rdp.macShortcutsHelp", "editor.rdp.macShortcutsMore"],
+    ["editor.rdp.kerberosKdcHint", "editor.rdp.kerberosKdcMore"],
+  ];
+
+  it("the long text continues the short line instead of repeating its first sentence", () => {
+    for (const [short, more] of PAIRS) {
+      const first = t(short).split(/(?<=[.!?])\s/)[0]!.replace(/[.!?]$/, "");
+      expect(t(more), `${more} repeats ${short}`).not.toContain(first);
     }
   });
 });

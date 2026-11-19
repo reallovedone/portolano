@@ -7,6 +7,10 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### 🔄 Changed
+
+- The RDP connection editor is shorter: options are grouped into Display, Sign-in, Clipboard & keyboard and Security sections, and long explanations open with "Learn more".
+
 ## [0.3.1] - 2026-11-18
 
 ### ✨ Added

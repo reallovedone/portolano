@@ -236,3 +236,19 @@ describe("contrast (WCAG)", () => {
     expect(failures).toEqual([]);
   });
 });
+
+describe("link text inside grouped form sections", () => {
+  it("is checked, and readable, on the section panel in both themes", () => {
+    const rows = measure(css).filter((m) => m.fg === "--text-link" && m.bg === "--surface-window");
+    expect(rows.map((m) => m.theme).sort()).toEqual(["dark", "light"]);
+    for (const row of rows) expect(row.value).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("covers help text and links inside an info banner in both themes", () => {
+    for (const fg of ["--text-secondary", "--text-link"]) {
+      const rows = measure(css).filter((m) => m.fg === fg && m.bg === "--info-bg");
+      expect(rows.map((m) => m.theme).sort()).toEqual(["dark", "light"]);
+      for (const row of rows) expect(row.value).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
