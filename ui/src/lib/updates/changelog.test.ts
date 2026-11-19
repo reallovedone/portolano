@@ -61,7 +61,7 @@ describe("CHANGELOG.md as release notes", () => {
   });
 
   it("renders in the notes component as text, with emphasis and code kept", () => {
-    render(ReleaseNotes, { props: { notes: BODY, version: "0.2.0", onopen: () => {} } });
+    render(ReleaseNotes, { props: { notes: BODY } });
     const notes = screen.getByTestId("release-notes");
     expect(within(notes).getByText("Release candidate 2 of 0.2.0 — for testing.")).toBeTruthy();
     expect(within(notes).getByRole("heading", { name: "✨ Added" })).toBeTruthy();

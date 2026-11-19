@@ -48,13 +48,6 @@ pub fn auto_lock_duration(minutes: u32) -> Duration {
     Duration::from_secs(u64::from(minutes) * 60)
 }
 
-/// Release notes saved when an update is accepted.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PendingNotes {
-    pub version: String,
-    pub notes: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -64,7 +57,6 @@ pub struct Settings {
     pub skipped_version: Option<String>,
     /// The highest version that has run on this machine.
     pub last_run_version: Option<String>,
-    pub pending_notes: Option<PendingNotes>,
     /// Minutes of inactivity before the vault locks itself; `0` = never.
     pub auto_lock_minutes: u32,
     /// "Quick unlock" with Touch ID / Windows Hello. Off by default; kept per device. It is
@@ -78,7 +70,6 @@ impl Default for Settings {
             auto_check_updates: true,
             skipped_version: None,
             last_run_version: None,
-            pending_notes: None,
             auto_lock_minutes: DEFAULT_AUTO_LOCK_MINUTES,
             quick_unlock: false,
         }
@@ -183,7 +174,21 @@ mod tests {
         );
         assert_eq!(settings.skipped_version, None);
         assert_eq!(settings.last_run_version, None);
-        assert_eq!(settings.pending_notes, None);
+    }
+
+    #[test]
+    fn a_settings_file_of_0_3_1_with_saved_notes_still_loads() {
+        let dir = scratch("old-notes");
+        std::fs::write(
+            dir.join(FILE_NAME),
+            r#"{"autoCheckUpdates":false,"skippedVersion":"0.3.0","lastRunVersion":"0.3.1","pendingNotes":{"version":"0.3.1","notes":"- old"},"autoLockMinutes":30,"quickUnlock":true}"#,
+        )
+        .expect("write the old file");
+        let settings = SettingsStore::load(&dir).get().expect("get");
+        assert!(!settings.auto_check_updates);
+        assert_eq!(settings.last_run_version.as_deref(), Some("0.3.1"));
+        assert_eq!(settings.auto_lock_minutes, 30);
+        assert!(settings.quick_unlock);
     }
 
     #[test]
@@ -195,17 +200,12 @@ mod tests {
                 s.auto_check_updates = false;
                 s.skipped_version = Some("0.2.0".into());
                 s.last_run_version = Some("0.1.0".into());
-                s.pending_notes = Some(PendingNotes {
-                    version: "0.2.0".into(),
-                    notes: "- faster".into(),
-                });
             })
             .expect("update");
         let again = SettingsStore::load(&dir).get().expect("get");
         assert!(!again.auto_check_updates);
         assert_eq!(again.skipped_version.as_deref(), Some("0.2.0"));
         assert_eq!(again.last_run_version.as_deref(), Some("0.1.0"));
-        assert_eq!(again.pending_notes.expect("notes").notes, "- faster");
         assert!(dir.join(FILE_NAME).is_file());
         assert!(
             !dir.join("settings.json.tmp").exists(),

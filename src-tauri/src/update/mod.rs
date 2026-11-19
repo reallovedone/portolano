@@ -5,6 +5,7 @@
 //! `tauri-plugin-updater` downloads the package and verifies its minisign signature against the
 //! public key of `tauri.conf.json` before anything is installed; nothing here bypasses it.
 
+pub mod changelog;
 pub mod logic;
 pub mod notes;
 
@@ -18,7 +19,7 @@ use tauri::{AppHandle, Url};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::error::{poisoned, AppError, ErrorCode};
-use crate::settings::{PendingNotes, Settings, SettingsStore};
+use crate::settings::{Settings, SettingsStore};
 use logic::{is_skipped, parse_version, run_transition, should_offer, RunTransition};
 
 /// Environment variable that replaces the update endpoint (testing release candidates, which
@@ -35,9 +36,6 @@ const PROGRESS_STEP: u64 = 64 * 1024;
 pub struct UpdateInfo {
     pub current_version: String,
     pub version: String,
-    /// Markdown text from the network, to be rendered as text, never as HTML. `None`: the UI
-    /// offers the link to the release page instead.
-    pub notes: Option<String>,
 }
 
 /// Result of `update_check`.
@@ -79,17 +77,21 @@ pub struct UpdateSettings {
     pub current_version: String,
 }
 
-/// "What's new in <version>". `notes: None` means the UI shows the link to the release page.
+/// "What's new" after an update: the changelog sections of every version since the one that ran
+/// last, newest first.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WhatsNew {
+    /// The running version.
     pub version: String,
-    pub notes: Option<String>,
+    pub sections: Vec<changelog::Section>,
+    /// Older versions were left out because the notes are long: the UI offers the link to the
+    /// full changelog (`update_open_changelog`).
+    pub truncated: bool,
 }
 
 struct PendingUpdate {
     update: Update,
-    notes: Option<String>,
 }
 
 pub struct UpdateService {
@@ -224,14 +226,11 @@ impl UpdateService {
             });
         }
 
-        // The manifest carries the changelog section only; GitHub is asked just without it.
-        let notes = notes::release_notes(update.body.as_deref(), &version).await;
         let info = UpdateInfo {
             current_version: self.current.to_string(),
             version: version.to_string(),
-            notes: notes.clone(),
         };
-        *self.pending.lock().map_err(poisoned)? = Some(PendingUpdate { update, notes });
+        *self.pending.lock().map_err(poisoned)? = Some(PendingUpdate { update });
         tracing::info!(current = %self.current, available = %version, manual, "an update is available");
         Ok(UpdateCheck::Available { update: info })
     }
@@ -244,27 +243,14 @@ impl UpdateService {
         on_event: impl Fn(UpdateEvent) + Send + 'static,
     ) -> Result<(), AppError> {
         let _busy = self.busy.try_lock().map_err(|_| busy_error())?;
-        let (update, notes) = {
+        let update = {
             let guard = self.pending.lock().map_err(poisoned)?;
             let pending = guard.as_ref().ok_or_else(|| {
                 AppError::invalid_input("there is no update to install: check again")
             })?;
-            (pending.update.clone(), pending.notes.clone())
+            pending.update.clone()
         };
         let version = update.version.clone();
-
-        // Saved before installing (on Windows the installer ends this process): the first launch
-        // of the new version shows these notes without a network request.
-        if let Some(text) = notes {
-            if let Err(e) = self.store.update(|s| {
-                s.pending_notes = Some(PendingNotes {
-                    version: version.clone(),
-                    notes: text,
-                });
-            }) {
-                tracing::warn!(error = %e, "could not save the release notes for after the update");
-            }
-        }
 
         match self.download_and_install(update, on_event).await {
             Ok(()) => {
@@ -273,12 +259,7 @@ impl UpdateService {
                 app.request_restart();
                 Ok(())
             }
-            Err(e) => {
-                if let Err(clear) = self.store.update(|s| s.pending_notes = None) {
-                    tracing::warn!(error = %clear, "could not clear the saved release notes");
-                }
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -314,10 +295,15 @@ impl UpdateService {
 
     /// Decides at start-up whether to show "What's new" and gathers its text.
     ///
-    /// The last-run version is recorded before any network request, so a notes dialog is shown
-    /// once per version even if the request hangs or the app is closed meanwhile. Nothing is
-    /// shown on a first install, when the version is unchanged, or after a downgrade.
+    /// The notes are the sections of the changelog built into this binary for every version
+    /// after the last one that ran, up to this one. The last-run version is recorded first, so
+    /// the dialog is shown once per version even if the app is closed meanwhile. Nothing is shown
+    /// on a first install, when the version is unchanged, or after a downgrade.
     pub async fn whats_new(&self) -> Result<Option<WhatsNew>, AppError> {
+        self.whats_new_from(changelog::EMBEDDED)
+    }
+
+    fn whats_new_from(&self, changelog_text: &str) -> Result<Option<WhatsNew>, AppError> {
         let settings = self.store.get()?;
         let transition = run_transition(settings.last_run_version.as_deref(), &self.current);
         let current = self.current.to_string();
@@ -329,26 +315,39 @@ impl UpdateService {
             }
             RunTransition::Upgraded => {}
         }
-        let saved = settings
-            .pending_notes
-            .filter(|p| parse_version(&p.version).is_some_and(|v| v == self.current))
-            .map(|p| p.notes);
+        // `Upgraded` means the record is a valid version.
+        let last = settings.last_run_version.as_deref().and_then(parse_version);
         // Recorded first; a failure to write only means the dialog may come again next time.
         if let Err(e) = self.record_run(&current) {
             tracing::warn!(error = %e, "could not record the running version");
         }
-        let notes = notes::release_notes(saved.as_deref(), &self.current).await;
+        let Some(last) = last else {
+            return Ok(None);
+        };
+        let (sections, truncated) = changelog::bound(changelog::skipped_sections(
+            changelog_text,
+            &last,
+            &self.current,
+        ));
+        if sections.is_empty() {
+            return Ok(None);
+        }
         Ok(Some(WhatsNew {
             version: current,
-            notes,
+            sections,
+            truncated,
         }))
     }
 
     fn record_run(&self, version: &str) -> Result<Settings, AppError> {
         self.store.update(|s| {
             s.last_run_version = Some(version.to_owned());
-            s.pending_notes = None;
         })
+    }
+
+    /// Opens the full changelog on GitHub in the browser (a fixed address).
+    pub fn open_changelog(&self) -> Result<(), AppError> {
+        open_in_browser(notes::changelog_url())
     }
 
     /// Opens the release page of `version` in the browser. The URL is built here from the parsed
@@ -356,15 +355,18 @@ impl UpdateService {
     pub fn open_release_page(&self, version: &str) -> Result<(), AppError> {
         let parsed = parse_version(version)
             .ok_or_else(|| AppError::invalid_input("not a valid version number"))?;
-        let url = notes::release_page_url(&parsed);
-        tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| {
-            tracing::warn!(error = %e, "could not open the release page");
-            AppError::new(
-                ErrorCode::Io,
-                "could not open the web browser; the release notes are on the GitHub releases page of the project",
-            )
-        })
+        open_in_browser(notes::release_page_url(&parsed))
     }
+}
+
+fn open_in_browser(url: String) -> Result<(), AppError> {
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| {
+        tracing::warn!(error = %e, "could not open the release notes page");
+        AppError::new(
+            ErrorCode::Io,
+            "could not open the web browser; the release notes are on the GitHub releases page of the project",
+        )
+    })
 }
 
 fn busy_error() -> AppError {
@@ -457,14 +459,6 @@ mod tests {
         (service, dir)
     }
 
-    fn run<T>(future: impl std::future::Future<Output = T>) -> T {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("runtime")
-            .block_on(future)
-    }
-
     #[test]
     fn a_missing_release_manifest_is_not_an_update_error_when_checking() {
         use tauri_plugin_updater::Error as E;
@@ -542,7 +536,10 @@ mod tests {
     #[test]
     fn a_fresh_install_records_the_version_and_shows_nothing() {
         let (service, dir) = service("fresh", "0.1.0");
-        assert!(run(service.whats_new()).expect("whats new").is_none());
+        assert!(service
+            .whats_new_from(CHANGELOG)
+            .expect("whats new")
+            .is_none());
         let settings = SettingsStore::load(&dir).get().expect("get");
         assert_eq!(settings.last_run_version.as_deref(), Some("0.1.0"));
     }
@@ -554,7 +551,10 @@ mod tests {
             .store
             .update(|s| s.last_run_version = Some("0.1.0".into()))
             .expect("seed");
-        assert!(run(service.whats_new()).expect("whats new").is_none());
+        assert!(service
+            .whats_new_from(CHANGELOG)
+            .expect("whats new")
+            .is_none());
         assert_eq!(
             SettingsStore::load(&dir)
                 .get()
@@ -572,7 +572,10 @@ mod tests {
             .store
             .update(|s| s.last_run_version = Some("0.3.0".into()))
             .expect("seed");
-        assert!(run(service.whats_new()).expect("whats new").is_none());
+        assert!(service
+            .whats_new_from(CHANGELOG)
+            .expect("whats new")
+            .is_none());
         assert_eq!(
             SettingsStore::load(&dir)
                 .get()
@@ -583,31 +586,75 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_upgrade_uses_the_saved_notes_once_without_the_network() {
-        let (service, dir) = service("upgrade", "0.2.0");
+    const CHANGELOG: &str = "## [Unreleased]\n\n## [0.3.2] - 2026-12-01\n\n- c\n\n## [0.3.1] - 2026-11-18\n\n- b\n\n## [0.3.0] - 2026-11-18\n\n- a\n\n## [0.2.0] - 2026-11-17\n\n- z\n";
+
+    fn versions_shown(last: &str, current: &str) -> (Vec<String>, SettingsStore) {
+        let (service, dir) = service(&format!("shown-{last}-{current}"), current);
         service
             .store
-            .update(|s| {
-                s.last_run_version = Some("0.1.0".into());
-                s.pending_notes = Some(PendingNotes {
-                    version: "0.2.0".into(),
-                    notes: "## 0.2.0\n- automatic updates".into(),
-                });
-            })
+            .update(|s| s.last_run_version = Some(last.into()))
             .expect("seed");
-        let shown = run(service.whats_new())
+        let shown = service
+            .whats_new_from(CHANGELOG)
             .expect("whats new")
-            .expect("the dialog is due");
-        assert_eq!(shown.version, "0.2.0");
+            .map(|w| w.sections.into_iter().map(|s| s.version).collect())
+            .unwrap_or_default();
+        (shown, SettingsStore::load(&dir))
+    }
+
+    #[test]
+    fn an_upgrade_shows_every_skipped_version_once() {
+        let (shown, settings) = versions_shown("0.2.0", "0.3.2");
+        assert_eq!(shown, ["0.3.2", "0.3.1", "0.3.0"]);
+        let settings = settings.get().expect("get");
+        assert_eq!(settings.last_run_version.as_deref(), Some("0.3.2"));
+        let (service, _) = service("again", "0.3.2");
+        assert!(service
+            .whats_new_from(CHANGELOG)
+            .expect("whats new")
+            .is_none());
+    }
+
+    #[test]
+    fn one_step_and_release_candidate_upgrades() {
+        assert_eq!(versions_shown("0.3.1", "0.3.2").0, ["0.3.2"]);
+        assert_eq!(versions_shown("0.3.2-rc1", "0.3.2").0, ["0.3.2"]);
+        assert_eq!(versions_shown("0.3.1", "0.3.2-rc1").0, ["0.3.2"]);
+    }
+
+    #[test]
+    fn nothing_to_show_still_records_the_version() {
+        let (shown, settings) = versions_shown("0.3.2", "0.3.2");
+        assert!(shown.is_empty());
         assert_eq!(
-            shown.notes.as_deref(),
-            Some("## 0.2.0\n- automatic updates")
+            settings.get().expect("get").last_run_version.as_deref(),
+            Some("0.3.2")
         );
-        let settings = SettingsStore::load(&dir).get().expect("get");
-        assert_eq!(settings.last_run_version.as_deref(), Some("0.2.0"));
-        assert_eq!(settings.pending_notes, None, "the notes are used once");
-        // The second start of the same version shows nothing.
-        assert!(run(service.whats_new()).expect("whats new").is_none());
+        // An upgrade whose versions have no section: nothing to show, but recorded.
+        let (shown, settings) = versions_shown("0.3.2", "0.9.0");
+        assert!(shown.is_empty());
+        assert_eq!(
+            settings.get().expect("get").last_run_version.as_deref(),
+            Some("0.9.0")
+        );
+    }
+
+    #[test]
+    fn too_long_notes_say_so() {
+        let (service, _) = service("long", "0.3.2");
+        service
+            .store
+            .update(|s| s.last_run_version = Some("0.1.0".into()))
+            .expect("seed");
+        let big = "x".repeat(crate::settings::MAX_NOTES_BYTES / 2 + 1);
+        let text = format!(
+            "## [0.3.2] - 2026-12-01\n\n{big}\n\n## [0.3.1] - 2026-11-18\n\n{big}\n\n## [0.2.0] - 2026-11-17\n\n- z\n"
+        );
+        let shown = service
+            .whats_new_from(&text)
+            .expect("whats new")
+            .expect("due");
+        assert_eq!(shown.sections.len(), 1);
+        assert!(shown.truncated);
     }
 }
