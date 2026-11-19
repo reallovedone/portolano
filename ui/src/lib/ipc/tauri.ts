@@ -149,6 +149,7 @@ export const tauriIpc: Ipc = {
   },
   whatsNew: () => call("whats_new"),
   updateOpenReleasePage: (version) => call("update_open_release_page", { version }),
+  updateOpenChangelog: () => call("update_open_changelog"),
 
   onVaultLocked: (handler) => subscribe<null>("vault-locked", () => handler()),
   onCheckForUpdatesMenu: (handler) => subscribe<null>("menu-check-for-updates", () => handler()),

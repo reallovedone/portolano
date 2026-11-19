@@ -298,7 +298,7 @@ describe("installing an update", () => {
     const fx = feedIpc();
     const mock = createMockIpc({
       vault: "unlocked",
-      updates: { available: { version: "0.2.0", notes: "notes" } },
+      updates: { available: { version: "0.2.0" } },
     });
     const ipc: Ipc = { ...mock, termOpen: fx.ipc.termOpen, fbOpen: fx.ipc.fbOpen, sessionClose: fx.ipc.sessionClose };
     const app = createApp(ipc, undefined, { startDelayMs: 0, intervalMs: 60_000 });

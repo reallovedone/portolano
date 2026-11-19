@@ -214,6 +214,14 @@ export class UpdateStore {
     }
   }
 
+  async openChangelog(): Promise<void> {
+    try {
+      await this.#ipc.updateOpenChangelog();
+    } catch (e) {
+      this.#notices.error(t("update.openNotesFailed"), e);
+    }
+  }
+
   #recordFreshness(result: UpdateCheck): void {
     switch (result.status) {
       case "upToDate":

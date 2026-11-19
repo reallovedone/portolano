@@ -27,7 +27,7 @@ async function mountApp(options: MockOptions = {}, timing = FAST) {
   return { app, mock };
 }
 
-const offered = { version: "0.2.0", notes: NOTES };
+const offered = { version: "0.2.0" };
 
 beforeEach(() => {
   const data = new Map<string, string>();
@@ -51,15 +51,14 @@ async function openCheckDialog(): Promise<void> {
 }
 
 describe("automatic update offer", () => {
-  it("shows current to new version, the notes and the three choices", async () => {
+  it("shows current to new version, a release notes link and the three choices", async () => {
     const { mock } = await mountApp({ updates: { available: offered } });
     const dialog = await screen.findByRole("dialog", { name: "Update available" });
     expect(within(dialog).getByTestId("update-versions").textContent).toBe(
       "Portolano 0.1.0 → 0.2.0",
     );
-    expect(within(dialog).getByRole("heading", { name: "What's Changed" })).toBeTruthy();
-    expect(within(dialog).getByText("Automatic updates")).toBeTruthy();
-    expect(within(dialog).getByText("Faster").tagName).toBe("STRONG");
+    expect(within(dialog).getByRole("button", { name: "Release notes" })).toBeTruthy();
+    expect(within(dialog).queryByTestId("release-notes")).toBeNull();
     expect(within(dialog).getByRole("button", { name: "Update now" })).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Later" })).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Skip this version" })).toBeTruthy();
@@ -184,31 +183,12 @@ describe("installation", () => {
   });
 });
 
-describe("release notes", () => {
-  it("never turn network text into markup", async () => {
-    await mountApp({
-      updates: {
-        available: {
-          version: "0.2.0",
-          notes: '<img src=x onerror="alert(1)">\n\n<script>alert(2)</script>\n\n[a](javascript:alert(3))',
-        },
-      },
-    });
+describe("release notes before installing", () => {
+  it("are not shown or fetched: only a link to the release page", async () => {
+    const { mock } = await mountApp({ updates: { available: offered } });
     const dialog = await screen.findByRole("dialog", { name: "Update available" });
-    expect(dialog.querySelector("img")).toBeNull();
-    expect(dialog.querySelector("script")).toBeNull();
-    expect(dialog.querySelector("a")).toBeNull();
-    expect(within(dialog).getByTestId("release-notes").textContent).toContain(
-      '<img src=x onerror="alert(1)">',
-    );
-  });
-
-  it("offer a link to the release page when there are no notes", async () => {
-    const { mock } = await mountApp({ updates: { available: { version: "0.2.0", notes: null } } });
-    const dialog = await screen.findByRole("dialog", { name: "Update available" });
-    await fireEvent.click(
-      within(dialog).getByRole("button", { name: "See the release notes on GitHub" }),
-    );
+    expect(dialog.querySelector("[data-testid='release-notes']")).toBeNull();
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Release notes" }));
     await waitFor(() => expect(mock.updates.openedPages).toEqual(["0.2.0"]));
   });
 });
@@ -260,31 +240,75 @@ describe("Check for updates…", () => {
 });
 
 describe("What's new", () => {
-  const whatsNew = { version: "0.2.0", notes: NOTES };
+  const whatsNew = {
+    version: "0.3.2",
+    truncated: false,
+    sections: [
+      { version: "0.3.2", date: "2026-12-01", notes: NOTES },
+      { version: "0.3.1", date: "2026-11-18", notes: "### Added\n\n- Kerberos sign-in" },
+      { version: "0.3.0-rc", date: null, notes: "- Release candidate item" },
+    ],
+  };
 
-  it("is shown with the notes of the new version and closes", async () => {
+  it("shows every version with its title and notes, and closes", async () => {
     await mountApp({ updates: { whatsNew } });
-    const dialog = await screen.findByRole("dialog", { name: "What's new in 0.2.0" });
+    const dialog = await screen.findByRole("dialog", { name: "What's new in 0.3.2" });
+    const sections = within(dialog).getAllByTestId("whats-new-section");
+    expect(sections.map((x) => x.getAttribute("data-version"))).toEqual([
+      "0.3.2",
+      "0.3.1",
+      "0.3.0-rc",
+    ]);
+    expect(within(dialog).getByRole("heading", { name: "0.3.2 — 1 Dec 2026" })).toBeTruthy();
+    expect(within(dialog).getByRole("heading", { name: "0.3.1 — 18 Nov 2026" })).toBeTruthy();
+    expect(within(dialog).getByRole("heading", { name: "0.3.0-rc" })).toBeTruthy();
     expect(within(dialog).getByText("Automatic updates")).toBeTruthy();
+    expect(within(dialog).getByText("Kerberos sign-in")).toBeTruthy();
+    expect(within(dialog).queryByTestId("whats-new-more")).toBeNull();
     const close = within(dialog).getAllByRole("button", { name: "Close" }).at(-1);
     if (!close) throw new Error("no Close button");
     await fireEvent.click(close);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("shows only the link when the notes are not available, never an error", async () => {
-    const { mock } = await mountApp({ updates: { whatsNew: { version: "0.2.0", notes: null } } });
-    const dialog = await screen.findByRole("dialog", { name: "What's new in 0.2.0" });
-    expect(screen.queryByRole("alert")).toBeNull();
-    await fireEvent.click(
-      within(dialog).getByRole("button", { name: "See the release notes on GitHub" }),
+  it("never turns notes into markup", async () => {
+    await mountApp({
+      updates: {
+        whatsNew: {
+          version: "0.3.2",
+          truncated: false,
+          sections: [
+            {
+              version: "0.3.2",
+              date: null,
+              notes: '<img src=x onerror="alert(1)">\n\n<script>alert(2)</script>\n\n[a](javascript:alert(3))',
+            },
+          ],
+        },
+      },
+    });
+    const dialog = await screen.findByRole("dialog", { name: "What's new in 0.3.2" });
+    expect(dialog.querySelector("img")).toBeNull();
+    expect(dialog.querySelector("script")).toBeNull();
+    expect(dialog.querySelector("a")).toBeNull();
+    expect(within(dialog).getByTestId("release-notes").textContent).toContain(
+      '<img src=x onerror="alert(1)">',
     );
-    await waitFor(() => expect(mock.updates.openedPages).toEqual(["0.2.0"]));
+  });
+
+  it("links to the full changelog when older versions were left out", async () => {
+    const { mock } = await mountApp({ updates: { whatsNew: { ...whatsNew, truncated: true } } });
+    const dialog = await screen.findByRole("dialog", { name: "What's new in 0.3.2" });
+    expect(within(dialog).getByText(/Older versions are not shown here/)).toBeTruthy();
+    await fireEvent.click(
+      within(dialog).getByRole("button", { name: "See the full changelog on GitHub" }),
+    );
+    await waitFor(() => expect(mock.updates.openedChangelogs).toBe(1));
   });
 
   it("comes before the update dialog, which follows once it is closed", async () => {
-    const { app } = await mountApp({ updates: { whatsNew, available: { version: "0.3.0", notes: null } } });
-    await screen.findByRole("dialog", { name: "What's new in 0.2.0" });
+    const { app } = await mountApp({ updates: { whatsNew, available: { version: "0.4.0" } } });
+    await screen.findByRole("dialog", { name: "What's new in 0.3.2" });
     await waitFor(() => expect(app.updates.offer).not.toBeNull());
     expect(screen.queryByRole("dialog", { name: "Update available" })).toBeNull();
     app.updates.dismissWhatsNew();

@@ -61,7 +61,7 @@ describe("status bar update dot", () => {
   });
 
   it("is available when an update exists", async () => {
-    await mountApp({ updates: { available: { version: "0.2.0", notes: null } } });
+    await mountApp({ updates: { available: { version: "0.2.0" } } });
     await within(bar()).findByRole("button", { name: "Update available" });
   });
 

@@ -317,12 +317,10 @@ export interface UpdateSettings {
   currentVersion: string;
 }
 
-/** An available update. `notes` is Markdown from the network: render it as text, never as HTML. */
+/** An available update. Its notes are not fetched: the dialog links to the release page. */
 export interface UpdateInfo {
   currentVersion: string;
   version: string;
-  /** `null`: no notes could be fetched; offer the release page instead. */
-  notes: string | null;
 }
 
 export type UpdateCheck =
@@ -338,8 +336,23 @@ export type UpdateEvent =
   /** Downloaded and verified: installing (the application restarts right after). */
   | { type: "installing" };
 
-/** "What's new in <version>", shown once on the first launch after an update. */
-export interface WhatsNew {
+/** The changelog of one released version. */
+export interface ReleaseSection {
   version: string;
-  notes: string | null;
+  /** `YYYY-MM-DD`; `null` while the version is still "Unreleased" (a release candidate). */
+  date: string | null;
+  /** Markdown from the changelog built into the application: render it as text. */
+  notes: string;
+}
+
+/**
+ * "What's new", shown once on the first launch after an update: every version since the one
+ * that ran last, newest first.
+ */
+export interface WhatsNew {
+  /** The running version. */
+  version: string;
+  sections: ReleaseSection[];
+  /** Older versions were left out: offer the full changelog on GitHub. */
+  truncated: boolean;
 }

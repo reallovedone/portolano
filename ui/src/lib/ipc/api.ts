@@ -176,6 +176,8 @@ export interface Ipc {
   whatsNew(): Promise<WhatsNew | null>;
   /** Opens the GitHub release page of `version` in the browser. */
   updateOpenReleasePage(version: string): Promise<void>;
+  /** Opens the full changelog on GitHub in the browser. */
+  updateOpenChangelog(): Promise<void>;
   /**
    * Answers `quit-requested`: `asking` (a confirmation is about to show; stops the backend's
    * 2 second timer), `quit` (nothing to ask or the user confirmed) or `cancel`.
