@@ -1,21 +1,19 @@
-<!-- Release notes as text. They come from the network: the Markdown is read into plain data
-     (markdown.ts) and drawn with text nodes only, so nothing in it is ever parsed as HTML. -->
+<!-- Release notes as text. The Markdown is read into plain data (markdown.ts) and drawn with text
+     nodes only, so nothing in it is ever parsed as HTML. -->
 <script lang="ts">
   import { t } from "../i18n/strings";
   import { parseMarkdown, type Inline } from "./markdown";
 
   let {
     notes,
-    version,
-    onopen,
+    bounded = true,
   }: {
-    /** `null`: nothing could be loaded; the GitHub link is offered instead. */
-    notes: string | null;
-    version: string;
-    onopen: () => void;
+    notes: string;
+    /** Scrolls on its own (a tab stop, a labelled region). Off when a parent scrolls. */
+    bounded?: boolean;
   } = $props();
 
-  const blocks = $derived(notes === null ? [] : parseMarkdown(notes));
+  const blocks = $derived(parseMarkdown(notes));
 </script>
 
 {#snippet inline(parts: Inline[])}
@@ -27,17 +25,16 @@
   {/each}
 {/snippet}
 
-{#if notes === null || blocks.length === 0}
-  <div class="fallback" data-testid="notes-fallback">
-    <p>{t("update.notesFallback")}</p>
-    <button type="button" class="link" onclick={onopen} data-version={version}>
-      {t("update.openNotes")}
-    </button>
-  </div>
-{:else}
-  <!-- A scrollable region must be reachable with the keyboard. -->
-  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="notes" data-testid="release-notes" tabindex="0" role="region" aria-label={t("update.notesHeading")}>
+<!-- A scrollable region must be reachable with the keyboard. -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<div
+  class="notes"
+  class:bounded
+  data-testid="release-notes"
+  tabindex={bounded ? 0 : undefined}
+  role={bounded ? "region" : undefined}
+  aria-label={bounded ? t("update.notesHeading") : undefined}
+>
     {#each blocks as block, index (index)}
       {#if block.kind === "heading"}
         <p class="heading level-{block.level}" role="heading" aria-level={block.level + 2}>{@render inline(block.inline)}</p>
@@ -57,13 +54,15 @@
         <pre>{block.text}</pre>
       {/if}
     {/each}
-  </div>
-{/if}
+</div>
 
 <style>
-  .notes {
+  .bounded {
     max-height: 40vh;
     overflow: auto;
+  }
+
+  .notes {
     padding: var(--space-3);
     border: 1px solid var(--border-hairline);
     border-radius: var(--radius-control);
@@ -111,20 +110,5 @@
     overflow: auto;
     border-radius: var(--radius-xs);
     background: var(--surface-content);
-  }
-
-  .fallback p {
-    margin: 0 0 var(--space-2);
-    color: var(--text-secondary);
-  }
-
-  .link {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--text-link);
-    font: inherit;
-    text-decoration: underline;
-    cursor: pointer;
   }
 </style>

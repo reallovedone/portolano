@@ -194,6 +194,7 @@ pub fn run() {
             commands::update::update_install,
             commands::update::whats_new,
             commands::update::update_open_release_page,
+            commands::update::update_open_changelog,
             quit::quit_reply,
             // Not in the contract table: UI-to-backend log line.
             commands::ui_log,
@@ -412,6 +413,7 @@ mod tests {
             "update_install",
             "whats_new",
             "update_open_release_page",
+            "update_open_changelog",
             "quit_reply",
         ];
         let source = include_str!("lib.rs");

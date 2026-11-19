@@ -10,7 +10,7 @@ export interface MockUpdateOptions {
   /** Initial "Automatically check for updates" (default true). */
   autoCheck?: boolean;
   /** An update the server "offers" (default: none, the application is up to date). */
-  available?: Pick<UpdateInfo, "version" | "notes">;
+  available?: Pick<UpdateInfo, "version">;
   /** Make the check fail with this message (a network error). */
   checkError?: string;
   /** Make the installation fail with this message. */
@@ -27,6 +27,8 @@ export interface MockUpdates {
   readonly skipped: string[];
   /** Versions whose release page was opened. */
   readonly openedPages: string[];
+  /** Number of times the full changelog was opened. */
+  openedChangelogs: number;
   /** Number of `updateInstall` calls. */
   installs: number;
   /** Current values; tests may change them while the UI runs. */
@@ -43,6 +45,7 @@ export interface MockUpdates {
     updateInstall(onEvent: (event: UpdateEvent) => void): Promise<void>;
     whatsNew(): Promise<WhatsNew | null>;
     updateOpenReleasePage(version: string): Promise<void>;
+    updateOpenChangelog(): Promise<void>;
   };
 }
 
@@ -52,6 +55,7 @@ export function createMockUpdates(options: MockUpdateOptions = {}): MockUpdates 
     checks: [],
     skipped: [],
     openedPages: [],
+    openedChangelogs: 0,
     installs: 0,
     options,
     settings: {
@@ -98,6 +102,9 @@ export function createMockUpdates(options: MockUpdateOptions = {}): MockUpdates 
       whatsNew: async () => state.options.whatsNew ?? null,
       updateOpenReleasePage: async (version) => {
         state.openedPages.push(version);
+      },
+      updateOpenChangelog: async () => {
+        state.openedChangelogs += 1;
       },
     },
   };

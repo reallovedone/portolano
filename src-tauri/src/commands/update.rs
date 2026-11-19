@@ -73,3 +73,9 @@ pub async fn update_open_release_page(
 ) -> Result<(), AppError> {
     service.open_release_page(&version)
 }
+
+/// Opens the full changelog on GitHub in the browser (the address is fixed in the backend).
+#[tauri::command]
+pub async fn update_open_changelog(service: State<'_, UpdateService>) -> Result<(), AppError> {
+    service.open_changelog()
+}

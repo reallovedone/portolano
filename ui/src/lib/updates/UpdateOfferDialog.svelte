@@ -1,4 +1,5 @@
-<!-- An update is available: current -> new version, the release notes, and the three choices.
+<!-- An update is available: current -> new version, a link to its release notes, and the three
+     choices.
      "Update now" downloads with visible progress, then the backend verifies the signature,
      installs and restarts. Nothing is ever installed without this click. -->
 <script lang="ts">
@@ -8,7 +9,6 @@
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
   import Spinner from "../ui/Spinner.svelte";
-  import ReleaseNotes from "./ReleaseNotes.svelte";
 
   const { updates, tabs, closeConfirm } = getApp();
 
@@ -69,11 +69,16 @@
           </Banner>
         </div>
       {/if}
-      <ReleaseNotes
-        notes={info.notes}
-        version={info.version}
-        onopen={() => void updates.openReleasePage(info.version)}
-      />
+      <p class="notes-link">
+        <button
+          type="button"
+          class="link"
+          data-version={info.version}
+          onclick={() => void updates.openReleasePage(info.version)}
+        >
+          {t("update.releaseNotesLink")}
+        </button>
+      </p>
       {#if tabs.tabs.length > 0}
         <div class="gap"><Banner variant="warning" role="note">{t("update.sessionsWarning")}</Banner></div>
       {/if}
@@ -103,6 +108,20 @@
   .versions {
     margin: 0 0 var(--space-3);
     font-weight: var(--font-weight-semibold);
+  }
+
+  .notes-link {
+    margin: 0 0 var(--space-3);
+  }
+
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-link);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
   }
 
   .gap {

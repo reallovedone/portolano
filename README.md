@@ -133,9 +133,10 @@ is open; quit the app to require the master password again.
   (when the system lets the app read it). Web pages in tabs cannot call into the app.
 - On macOS the data folder is readable only by your user; on Windows it inherits the
   profile's permissions. No telemetry, no account, no cloud. Besides the hosts you connect to,
-  the app contacts GitHub to look for updates and read the release notes (nothing about you
-  is sent, and the automatic check can be turned off in the settings); the Windows installer
-  may download Microsoft's WebView2 runtime.
+  the app contacts GitHub to look for updates (nothing about you is sent, and the automatic
+  check can be turned off in the settings); the release notes ship inside the app, and after
+  an update it shows those of every version you skipped. The Windows installer may download
+  Microsoft's WebView2 runtime.
 
 **Honest limits.** A weak master password makes a weak vault, and malware running as your
 user is beyond what a local password manager can defend against. Locking does not wipe the

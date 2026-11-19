@@ -490,8 +490,7 @@ export const strings = {
   "update.offerTitle": "Update available",
   "update.versions": "Portolano {current} → {version}",
   "update.notesHeading": "What's new",
-  "update.notesFallback": "The release notes could not be loaded.",
-  "update.openNotes": "See the release notes on GitHub",
+  "update.releaseNotesLink": "Release notes",
   "update.openNotesFailed": "The release page could not be opened",
   "update.sessionsWarning": "Open sessions will be closed when Portolano restarts to finish the update.",
   "update.now": "Update now",
@@ -506,7 +505,9 @@ export const strings = {
   "update.retry": "Try again",
   "update.progressLabel": "Download progress",
   "whatsNew.title": "What's new in {version}",
-  "whatsNew.intro": "Portolano was updated to {version}.",
+  "whatsNew.intro": "Portolano was updated to {version}. Here is what changed since the version you used before.",
+  "whatsNew.truncated": "Older versions are not shown here.",
+  "whatsNew.fullChangelog": "See the full changelog on GitHub",
 } as const;
 
 export type StringKey = keyof typeof strings;

@@ -7,6 +7,10 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### 🔄 Changed
+
+- After an update, the release notes of every version you skipped are shown; they are no longer shown before installing.
+
 ## [0.3.1] - 2026-11-18
 
 ### ✨ Added
