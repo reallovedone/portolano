@@ -282,7 +282,7 @@ describe("tabs and sessions", () => {
     await fireEvent.dblClick(row("Local sshd"));
     await fireEvent.dblClick(row("File server"));
     await fireEvent.dblClick(row("Intranet"));
-    await waitFor(() => expect(app.tabs.tabs.every((t) => t.status === "open")).toBe(true));
+    await waitFor(() => expect(app.tabs.connectionTabs.every((t) => t.status === "open")).toBe(true));
     const text = (id: string): string => document.querySelector(`#tabpanel-${id}`)?.textContent ?? "";
     const [ssh, rdp, web] = app.tabs.tabs;
     expect(document.querySelector(`#tabpanel-${ssh?.id ?? ""} .term`)).not.toBeNull();
@@ -300,8 +300,8 @@ describe("tabs and sessions", () => {
     expect(app.tabs.tabs).toHaveLength(1);
 
     await fireEvent.click(within(panel).getByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(app.tabs.tabs[0]?.attempt).toBe(1));
-    await waitFor(() => expect(app.tabs.tabs[0]?.status).toBe("failed"));
+    await waitFor(() => expect(app.tabs.connectionTabs[0]?.attempt).toBe(1));
+    await waitFor(() => expect(app.tabs.connectionTabs[0]?.status).toBe("failed"));
 
     const failed = (await screen.findByText("The session could not be opened")).closest("[role=alert]") as HTMLElement;
     await fireEvent.click(within(failed).getByRole("button", { name: "Close tab" }));
@@ -647,7 +647,7 @@ describe("vault UI", () => {
     await typePassword(dialog, "Master password", MOCK_MASTER_PASSWORD);
     await fireEvent.click(within(dialog).getByRole("button", { name: "Unlock" }));
     await waitFor(() => expect(app.tabs.tabs).toHaveLength(1));
-    expect(app.tabs.tabs[0]?.status).toBe("open");
+    expect(app.tabs.connectionTabs[0]?.status).toBe("open");
   });
 
   it("cancelling that unlock prompt opens nothing", async () => {
@@ -697,7 +697,7 @@ describe("vault UI", () => {
     await expand("Lab");
     await fireEvent.dblClick(row("Local sshd"));
     await waitFor(() => expect(app.tabs.tabs).toHaveLength(1));
-    expect(app.tabs.tabs[0]?.status).toBe("open");
+    expect(app.tabs.connectionTabs[0]?.status).toBe("open");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(app.vault.status).toBe("notCreated");
   });

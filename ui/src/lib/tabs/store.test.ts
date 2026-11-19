@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { IpcError, type Ipc } from "../ipc";
 import { MOCK_IDS, MOCK_MASTER_PASSWORD, createMockIpc } from "../ipc/mock";
 import { createApp } from "../state/app";
+import type { Tab } from "./model";
 
 /** A mock whose session commands succeed, recording opens and closes. */
 function workingIpc(base: Ipc) {
@@ -46,14 +47,14 @@ describe("TabsStore", () => {
     await app.tabs.openConnection(MOCK_IDS.intranet); // web
     await app.tabs.openConnection(MOCK_IDS.localZsh); // local shell
     expect(opened.map((o) => o.split(":")[0])).toEqual(["term", "fb", "fb", "web", "term"]);
-    expect(app.tabs.tabs.every((t) => t.status === "open" && t.sessionId !== null)).toBe(true);
+    expect(app.tabs.connectionTabs.every((t) => t.status === "open" && t.sessionId !== null)).toBe(true);
     expect(app.tabs.state.activeId).toBe(app.tabs.tabs[app.tabs.tabs.length - 1]?.id);
   });
 
   it("shows the unsupported error of the mock on the tab and keeps the tab open", async () => {
     const app = await ready(createMockIpc({ vault: "unlocked" }));
     await app.tabs.openConnection(MOCK_IDS.localZsh);
-    const tab = app.tabs.activeTab;
+    const tab = app.tabs.activeConnection;
     expect(tab?.status).toBe("failed");
     expect(tab?.error?.code).toBe("unsupported");
     expect(app.tabs.tabs).toHaveLength(1);
@@ -104,12 +105,76 @@ describe("TabsStore", () => {
     };
     const app = await ready(flaky);
     await app.tabs.openConnection(MOCK_IDS.localZsh);
-    expect(app.tabs.activeTab?.error).toEqual({ code: "host_unreachable", message: "no route" });
+    expect(app.tabs.activeConnection?.error).toEqual({ code: "host_unreachable", message: "no route" });
 
     fail = false;
     const id = app.tabs.activeTab?.id ?? "";
     await app.tabs.retry(id);
     expect(app.tabs.activeTab).toMatchObject({ status: "open", error: null, attempt: 1 });
+  });
+
+  describe("reconnect", () => {
+    it("closes the live session, then opens a new one", async () => {
+      const { ipc, opened, closed } = workingIpc(createMockIpc({ vault: "unlocked" }));
+      const app = await ready(ipc);
+      await app.tabs.openConnection(MOCK_IDS.localSshd);
+      const tab = app.tabs.activeConnection;
+      expect(tab).toMatchObject({ status: "open", attempt: 0 });
+      const oldSession = tab?.sessionId;
+
+      await app.tabs.reconnect(tab?.id ?? "");
+      expect(closed).toEqual([oldSession]);
+      expect(opened).toHaveLength(2);
+      expect(app.tabs.activeTab).toMatchObject({ status: "open", attempt: 1, error: null });
+      expect(app.tabs.activeConnection?.sessionId).not.toBe(oldSession);
+    });
+
+    it("goes through the opening state before the new session is up", async () => {
+      const { ipc } = workingIpc(createMockIpc({ vault: "unlocked" }));
+      const app = await ready(ipc);
+      await app.tabs.openConnection(MOCK_IDS.localSshd);
+      const pending = app.tabs.reconnect(app.tabs.activeTab?.id ?? "");
+      expect(app.tabs.activeConnection?.status).toBe("opening");
+      await pending;
+      expect(app.tabs.activeConnection?.status).toBe("open");
+    });
+
+    it("works on a failed tab like retry", async () => {
+      let fail = true;
+      const { ipc, closed } = workingIpc(createMockIpc({ vault: "unlocked" }));
+      const flaky: Ipc = {
+        ...ipc,
+        termOpen: async (id, c, r, cb) => {
+          if (fail) throw new IpcError("host_unreachable", "no route");
+          return ipc.termOpen(id, c, r, cb);
+        },
+      };
+      const app = await ready(flaky);
+      await app.tabs.openConnection(MOCK_IDS.localZsh);
+      expect(app.tabs.activeConnection?.status).toBe("failed");
+      fail = false;
+      await app.tabs.reconnect(app.tabs.activeTab?.id ?? "");
+      expect(app.tabs.activeTab).toMatchObject({ status: "open", error: null, attempt: 1 });
+      expect(closed).toEqual([]);
+    });
+
+    it("opens a single session when called twice while opening", async () => {
+      const { ipc, opened, closed } = workingIpc(createMockIpc({ vault: "unlocked" }));
+      const app = await ready(ipc);
+      await app.tabs.openConnection(MOCK_IDS.localSshd);
+      const id = app.tabs.activeTab?.id ?? "";
+      await Promise.all([app.tabs.reconnect(id), app.tabs.reconnect(id)]);
+      expect(opened).toHaveLength(2); // the first open plus one reconnect
+      expect(closed).toHaveLength(1);
+      expect(app.tabs.activeConnection?.attempt).toBe(1);
+    });
+
+    it("does nothing for an unknown tab", async () => {
+      const { ipc, opened } = workingIpc(createMockIpc({ vault: "unlocked" }));
+      const app = await ready(ipc);
+      await app.tabs.reconnect("nope");
+      expect(opened).toEqual([]);
+    });
   });
 
   it("unlock-and-retry unlocks first when the backend says vault_locked", async () => {
@@ -125,7 +190,7 @@ describe("TabsStore", () => {
     };
     const app = await ready(gated);
     await app.tabs.openConnection(MOCK_IDS.localZsh);
-    expect(app.tabs.activeTab?.error?.code).toBe("vault_locked");
+    expect(app.tabs.activeConnection?.error?.code).toBe("vault_locked");
 
     await app.vault.lock();
     locked = false;
@@ -135,7 +200,7 @@ describe("TabsStore", () => {
     await app.vault.unlock(MOCK_MASTER_PASSWORD);
     app.vault.finishRequest(true);
     await retrying;
-    expect(app.tabs.activeTab?.status).toBe("open");
+    expect(app.tabs.activeConnection?.status).toBe("open");
   });
 
   it("closes backend sessions when tabs close, for one, others, all and deleted connections", async () => {
@@ -216,7 +281,7 @@ describe("TabsStore", () => {
 
     await app.doc.remove(MOCK_IDS.localZsh);
     await app.tabs.retry(tab?.id ?? "");
-    expect(app.tabs.tabs[0]?.error?.code).toBe("not_found");
+    expect(app.tabs.connectionTabs[0]?.error?.code).toBe("not_found");
   });
 
   it("navigation helpers change the active tab", async () => {
@@ -301,9 +366,9 @@ describe("TabsStore", () => {
       };
       const app = await ready(flaky);
       const tabId = await app.tabs.openConnection(MOCK_IDS.localSshd);
-      expect(app.tabs.activeTab?.error?.code).toBe("vault_locked");
+      expect(app.tabs.activeConnection?.error?.code).toBe("vault_locked");
       await app.tabs.enterManuallyAndRetry(tabId ?? "");
-      expect(app.tabs.activeTab?.status).toBe("open");
+      expect(app.tabs.activeConnection?.status).toBe("open");
       expect(opened).toEqual([`term:${MOCK_IDS.localSshd}:ask`]);
     });
 
@@ -403,5 +468,33 @@ describe("TabsStore liveness", () => {
     await app.tabs.closeAll();
     expect(app.tabs.isLive(c)).toBe(false);
     expect(app.tabs.liveCount()).toBe(0);
+  });
+
+  it("openHome adds one Home tab next to the active tab; a second call activates it", async () => {
+    const { ipc } = workingIpc(createMockIpc({ vault: "unlocked" }));
+    const app = await ready(ipc);
+    await app.tabs.openConnection(MOCK_IDS.localSshd);
+    await app.tabs.openConnection(MOCK_IDS.localZsh);
+    app.tabs.activate(app.tabs.tabs[0]?.id ?? "");
+    app.tabs.openHome();
+    expect(app.tabs.tabs.map((x) => x.type)).toEqual(["connection", "home", "connection"]);
+    expect(app.tabs.activeTab?.type).toBe("home");
+    expect(app.tabs.title(app.tabs.activeTab as Tab)).toBe("Home");
+    app.tabs.activate(app.tabs.tabs[2]?.id ?? "");
+    app.tabs.openHome();
+    expect(app.tabs.tabs.filter((x) => x.type === "home")).toHaveLength(1);
+    expect(app.tabs.activeTab?.type).toBe("home");
+  });
+
+  it("a Home tab is not a live session and closes without touching sessions", async () => {
+    const { ipc, closed } = workingIpc(createMockIpc({ vault: "unlocked" }));
+    const app = await ready(ipc);
+    app.tabs.openHome();
+    const id = app.tabs.activeTab?.id ?? "";
+    expect(app.tabs.liveCount()).toBe(0);
+    expect(app.tabs.isLive(id)).toBe(false);
+    await app.tabs.close(id);
+    expect(app.tabs.tabs).toHaveLength(0);
+    expect(closed).toEqual([]);
   });
 });

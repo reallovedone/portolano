@@ -141,6 +141,40 @@ describe("confirmClose", () => {
   });
 });
 
+describe("the Home tab and close confirmation", () => {
+  it("closing Home next to a live SSH tab asks nothing", async () => {
+    const { app, feeds, closed } = await mount();
+    feeds[0]?.(data);
+    app.tabs.openHome();
+    const home = app.tabs.activeTab?.id as string;
+    await app.closeConfirm.closeTab(home);
+    expect(dialog()).toBeNull();
+    expect(app.tabs.tabs.some((x) => x.id === home)).toBe(false);
+    expect(closed).toEqual([]);
+  });
+
+  it("Close all with live tabs and Home counts only the live ones", async () => {
+    const { app, feeds } = await mount();
+    feeds[0]?.(data);
+    feeds[1]?.(resize);
+    app.tabs.openHome();
+    const done = app.closeConfirm.closeAll();
+    await screen.findByRole("dialog", { name: "Close 2 active sessions?" });
+    await fireEvent.click(confirmButton());
+    await done;
+    expect(app.tabs.tabs).toHaveLength(0);
+  });
+
+  it("deleting connections leaves Home open", async () => {
+    const { app } = await mount();
+    app.tabs.openHome();
+    await app.tabs.closeForConnections(
+      new Set([MOCK_IDS.localSshd, MOCK_IDS.devVm, MOCK_IDS.intranet]),
+    );
+    expect(app.tabs.tabs.map((x) => x.type)).toEqual(["home"]);
+  });
+});
+
 describe("closing tabs asks first when a session is connected", () => {
   it("Ctrl+W: connected tab asks, Cancel keeps it, Close closes it", async () => {
     const { app, feeds, ssh } = await mount();

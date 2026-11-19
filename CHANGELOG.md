@@ -7,6 +7,11 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### ✨ Added
+
+- *Reconnect* in the tab menu, and ⌘⇧R (Ctrl+Shift+R on Windows), closes the session and opens it again, for every kind of connection, even while it is still connected.
+- A *Home* tab, from the house button in the tab strip or ⌘⇧H (Ctrl+Shift+H on Windows), keeps the welcome screen with its connection tiles one click away next to your sessions.
+
 ### 🔄 Changed
 
 - After an update, the release notes of every version you skipped are shown; they are no longer shown before installing.

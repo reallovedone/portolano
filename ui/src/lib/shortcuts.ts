@@ -10,7 +10,9 @@ export type ShortcutAction =
   | "closeTab"
   | "nextTab"
   | "prevTab"
-  | "lockVault";
+  | "lockVault"
+  | "reconnectTab"
+  | "openHome";
 
 export interface KeyInfo {
   key: string;
@@ -46,6 +48,8 @@ export function matchShortcut(e: KeyInfo, isMac: boolean): ShortcutAction | null
     if (isMac && e.code === "BracketRight") return "nextTab";
     if (isMac && e.code === "BracketLeft") return "prevTab";
     if (key === "l") return "lockVault";
+    if (key === "r") return "reconnectTab";
+    if (key === "h") return "openHome";
     return null;
   }
   switch (key) {
@@ -77,5 +81,9 @@ export function shortcutLabel(action: ShortcutAction, isMac: boolean): string {
       return isMac ? `${mod}${shift}[` : "Ctrl+Shift+Tab";
     case "lockVault":
       return `${mod}${shift}L`;
+    case "reconnectTab":
+      return `${mod}${shift}R`;
+    case "openHome":
+      return `${mod}${shift}H`;
   }
 }

@@ -79,7 +79,7 @@
           {t("update.releaseNotesLink")}
         </button>
       </p>
-      {#if tabs.tabs.length > 0}
+      {#if tabs.connectionTabs.length > 0}
         <div class="gap"><Banner variant="warning" role="note">{t("update.sessionsWarning")}</Banner></div>
       {/if}
     {/if}

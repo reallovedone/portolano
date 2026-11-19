@@ -70,6 +70,9 @@ export const strings = {
   "kind.folder": "Folder",
 
   "tabs.label": "Sessions",
+  "tabs.reconnect": "Reconnect",
+  "tabs.home": "Home",
+  "tabs.openHome": "Open Home",
   "tabs.close": "Close tab",
   "tabs.closeOthers": "Close other tabs",
   "tabs.closeAll": "Close all tabs",

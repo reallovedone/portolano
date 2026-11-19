@@ -5,9 +5,10 @@ import type { ConnectionKind } from "../tree/model";
 
 export type TabStatus = "opening" | "open" | "failed";
 
-export interface Tab {
+export interface ConnectionTab {
   /** Identifies the tab (not the backend session; one connection can have several tabs). */
   id: string;
+  type: "connection";
   connectionId: Uuid;
   title: string;
   kind: ConnectionKind;
@@ -16,6 +17,18 @@ export interface Tab {
   error: AppError | null;
   /** Bumped by a retry so session components are recreated. */
   attempt: number;
+}
+
+/** The Home tab: the welcome content in a tab. It has no session. At most one is open. */
+export interface HomeTab {
+  id: string;
+  type: "home";
+}
+
+export type Tab = ConnectionTab | HomeTab;
+
+export function isConnectionTab(tab: Tab | null | undefined): tab is ConnectionTab {
+  return tab?.type === "connection";
 }
 
 export interface TabsState {
@@ -81,9 +94,13 @@ export function cycleTab(state: TabsState, step: 1 | -1): TabsState {
   return tab ? { ...state, activeId: tab.id } : state;
 }
 
-export function patchTab(state: TabsState, id: string, patch: Partial<Tab>): TabsState {
-  if (!state.tabs.some((t) => t.id === id)) return state;
-  return { ...state, tabs: state.tabs.map((t) => (t.id === id ? { ...t, ...patch } : t)) };
+/** Patches a connection tab; a Home tab (or an unknown id) is left alone. */
+export function patchTab(state: TabsState, id: string, patch: Partial<ConnectionTab>): TabsState {
+  if (!state.tabs.some((t) => t.id === id && t.type === "connection")) return state;
+  return {
+    ...state,
+    tabs: state.tabs.map((t) => (t.id === id && t.type === "connection" ? { ...t, ...patch } : t)),
+  };
 }
 
 export function sessionOpened(state: TabsState, id: string, sessionId: SessionId): TabsState {
@@ -96,7 +113,7 @@ export function sessionFailed(state: TabsState, id: string, error: AppError): Ta
 
 export function sessionRetrying(state: TabsState, id: string): TabsState {
   const tab = state.tabs.find((t) => t.id === id);
-  if (!tab) return state;
+  if (!isConnectionTab(tab)) return state;
   return patchTab(state, id, {
     status: "opening",
     sessionId: null,
@@ -105,14 +122,26 @@ export function sessionRetrying(state: TabsState, id: string): TabsState {
   });
 }
 
+export function newHomeTab(id: string): HomeTab {
+  return { id, type: "home" };
+}
+
+/** Opens the Home tab after the active one, or activates the one that already exists. */
+export function openHomeTab(state: TabsState, id: string): TabsState {
+  const existing = state.tabs.find((t) => t.type === "home");
+  if (existing) return activateTab(state, existing.id);
+  return addTab(state, newHomeTab(id));
+}
+
 export function newTab(
   id: string,
   connectionId: Uuid,
   title: string,
   kind: ConnectionKind,
-): Tab {
+): ConnectionTab {
   return {
     id,
+    type: "connection",
     connectionId,
     title,
     kind,

@@ -6,7 +6,9 @@ import {
   cycleTab,
   emptyTabs,
   moveTab,
+  newHomeTab,
   newTab,
+  openHomeTab,
   patchTab,
   removeOtherTabs,
   removeTab,
@@ -117,5 +119,32 @@ describe("session lifecycle on a tab", () => {
   it("does nothing for unknown tabs", () => {
     const s = stateOf("a");
     expect(patchTab(s, "zzz", { title: "x" })).toBe(s);
+  });
+});
+
+describe("Home tab", () => {
+  it("opens next to the active tab and becomes active", () => {
+    let s = stateOf("a", "b", "c");
+    s = activateTab(s, "a");
+    s = openHomeTab(s, "h");
+    expect(ids(s)).toEqual(["a", "h", "b", "c"]);
+    expect(s.activeId).toBe("h");
+    expect(s.tabs[1]).toEqual({ id: "h", type: "home" });
+    expect(newHomeTab("x")).toEqual({ id: "x", type: "home" });
+  });
+
+  it("activates the existing Home instead of opening a second one", () => {
+    let s = openHomeTab(stateOf("a", "b"), "h");
+    s = activateTab(s, "a");
+    const again = openHomeTab(s, "h2");
+    expect(ids(again)).toEqual(["a", "b", "h"]);
+    expect(again.activeId).toBe("h");
+  });
+
+  it("ignores retry transitions", () => {
+    const s = openHomeTab(emptyTabs, "h");
+    expect(sessionRetrying(s, "h")).toBe(s);
+    expect(sessionFailed(s, "h", { code: "not_found", message: "y" })).toBe(s);
+    expect(sessionOpened(s, "h", "s1")).toBe(s);
   });
 });

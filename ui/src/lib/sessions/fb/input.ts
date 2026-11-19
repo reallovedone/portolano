@@ -18,6 +18,7 @@ export interface KeyLike {
   ctrlKey: boolean;
   altKey: boolean;
   metaKey: boolean;
+  shiftKey: boolean;
   preventDefault(): void;
   stopPropagation(): void;
 }
@@ -66,6 +67,11 @@ export function isEscapeChord(e: Pick<KeyLike, "code" | "ctrlKey" | "altKey">): 
 /** Cmd+key combinations that stay with the app (Quit, Hide, Minimize, Close Tab). */
 const APP_KEYS = new Set(["KeyQ", "KeyH", "KeyM", "KeyW"]);
 
+/** Cmd+key combinations that stay with the app: Quit, Hide, Minimize, Close Tab, Reconnect (Cmd+Shift+R), Home (Cmd+Shift+H, already covered by Hide's key). */
+function isAppCombo(e: KeyLike): boolean {
+  return APP_KEYS.has(e.code) || (e.code === "KeyR" && e.shiftKey);
+}
+
 function isMeta(code: string): boolean {
   return code === "MetaLeft" || code === "MetaRight";
 }
@@ -111,7 +117,7 @@ export class InputController {
       this.#o.onEscape?.();
       return;
     }
-    if (this.#macShortcuts() && e.metaKey && APP_KEYS.has(e.code)) {
+    if (this.#macShortcuts() && e.metaKey && isAppCombo(e)) {
       // Left alone: the event goes on to the app. It also means Cmd is no lone tap.
       if (this.#metaDown.size > 0) this.#metaUsed = true;
       return;
@@ -141,7 +147,7 @@ export class InputController {
       // The key-up of a key pressed with Cmd: its key-down may never have arrived (the menu bar
       // takes some combinations), but Cmd was used all the same.
       this.#metaUsed = true;
-      if (e.metaKey && APP_KEYS.has(e.code)) return;
+      if (e.metaKey && isAppCombo(e)) return;
     }
     if (!isMappedKey(e.code)) return;
     e.preventDefault();

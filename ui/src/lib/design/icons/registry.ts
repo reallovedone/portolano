@@ -27,6 +27,7 @@ import Folder from "@lucide/svelte/icons/folder";
 import FolderOpen from "@lucide/svelte/icons/folder-open";
 import FolderPlus from "@lucide/svelte/icons/folder-plus";
 import Globe from "@lucide/svelte/icons/globe";
+import House from "@lucide/svelte/icons/house";
 import Info from "@lucide/svelte/icons/info";
 import Key from "@lucide/svelte/icons/key-round";
 import Keyboard from "@lucide/svelte/icons/keyboard";
@@ -41,6 +42,7 @@ import Plug from "@lucide/svelte/icons/plug";
 import Plus from "@lucide/svelte/icons/plus";
 import Power from "@lucide/svelte/icons/power";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+import RotateCw from "@lucide/svelte/icons/rotate-cw";
 import Search from "@lucide/svelte/icons/search";
 import Server from "@lucide/svelte/icons/server";
 import Settings from "@lucide/svelte/icons/settings";
@@ -81,6 +83,7 @@ export const ICONS = {
   "folder-open": FolderOpen,
   "folder-plus": FolderPlus,
   globe: Globe,
+  house: House,
   info: Info,
   key: Key,
   keyboard: Keyboard,
@@ -95,6 +98,7 @@ export const ICONS = {
   plus: Plus,
   power: Power,
   refresh: RefreshCw,
+  "rotate-cw": RotateCw,
   search: Search,
   server: Server,
   settings: Settings,
