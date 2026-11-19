@@ -106,6 +106,12 @@
       case "closeTab":
         if (tabs.state.activeId) void closeConfirm.closeTab(tabs.state.activeId);
         break;
+      case "reconnectTab":
+        if (!event.repeat && tabs.state.activeId) void tabs.reconnect(tabs.state.activeId);
+        break;
+      case "openHome":
+        if (!event.repeat) tabs.openHome();
+        break;
       case "nextTab":
         tabs.next();
         break;

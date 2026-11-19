@@ -4,10 +4,10 @@
   import FramebufferView from "../sessions/FramebufferView.svelte";
   import TerminalView from "../sessions/TerminalView.svelte";
   import WebView from "../sessions/WebView.svelte";
-  import type { Tab } from "./model";
+  import type { ConnectionTab } from "./model";
   import { provideSessionContext } from "./session";
 
-  let { tab, sessionId }: { tab: Tab; sessionId: string } = $props();
+  let { tab, sessionId }: { tab: ConnectionTab; sessionId: string } = $props();
 
   const { tabs, overlay } = getApp();
 

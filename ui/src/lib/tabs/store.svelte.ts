@@ -11,14 +11,17 @@ import {
   addTab,
   cycleTab,
   emptyTabs,
+  isConnectionTab,
   moveTab,
   newTab,
+  openHomeTab,
   removeOtherTabs,
   removeTab,
   removeTabsWhere,
   sessionFailed,
   sessionOpened,
   sessionRetrying,
+  type ConnectionTab,
   type Tab,
   type TabsState,
 } from "./model";
@@ -56,12 +59,24 @@ export class TabsStore {
     return this.state.tabs;
   }
 
+  /** The tabs that hold a connection (everything but Home). */
+  get connectionTabs(): ConnectionTab[] {
+    return this.state.tabs.filter(isConnectionTab);
+  }
+
+  /** The active tab when it holds a connection; null for Home or no tab. */
+  get activeConnection(): ConnectionTab | null {
+    const tab = this.activeTab;
+    return isConnectionTab(tab) ? tab : null;
+  }
+
   get activeTab(): Tab | null {
     return this.state.tabs.find((tab) => tab.id === this.state.activeId) ?? null;
   }
 
   /** Live title: follows renames of the connection. */
   title(tab: Tab): string {
+    if (tab.type === "home") return t("tabs.home");
     return this.#doc.node(tab.connectionId)?.name ?? tab.title;
   }
 
@@ -85,11 +100,12 @@ export class TabsStore {
     return ids.filter((id) => this.#live.has(id)).length;
   }
 
-  #observe(tabId: string, attempt: number, kind: Tab["kind"], event: SessionEvent): void {
+  #observe(tabId: string, attempt: number, kind: ConnectionTab["kind"], event: SessionEvent): void {
     // Events of a closed or retried attempt must not change the tab's state.
     if (!this.#isCurrent(tabId, attempt)) return;
     // A failed tab keeps its attempt number: a late event must not revive it.
-    if (this.state.tabs.find((x) => x.id === tabId)?.status === "failed") return;
+    const tab = this.state.tabs.find((x) => x.id === tabId);
+    if (!isConnectionTab(tab) || tab.status === "failed") return;
     const next = liveAfter(kind, this.#live.has(tabId), event);
     if (next) this.#live.add(tabId);
     else this.#live.delete(tabId);
@@ -129,7 +145,7 @@ export class TabsStore {
 
   async #open(tabId: string): Promise<void> {
     const tab = this.state.tabs.find((x) => x.id === tabId);
-    if (!tab) return;
+    if (!isConnectionTab(tab)) return;
     const attemptNo = tab.attempt;
     const node = this.#doc.node(tab.connectionId);
     if (!node || !isConnection(node)) {
@@ -167,7 +183,7 @@ export class TabsStore {
 
   #isCurrent(tabId: string, attempt: number): boolean {
     const tab = this.state.tabs.find((x) => x.id === tabId);
-    return tab !== undefined && tab.attempt === attempt;
+    return isConnectionTab(tab) && tab.attempt === attempt;
   }
 
   async #closeSessions(ids: SessionId[]): Promise<void> {
@@ -185,7 +201,7 @@ export class TabsStore {
   }
 
   #sessionIds(tabs: Tab[]): SessionId[] {
-    return tabs.flatMap((tab) => (tab.sessionId ? [tab.sessionId] : []));
+    return tabs.flatMap((tab) => (tab.type === "connection" && tab.sessionId ? [tab.sessionId] : []));
   }
 
   #forget(tabs: Tab[]): void {
@@ -220,16 +236,16 @@ export class TabsStore {
 
   /** Closes the tabs of deleted connections. */
   async closeForConnections(ids: ReadonlySet<Uuid>): Promise<void> {
-    const closing = this.state.tabs.filter((x) => ids.has(x.connectionId));
+    const closing = this.state.tabs.filter((x) => x.type === "connection" && ids.has(x.connectionId));
     if (closing.length === 0) return;
-    this.state = removeTabsWhere(this.state, (x) => ids.has(x.connectionId));
+    this.state = removeTabsWhere(this.state, (x) => x.type === "connection" && ids.has(x.connectionId));
     this.#forget(closing);
     await this.#closeSessions(this.#sessionIds(closing));
   }
 
   async retry(tabId: string): Promise<void> {
     const tab = this.state.tabs.find((x) => x.id === tabId);
-    if (!tab || tab.status === "opening") return;
+    if (!isConnectionTab(tab) || tab.status === "opening") return;
     const stale = this.#sessionIds([tab]);
     this.#live.delete(tabId);
     this.state = sessionRetrying(this.state, tabId);
@@ -237,16 +253,25 @@ export class TabsStore {
     await this.#open(tabId);
   }
 
+  /**
+   * Starts the tab's session again, whatever its state: a live session is closed first (the
+   * backend never keeps the old one), a failed tab simply retries. Ignored while the tab is
+   * already opening, so repeated clicks open one session.
+   */
+  async reconnect(tabId: string): Promise<void> {
+    await this.retry(tabId);
+  }
+
   /** For a tab that failed with `vault_locked`: unlock first, then retry. */
   async unlockAndRetry(tabId: string): Promise<void> {
     const tab = this.state.tabs.find((x) => x.id === tabId);
-    if (!tab) return;
+    if (!isConnectionTab(tab)) return;
     if (await this.#vault.ensureUnlocked(this.title(tab))) await this.retry(tabId);
   }
 
   /** For a tab that failed with `vault_locked`: type the credential by hand instead. */
   async enterManuallyAndRetry(tabId: string): Promise<void> {
-    if (!this.state.tabs.some((x) => x.id === tabId)) return;
+    if (!isConnectionTab(this.state.tabs.find((x) => x.id === tabId))) return;
     this.#manual.add(tabId);
     await this.retry(tabId);
   }
@@ -254,10 +279,15 @@ export class TabsStore {
   /** A session component reports a fatal error after the session was opened. */
   async fail(tabId: string, error: AppError): Promise<void> {
     const tab = this.state.tabs.find((x) => x.id === tabId);
-    if (!tab) return;
+    if (!isConnectionTab(tab)) return;
     this.#live.delete(tabId);
     this.state = sessionFailed(this.state, tabId, error);
     await this.#closeSessions(this.#sessionIds([tab]));
+  }
+
+  /** Opens the Home tab after the active one; if it is already open, activates it. */
+  openHome(): void {
+    this.state = openHomeTab(this.state, crypto.randomUUID());
   }
 
   activate(tabId: string): void {

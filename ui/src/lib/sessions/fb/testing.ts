@@ -110,7 +110,7 @@ export function recordingApi(options: { delayMs?: number } = {}): { api: FbApi; 
 
 export function fakeKey(
   code: string,
-  extra: Partial<{ repeat: boolean; ctrlKey: boolean; altKey: boolean; metaKey: boolean }> = {},
+  extra: Partial<{ repeat: boolean; ctrlKey: boolean; altKey: boolean; metaKey: boolean; shiftKey: boolean }> = {},
 ) {
   const e = {
     code,
@@ -118,6 +118,7 @@ export function fakeKey(
     ctrlKey: false,
     altKey: false,
     metaKey: false,
+    shiftKey: false,
     prevented: false,
     stopped: false,
     ...extra,

@@ -9,6 +9,7 @@
   import EmptyState from "../ui/EmptyState.svelte";
   import Icon from "../ui/Icon.svelte";
   import Spinner from "../ui/Spinner.svelte";
+  import HomeView from "./HomeView.svelte";
   import type { Tab } from "./model";
   import SessionSlot from "./SessionSlot.svelte";
 
@@ -16,20 +17,22 @@
 
   const { tabs } = getApp();
   const active = $derived(tabs.state.activeId === tab.id);
-  const locked = $derived(tab.error?.code === "vault_locked");
+  const locked = $derived(tab.type === "connection" && tab.error?.code === "vault_locked");
 </script>
 
 <div
   class="pane"
   class:hidden={!active}
-  class:terminal={tab.kind === "localShell" || tab.kind === "ssh"}
+  class:terminal={tab.type === "connection" && (tab.kind === "localShell" || tab.kind === "ssh")}
   role="tabpanel"
   id="tabpanel-{tab.id}"
   aria-labelledby="tab-{tab.id}"
   data-tab-id={tab.id}
   inert={!active}
 >
-  {#if tab.status === "opening"}
+  {#if tab.type === "home"}
+    <HomeView testid="home" />
+  {:else if tab.status === "opening"}
     <div class="state" role="status">
       <ChartBackdrop />
       <div class="state-body">

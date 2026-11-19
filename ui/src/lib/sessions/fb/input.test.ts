@@ -387,6 +387,38 @@ describe("Mac shortcuts", () => {
     }
   });
 
+  it("leaves Cmd+Shift+R (Reconnect) to the app, but still sends Cmd+R as Ctrl+R", async () => {
+    const app = setup({ mac: true });
+    app.input.keyDown(fakeKey("MetaLeft", meta));
+    const down = fakeKey("KeyR", { metaKey: true, shiftKey: true });
+    app.input.keyDown(down);
+    const up = fakeKey("KeyR", { metaKey: true, shiftKey: true });
+    app.input.keyUp(up);
+    await flushPromises();
+    expect(keys(app.calls)).toEqual([]);
+    expect(down.prevented || down.stopped).toBe(false);
+    expect(up.prevented || up.stopped).toBe(false);
+
+    const plain = setup({ mac: true });
+    plain.input.keyDown(fakeKey("MetaLeft", meta));
+    plain.input.keyDown(fakeKey("KeyR", meta));
+    await flushPromises();
+    expect(keys(plain.calls)).toEqual(["ControlLeft+", "KeyR+", "KeyR-", "ControlLeft-"]);
+  });
+
+  it("leaves Cmd+Shift+H (Home) to the app", async () => {
+    const app = setup({ mac: true });
+    app.input.keyDown(fakeKey("MetaLeft", meta));
+    const down = fakeKey("KeyH", { metaKey: true, shiftKey: true });
+    app.input.keyDown(down);
+    const up = fakeKey("KeyH", { metaKey: true, shiftKey: true });
+    app.input.keyUp(up);
+    await flushPromises();
+    expect(keys(app.calls)).toEqual([]);
+    expect(down.prevented || down.stopped).toBe(false);
+    expect(up.prevented || up.stopped).toBe(false);
+  });
+
   it("sends Cmd+N, Cmd+K, Cmd+Shift+L and Cmd+C as Ctrl+key", async () => {
     for (const [code, shift] of [["KeyN", false], ["KeyK", false], ["KeyL", true], ["KeyC", false]] as const) {
       const { input, calls } = setup({ mac: true });

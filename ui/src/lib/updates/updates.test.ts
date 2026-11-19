@@ -172,6 +172,16 @@ describe("installation", () => {
     const dialog = await screen.findByRole("dialog", { name: "Update available" });
     expect(within(dialog).getByText(/Open sessions will be closed/)).toBeTruthy();
   });
+
+  it("does not warn about sessions when only the Home tab is open", async () => {
+    const { app } = await mountApp(
+      { updates: { available: offered } },
+      { startDelayMs: 100, intervalMs: 60_000 },
+    );
+    app.tabs.openHome();
+    const dialog = await screen.findByRole("dialog", { name: "Update available" });
+    expect(within(dialog).queryByText(/Open sessions will be closed/)).toBeNull();
+  });
 });
 
 describe("release notes", () => {

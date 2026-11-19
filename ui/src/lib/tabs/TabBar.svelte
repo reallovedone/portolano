@@ -6,6 +6,7 @@
   import { getApp } from "../state/app";
   import { defaultParentFor } from "../tree/model";
   import ContextMenu from "../ui/ContextMenu.svelte";
+  import Icon from "../ui/Icon.svelte";
   import IconButton from "../ui/IconButton.svelte";
   import KindIcon from "../ui/KindIcon.svelte";
   import type { MenuItem } from "../ui/menu";
@@ -75,7 +76,18 @@
 
   function tabMenu(tabId: string): MenuItem[] {
     const index = tabs.tabs.findIndex((x) => x.id === tabId);
+    const isHome = tabs.tabs[index]?.type === "home";
     return [
+      ...(isHome
+        ? []
+        : [
+            {
+              label: t("tabs.reconnect"),
+              action: () => void tabs.reconnect(tabId),
+              icon: "rotate-cw",
+              shortcut: shortcutLabel("reconnectTab", isMac),
+            } satisfies MenuItem,
+          ]),
       {
         label: t("tabs.close"),
         action: () => void closeConfirm.closeTab(tabId),
@@ -215,18 +227,22 @@
           aria-controls="tabpanel-{tab.id}"
           id="tab-{tab.id}"
           data-tab-id={tab.id}
-          data-status={tab.status}
+          data-status={tab.type === "connection" ? tab.status : undefined}
           tabindex={active ? 0 : -1}
           onclick={() => tabs.activate(tab.id)}
           onkeydown={(e) => onKeydown(e, tab.id, index)}
         >
-          {#if tab.status === "opening"}
+          {#if tab.type === "home"}
+            <Icon name="house" size={14} />
+          {:else if tab.status === "opening"}
             <Spinner size={14} />
           {:else}
             <KindIcon kind={tab.kind} />
           {/if}
           <span class="title">{tabs.title(tab)}</span>
-          {#if tab.status === "failed"}<span class="flag" title={tab.error?.code}>!</span>{/if}
+          {#if tab.type === "connection" && tab.status === "failed"}
+            <span class="flag" title={tab.error?.code}>!</span>
+          {/if}
         </button>
         <span class="close">
           <IconButton
@@ -241,6 +257,15 @@
       </div>
     {/each}
   </div>
+  <span class="plus">
+    <IconButton
+      icon="house"
+      size="compact"
+      label={t("tabs.openHome")}
+      tooltip={`${t("tabs.openHome")} (${shortcutLabel("openHome", isMac)})`}
+      onclick={() => tabs.openHome()}
+    />
+  </span>
   <span class="plus">
     <IconButton icon="plus" size="compact" label={t("tree.newConnection")} onclick={newConnection} />
   </span>

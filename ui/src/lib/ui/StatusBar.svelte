@@ -13,12 +13,14 @@
   const vaultKey = $derived(
     (vault.status === "unknown" ? "vault.locked" : `vault.${vault.status}`) as StringKey,
   );
-  const activeNode = $derived(tabs.activeTab ? doc.node(tabs.activeTab.connectionId) : undefined);
+  const activeNode = $derived(
+    tabs.activeConnection ? doc.node(tabs.activeConnection.connectionId) : undefined,
+  );
 </script>
 
 <footer class="status" data-testid="statusbar">
   <span>{t("status.vault", { state: t(vaultKey) })}</span>
-  <span>{t("status.sessions", { count: tabs.tabs.length })}</span>
+  <span>{t("status.sessions", { count: tabs.connectionTabs.length })}</span>
   {#if activeNode && isConnection(activeNode)}
     <span class="active">
       {t(`kind.${activeNode.options.type}` as StringKey)}
