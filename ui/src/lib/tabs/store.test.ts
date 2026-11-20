@@ -498,3 +498,30 @@ describe("TabsStore liveness", () => {
     expect(closed).toEqual([]);
   });
 });
+
+describe("TabsStore.duplicate", () => {
+  it("opens a second tab on the same connection, right after the one duplicated", async () => {
+    const { ipc, opened } = workingIpc(createMockIpc({ vault: "unlocked" }));
+    const app = await ready(ipc);
+    const first = await app.tabs.openConnection(MOCK_IDS.localSshd);
+    await app.tabs.openConnection(MOCK_IDS.devVm);
+    if (!first) throw new Error("no tab");
+    const copy = await app.tabs.duplicate(first);
+    expect(copy).not.toBeNull();
+    const ids = app.tabs.tabs.map((x) => x.id);
+    expect(ids.indexOf(copy ?? "")).toBe(ids.indexOf(first) + 1);
+    const tabs = app.tabs.connectionTabs;
+    expect(tabs.filter((x) => x.connectionId === MOCK_IDS.localSshd)).toHaveLength(2);
+    expect(app.tabs.state.activeId).toBe(copy);
+    expect(opened.filter((o) => o.startsWith(`term:${MOCK_IDS.localSshd}`))).toHaveLength(2);
+  });
+
+  it("does nothing for the Home tab or an unknown tab", async () => {
+    const { ipc } = workingIpc(createMockIpc({ vault: "unlocked" }));
+    const app = await ready(ipc);
+    app.tabs.openHome();
+    const home = app.tabs.tabs[0]?.id ?? "";
+    expect(await app.tabs.duplicate(home)).toBeNull();
+    expect(await app.tabs.duplicate("nope")).toBeNull();
+  });
+});

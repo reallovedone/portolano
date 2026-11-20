@@ -377,6 +377,30 @@ describe("TerminalView", () => {
     await waitFor(() => expect(m.term().focus.mock.calls.length).toBeGreaterThan(focusBefore));
   });
 
+  it("refits on every change but tells the shell only the final size", async () => {
+    const m = await mount();
+    m.bridge.emit({ type: "data", bytes: new Uint8Array([1]) });
+    await waitFor(() => expect(m.term().focus).toHaveBeenCalled());
+    m.spies.termResize.mockClear();
+    vi.useFakeTimers();
+    try {
+      for (const size of [{ cols: 100, rows: 30 }, { cols: 95, rows: 28 }, { cols: 90, rows: 25 }]) {
+        FakeFit.next = size;
+        m.hooks.setVisible?.(false);
+        await Promise.resolve();
+        m.hooks.setVisible?.(true);
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(40);
+      }
+      expect(m.spies.termResize).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(300);
+      expect(m.spies.termResize).toHaveBeenCalledTimes(1);
+      expect(m.spies.termResize).toHaveBeenCalledWith("sess-1", 90, 25);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not take the keyboard focus while a dialog is open", async () => {
     const m = await mount();
     m.hooks.setOverlay?.(true);

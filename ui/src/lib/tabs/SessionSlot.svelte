@@ -9,7 +9,7 @@
 
   let { tab, sessionId }: { tab: ConnectionTab; sessionId: string } = $props();
 
-  const { tabs, overlay } = getApp();
+  const { tabs, overlay, toolbar } = getApp();
 
   // The context reads `tab` lazily through getters, so it stays reactive.
   // svelte-ignore state_referenced_locally
@@ -38,6 +38,7 @@
     },
     fail: (error) => void tabs.fail(tab.id, error),
     retry: () => void tabs.retry(tab.id),
+    publishToolbar: (model) => toolbar.publish(tab.id, model),
   });
 </script>
 

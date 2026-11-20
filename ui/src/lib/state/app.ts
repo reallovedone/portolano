@@ -6,6 +6,7 @@ import { getContext, setContext } from "svelte";
 import { ipcMode, type Ipc } from "../ipc";
 import { CloseConfirmStore } from "../tabs/closeConfirm.svelte";
 import { TabsStore } from "../tabs/store.svelte";
+import { SessionToolbarStore } from "../tabs/toolbar.svelte";
 import { createMockFilePicker, tauriFilePicker, type FilePicker } from "../transfer/files";
 import { DocumentStore } from "./document.svelte";
 import { NoticeStore } from "./notices.svelte";
@@ -26,6 +27,8 @@ export interface App {
   overlay: OverlayStore;
   notices: NoticeStore;
   ui: UiStore;
+  /** What the session toolbar shows and whether it is visible. */
+  toolbar: SessionToolbarStore;
   updates: UpdateStore;
 }
 
@@ -48,6 +51,7 @@ export function createApp(
     overlay: new OverlayStore(),
     notices,
     ui: new UiStore(),
+    toolbar: new SessionToolbarStore(),
     updates: new UpdateStore(ipc, notices, updateTiming),
   };
 }

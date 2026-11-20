@@ -226,9 +226,13 @@ async fn nothing_derived_from_the_password_leaves_before_the_user_agrees() {
         .await;
     assert_eq!(fx.observed(), (Some(2), 16));
     let all = events.all();
-    assert!(all
-        .iter()
-        .any(|e| matches!(e, FbEvent::Security { encrypted: false })));
+    assert!(all.iter().any(|e| matches!(
+        e,
+        FbEvent::Security {
+            encrypted: false,
+            ..
+        }
+    )));
     assert!(PlainStore::in_data_dir(&dir)
         .allowed(HOST, fx.port)
         .expect("allowed"));
@@ -359,8 +363,12 @@ async fn a_server_without_authentication_needs_no_prompt_but_reports_it_is_not_e
         .await;
     let all = events.all();
     assert!(!all.iter().any(|e| matches!(e, FbEvent::UnencryptedPrompt)));
-    assert!(all
-        .iter()
-        .any(|e| matches!(e, FbEvent::Security { encrypted: false })));
+    assert!(all.iter().any(|e| matches!(
+        e,
+        FbEvent::Security {
+            encrypted: false,
+            ..
+        }
+    )));
     finish(session, fx).await;
 }

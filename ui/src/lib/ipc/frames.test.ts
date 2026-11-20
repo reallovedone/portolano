@@ -123,6 +123,16 @@ describe("decodeFbEvent", () => {
   it("decodes the security report (tag 7), the exact bytes asserted in core-model fb.rs", () => {
     expect(decodeFbEvent(raw(7, '{"encrypted":true}'))).toEqual({ type: "security", encrypted: true });
     expect(decodeFbEvent(raw(7, '{"encrypted":false}'))).toEqual({ type: "security", encrypted: false });
+    // RDP adds how the login was authenticated; the exact bytes are asserted in core-model fb.rs.
+    for (const auth of ["negotiate", "ntlm", "none"] as const) {
+      expect(decodeFbEvent(raw(7, `{"encrypted":true,"auth":"${auth}"}`))).toEqual({
+        type: "security",
+        encrypted: true,
+        auth,
+      });
+    }
+    // An unknown mechanism is dropped, not passed on to the UI.
+    expect(decodeFbEvent(raw(7, '{"encrypted":true,"auth":"x"}'))).toEqual({ type: "security", encrypted: true });
     // A frame without the flag is never read as "encrypted".
     expect(decodeFbEvent(raw(7, "{}"))).toEqual({ type: "security", encrypted: false });
   });

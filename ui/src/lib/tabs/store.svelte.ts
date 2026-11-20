@@ -262,6 +262,18 @@ export class TabsStore {
     await this.retry(tabId);
   }
 
+  /**
+   * Opens another tab on the same connection, right after this one. The credential is looked up
+   * again as for any new tab (a vault unlock may be asked). Returns the new tab id, or null.
+   */
+  async duplicate(tabId: string): Promise<string | null> {
+    const tab = this.state.tabs.find((x) => x.id === tabId);
+    if (!isConnectionTab(tab)) return null;
+    // New tabs open after the active one: make this one the active one first.
+    this.state = activateTab(this.state, tabId);
+    return this.openConnection(tab.connectionId);
+  }
+
   /** For a tab that failed with `vault_locked`: unlock first, then retry. */
   async unlockAndRetry(tabId: string): Promise<void> {
     const tab = this.state.tabs.find((x) => x.id === tabId);

@@ -12,6 +12,7 @@
   import { t } from "../i18n/strings";
   import { getApp } from "../state/app";
   import { getSessionContext } from "../tabs/session";
+  import type { SessionToolbarModel, ToolbarSecurity } from "../tabs/toolbar.svelte";
   import Banner from "../ui/Banner.svelte";
   import Button from "../ui/Button.svelte";
   import Icon from "../ui/Icon.svelte";
@@ -54,6 +55,7 @@
   let view = $state<FbViewState>({
     phase: "connecting",
     transport: "unknown",
+    auth: null,
     remote: { w: 0, h: 0 },
     cert: null,
     unencryptedPrompt: false,
@@ -99,6 +101,41 @@
   );
 
   const box = $derived(fitToArea(view.remote, areaSize));
+
+  // What the session toolbar shows. The lock text never claims more than the backend said: RDP
+  // negotiates Kerberos or NTLM, so "NLA · Kerberos or NTLM" unless it fell back to NTLM.
+  const security = $derived.by((): ToolbarSecurity | null => {
+    if (view.transport === "unknown") return null;
+    if (view.transport === "clear") return { text: t("toolbar.lock.notEncrypted"), warning: true };
+    if (session.kind === "rdp") {
+      if (view.auth === "negotiate") return { text: t("toolbar.lock.nlaNegotiate"), warning: false };
+      if (view.auth === "ntlm") return { text: t("toolbar.lock.nlaNtlm"), warning: false };
+      if (view.auth === "none") return { text: t("toolbar.lock.tlsOnly"), warning: true };
+      return null;
+    }
+    return { text: t("toolbar.lock.encrypted"), warning: false };
+  });
+  const toolbarModel: SessionToolbarModel = {
+    get target() {
+      return target;
+    },
+    get resolution() {
+      return view.remote.w > 0 ? `${view.remote.w}×${view.remote.h}` : null;
+    },
+    get security() {
+      return security;
+    },
+    connection: null,
+    ctrlAltDel: {
+      get enabled() {
+        return view.phase === "live";
+      },
+      send: () => controller?.input.ctrlAltDel(),
+    },
+    web: null,
+    focus: () => canvas?.focus(),
+  };
+  onMount(() => session.publishToolbar(toolbarModel));
 
   onMount(() => {
     if (!canvas || !area) return;

@@ -1,4 +1,5 @@
-<!-- Web session: a slim toolbar above a placeholder element. In the real app the page itself is a
+<!-- Web session: a placeholder element (the address bar and page controls are in the session
+     toolbar, which this view feeds through `publishToolbar`). In the real app the page itself is a
      child webview of the main window, owned by the backend, that sits exactly over the
      placeholder: this component only keeps the two aligned (`web/sync.ts`) and sends the
      toolbar's commands. The child webview is native and always drawn ABOVE the HTML, so it is
@@ -16,12 +17,7 @@
   import { ipcMode, toIpcError, type Bounds, type SessionId } from "../ipc";
   import { getApp } from "../state/app";
   import { getSessionContext } from "../tabs/session";
-  import type { IconName } from "../design/icons/registry";
-  import IconButton from "../ui/IconButton.svelte";
-  import Spinner from "../ui/Spinner.svelte";
-  import TextField from "../ui/TextField.svelte";
-  import Toolbar from "../ui/Toolbar.svelte";
-  import Tooltip from "../ui/Tooltip.svelte";
+  import type { SessionToolbarModel, WebAddressFields } from "../tabs/toolbar.svelte";
   import SessionState from "./SessionState.svelte";
   import { BoundsSync } from "./web/sync";
   import { noUrlEvents, tauriUrlEvents, type UrlSubscribe } from "./web/urlEvents";
@@ -51,11 +47,14 @@
 
   let page: HTMLDivElement | undefined = $state();
   let sync: BoundsSync | undefined = $state.raw();
+  // The address bar lives in the session toolbar; these fields are shared with it.
   // svelte-ignore state_referenced_locally
-  let address = $state(initialAddress());
-  let editing = $state(false);
-  let error = $state<string | null>(null);
-  let loading = $state(false);
+  const fields: WebAddressFields = $state({
+    address: initialAddress(),
+    error: null,
+    loading: false,
+    editing: false,
+  });
 
   function initialAddress(): string {
     const node = app.doc.node(session.connectionId);
@@ -103,8 +102,8 @@
 
     const unsubscribe = urlEvents((change) => {
       if (change.sessionId !== id) return;
-      loading = change.phase === "started";
-      if (!editing) address = change.url;
+      fields.loading = change.phase === "started";
+      if (!fields.editing) fields.address = change.url;
     });
 
     return () => {
@@ -126,66 +125,41 @@
     try {
       await ipc.webNavigate(id, action);
     } catch (e) {
-      error = t("web.navigateFailed", { message: toIpcError(e).message });
+      fields.error = t("web.navigateFailed", { message: toIpcError(e).message });
     }
   }
 
   function submit(): void {
-    const result = normalizeUrl(address);
+    const result = normalizeUrl(fields.address);
     if (!result.ok) {
-      error = t("web.invalidUrl");
+      fields.error = t("web.invalidUrl");
       return;
     }
-    error = null;
-    address = result.url;
+    fields.error = null;
+    fields.address = result.url;
     void navigate({ type: "url", url: result.url });
   }
 
-  function onkeydown(event: KeyboardEvent): void {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      submit();
-    }
-  }
+  const toolbarModel: SessionToolbarModel = {
+    target: null,
+    resolution: null,
+    security: null,
+    connection: null,
+    ctrlAltDel: null,
+    web: {
+      fields,
+      back: () => void navigate({ type: "back" }),
+      forward: () => void navigate({ type: "forward" }),
+      reload: () => void navigate({ type: "reload" }),
+      submit,
+    },
+    // The page is a native view: it takes the keyboard when clicked, nothing to give back.
+    focus: () => undefined,
+  };
+  onMount(() => session.publishToolbar(toolbarModel));
 </script>
 
-{#snippet control(icon: IconName, label: string, action: () => void)}
-  <!-- The page is directly below: the tooltip goes above, or the web view would cover it. -->
-  <Tooltip text={label} placement="top">
-    {#snippet children()}
-      <IconButton {icon} {label} size="compact" tooltip="" onclick={action} />
-    {/snippet}
-  </Tooltip>
-{/snippet}
-
 <div class="view" data-session={id}>
-  <Toolbar label={t("web.toolbar")} bordered>
-    {#snippet start()}
-      {@render control("arrow-left", t("web.back"), () => void navigate({ type: "back" }))}
-      {@render control("arrow-right", t("web.forward"), () => void navigate({ type: "forward" }))}
-      {@render control("refresh", t("web.reload"), () => void navigate({ type: "reload" }))}
-    {/snippet}
-    <div class="address">
-      <TextField
-        bind:value={address}
-      size="compact"
-      monospace
-      type="text"
-      inputmode="url"
-      spellcheck={false}
-      autocomplete="off"
-      aria-label={t("web.address")}
-      error={error}
-      {onkeydown}
-      oninput={() => (error = null)}
-      onfocus={() => (editing = true)}
-      onblur={() => (editing = false)}
-      />
-    </div>
-    {#snippet end()}
-      {#if loading}<Spinner size={14} label={t("web.loading")} />{/if}
-    {/snippet}
-  </Toolbar>
   <div class="page" bind:this={page} data-testid="web-page">
     {#if standIn}
       <SessionState icon="globe" title={t("web.standInTitle")} text={t("web.standInText")} />
@@ -201,11 +175,6 @@
     width: 100%;
     height: 100%;
     background: var(--surface-content);
-  }
-
-  .address {
-    flex: 1;
-    min-width: 0;
   }
 
   .page {

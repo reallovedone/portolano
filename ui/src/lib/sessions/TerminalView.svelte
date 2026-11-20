@@ -12,6 +12,7 @@
   import { detectMac } from "../shortcuts";
   import { getApp } from "../state/app";
   import { getSessionContext } from "../tabs/session";
+  import type { SessionToolbarModel } from "../tabs/toolbar.svelte";
   import Button from "../ui/Button.svelte";
   import Icon from "../ui/Icon.svelte";
   import Banner from "../ui/Banner.svelte";
@@ -61,6 +62,32 @@
   });
   const isSsh = $derived(ctx.kind === "ssh");
   const target = $derived(targetLabel(connection));
+  // What the session toolbar shows: the host (SSH) or the program (local shell), and for SSH
+  // whether the session is up. No user name, no vault data.
+  const toolbarTarget = $derived.by(() => {
+    if (isSsh) return target;
+    const options = connection?.options;
+    if (options?.type !== "localShell") return null;
+    const program = options.program?.split(/[\\/]/).pop();
+    return program ? program : t("toolbar.defaultShell");
+  });
+  const toolbarModel: SessionToolbarModel = {
+    get target() {
+      return toolbarTarget;
+    },
+    resolution: null,
+    security: null,
+    get connection() {
+      if (!isSsh) return null;
+      if (ts.phase === "running") return "connected";
+      if (["exited", "mismatch", "cancelled", "failed"].includes(ts.phase)) return "disconnected";
+      return null;
+    },
+    ctrlAltDel: null,
+    web: null,
+    focus: () => term?.focus(),
+  };
+  onMount(() => ctx.publishToolbar(toolbarModel));
   const mismatch = $derived(ts.error ? parseMismatch(ts.error.message) : null);
 
   async function copy(text: string): Promise<void> {
@@ -96,8 +123,11 @@
     }
   }
 
+  /** The shell hears the new size this long after the last change of the container. */
+  const SIZE_SETTLE_MS = 120;
+
   /** Refits to the container and tells the backend. No-op while the pane has no size. */
-  function refit(): void {
+  function refit(immediate = false): void {
     if (!term || !fit || !container) return;
     if (container.clientWidth === 0 || container.clientHeight === 0) return;
     try {
@@ -107,9 +137,18 @@
       void app.ipc.uiLog("warn", `terminal fit failed: ${e instanceof Error ? e.message : String(e)}`);
       return;
     }
-    controller?.resize(term.cols, term.rows);
+    // The terminal is refitted on every frame of a resize, but the shell is told the final size
+    // only (a slide of the session toolbar would otherwise resize the pty on each frame).
+    clearTimeout(sizeTimer);
+    if (immediate) sendSize();
+    else sizeTimer = setTimeout(sendSize, SIZE_SETTLE_MS);
   }
 
+  function sendSize(): void {
+    if (term) controller?.resize(term.cols, term.rows);
+  }
+
+  let sizeTimer: ReturnType<typeof setTimeout> | undefined;
   let fitFrame = 0;
   function scheduleFit(): void {
     if (fitFrame !== 0) cancelAnimationFrame(fitFrame);
@@ -151,7 +190,10 @@
 
     terminal.onData((data) => controller?.input(data));
     terminal.onBinary((data) => controller?.inputBinary(data));
-    terminal.onResize(({ cols, rows }) => controller?.resize(cols, rows));
+    terminal.onResize(() => {
+      clearTimeout(sizeTimer);
+      sizeTimer = setTimeout(sendSize, SIZE_SETTLE_MS);
+    });
     terminal.attachCustomKeyEventHandler((e) => {
       const action = clipboardAction(e, isMac, terminal.hasSelection());
       if (action === null) return true;
@@ -168,7 +210,7 @@
     });
     const observer = new ResizeObserver(() => scheduleFit());
     observer.observe(container);
-    refit();
+    refit(true);
     ready = true;
 
     return () => {
@@ -176,6 +218,7 @@
       observer.disconnect();
       stopTheme();
       if (fitFrame !== 0) cancelAnimationFrame(fitFrame);
+      clearTimeout(sizeTimer);
       unsubscribe();
       controller?.dispose();
       controller = null;

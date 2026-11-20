@@ -213,6 +213,17 @@ export class InputController {
     this.#push({ kind: "key", code, down: false });
   }
 
+  /**
+   * Sends Ctrl+Alt+Del: Ctrl, Alt and Delete down, then up in reverse order, through the same
+   * ordered queue as typed keys. It does not depend on keyboard focus or on the Mac shortcuts
+   * (those only translate real key events).
+   */
+  ctrlAltDel(): void {
+    const chord = ["ControlLeft", "AltLeft", "Delete"];
+    for (const code of chord) this.#push({ kind: "key", code, down: true });
+    for (const code of [...chord].reverse()) this.#push({ kind: "key", code, down: false });
+  }
+
   /** Releases every key and mouse button held remotely (blur, tab switch, escape chord). */
   releaseAll(): void {
     for (const code of [...this.#pressed]) this.#release(code);

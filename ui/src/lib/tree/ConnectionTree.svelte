@@ -282,10 +282,16 @@
         icon: "upload",
       },
       {
+        // Shown with a check while the toolbar is visible; choosing it flips the setting.
+        label: t("toolbar.show"),
+        action: () => app.toolbar.toggle(),
+        icon: app.toolbar.visible ? "check" : undefined,
+        separatorBefore: true,
+      },
+      {
         label: t("update.menu"),
         action: () => ui.open({ type: "updates" }),
         icon: "refresh",
-        separatorBefore: true,
       },
     ];
   }

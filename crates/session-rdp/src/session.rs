@@ -47,7 +47,7 @@ use ironrdp_session::{ActiveStage, ActiveStageBuilder, ActiveStageOutput};
 use ironrdp_svc::{SvcMessage, SvcProcessorMessages};
 use ironrdp_tokio::reqwest::ReqwestNetworkClient;
 use ironrdp_tokio::{single_sequence_step, FramedWrite as _, TokioFramed};
-use portolano_core_model::fb::FbEvent;
+use portolano_core_model::fb::{FbEvent, SecurityAuth};
 use portolano_core_model::prompt::{
     CredentialAnswer, CredentialPrompt, PromptHooks, PromptKind, PromptReply, PromptSlot,
     SavedCredential, SavedSecret,
@@ -591,6 +591,30 @@ struct Established {
     framed: Framed,
     result: ironrdp_connector::ConnectionResult,
     clipboard: Option<ClipboardLink>,
+    /// How the login that just succeeded was authenticated (reported once, see `run_inner`).
+    auth: SecurityAuth,
+}
+
+/// How a successful login was authenticated.
+///
+/// `nla_used`: the server selected CredSSP (NLA); otherwise the connection is TLS only, which
+/// is only possible when the connection allows it (`allow_without_nla`) or has no credential.
+/// `kerberos_offered`: the Kerberos configuration was handed to the sign-in (Negotiate), i.e.
+/// the connection qualifies for Kerberos (`kerberos::applies`) and this was not the NTLM-only
+/// retry made after an unreachable KDC.
+///
+/// `Negotiate` means NLA through Negotiate with Kerberos offered: the final mechanism may be
+/// Kerberos or NTLM, because sspi can fall back to NTLM inside Negotiate (clock skew, no KDC
+/// found, the server choosing NTLM) and the login still succeeds. IronRDP 0.12 does not expose
+/// the final package (`CredSspClient.context` is private), so it is not claimed. `Ntlm` is exact:
+/// Kerberos does not apply to the connection (IP host, no known realm, ...) or this is the
+/// NTLM-only retry. `None` is exact too.
+fn login_auth(nla_used: bool, kerberos_offered: bool) -> SecurityAuth {
+    match (nla_used, kerberos_offered) {
+        (false, _) => SecurityAuth::None,
+        (true, true) => SecurityAuth::Negotiate,
+        (true, false) => SecurityAuth::Ntlm,
+    }
 }
 
 async fn establish(
@@ -711,6 +735,8 @@ async fn establish_once(
         .ok_or_else(|| RdpError::Io("the server certificate has no public key".into()))?;
     let upgraded = ironrdp_tokio::mark_as_upgraded(should_upgrade, &mut connector);
     let mut framed = TokioFramed::new(tls);
+    // Read before the connector is consumed: the server picks NLA or TLS-only during negotiation.
+    let auth = login_auth(connector.should_perform_credssp(), kerberos.is_some());
     let mut network_client =
         TimeoutNetworkClient::new(ReqwestNetworkClient::new(), kerberos::KDC_REQUEST_TIMEOUT);
     let outcome = cancellable(
@@ -737,6 +763,7 @@ async fn establish_once(
         framed,
         result,
         clipboard,
+        auth,
     }))
 }
 
@@ -941,6 +968,7 @@ async fn run_inner(
         framed,
         result,
         clipboard,
+        auth,
     } = established;
     let (clip_tx, mut clip_rx) = match clipboard {
         Some(link) => (Some(link.tx), Some(link.rx)),
@@ -955,6 +983,14 @@ async fn run_inner(
         }
     }
 
+    // Once per connection, with the first Resize so the UI has it when the desktop appears. A
+    // reactivation (DeactivateAll) goes through `Active::reactivate`, which does not repeat it.
+    if !sink(FbEvent::Security {
+        encrypted: true,
+        auth: Some(auth),
+    }) {
+        return Ok(End::Local);
+    }
     let (w, h) = (result.desktop_size.width, result.desktop_size.height);
     if !sink(FbEvent::Resize { w, h }) {
         return Ok(End::Local);
@@ -1588,6 +1624,17 @@ mod tests {
     use portolano_core_model::ErrorCode;
 
     use super::*;
+
+    #[test]
+    fn the_login_reports_how_it_was_authenticated() {
+        // NLA with Kerberos offered (`kerberos::config_for` returned a config): Negotiate.
+        assert_eq!(login_auth(true, true), SecurityAuth::Negotiate);
+        // NLA after the NTLM-only retry, or Kerberos does not apply (`config_for` gave None).
+        assert_eq!(login_auth(true, false), SecurityAuth::Ntlm);
+        // TLS only (allow_without_nla): no NLA, whatever Kerberos config there was.
+        assert_eq!(login_auth(false, false), SecurityAuth::None);
+        assert_eq!(login_auth(false, true), SecurityAuth::None);
+    }
 
     #[test]
     fn sizes_are_clamped_and_even() {
