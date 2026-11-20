@@ -2,7 +2,7 @@
 // the `fb_*` commands. It knows nothing about RDP or VNC. The Svelte view owns the DOM and
 // forwards DOM events; this class holds everything testable without a DOM.
 
-import type { AppError, CredentialAnswer, CredentialPrompt, FbEvent } from "../../ipc";
+import type { AppError, CredentialAnswer, CredentialPrompt, FbEvent, SecurityAuth } from "../../ipc";
 import {
   CLIPBOARD_IDLE,
   dismissNotice,
@@ -52,6 +52,8 @@ export type Transport = "unknown" | "encrypted" | "clear";
 export interface FbViewState {
   phase: Phase;
   transport: Transport;
+  /** How an RDP login was authenticated, when the backend said so (never sent by VNC). */
+  auth: SecurityAuth | null;
   remote: Size;
   cert: CertPrompt | null;
   /** The server offers no encryption and wants a password: the user decides before anything is
@@ -97,6 +99,7 @@ export class FbController {
   #state: FbViewState = {
     phase: "connecting",
     transport: "unknown",
+    auth: null,
     remote: { w: 0, h: 0 },
     cert: null,
     unencryptedPrompt: false,
@@ -175,7 +178,7 @@ export class FbController {
         break;
       }
       case "security":
-        this.#patch({ transport: event.encrypted ? "encrypted" : "clear" });
+        this.#patch({ transport: event.encrypted ? "encrypted" : "clear", auth: event.auth ?? null });
         break;
       case "clipboard":
         this.#patch({ clipboard: reduceClipboard(this.#state.clipboard, event.event) });

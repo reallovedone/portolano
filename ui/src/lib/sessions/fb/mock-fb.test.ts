@@ -32,7 +32,7 @@ describe("mock framebuffer", () => {
     const { ipc, id, events } = await open();
     await vi.waitFor(() => expect(events[0]?.type).toBe("certPrompt"));
     await ipc.fbCertDecision(id, true);
-    expect(events.map((e) => e.type)).toEqual(["certPrompt", "resize", "rect", "cursor"]);
+    expect(events.map((e) => e.type)).toEqual(["certPrompt", "security", "resize", "rect", "cursor"]);
     const first = rects(events)[0];
     expect(first).toMatchObject({ x: 0, y: 0, w: 800, h: 600 });
     expect(first?.rgba.length).toBe(800 * 600 * 4);
@@ -41,7 +41,22 @@ describe("mock framebuffer", () => {
     // The same host is trusted for the next session.
     const again: FbEvent[] = [];
     await ipc.fbOpen(MOCK_IDS.rdpServer, 400, 300, (e) => again.push(e));
-    await vi.waitFor(() => expect(again.map((e) => e.type)).toEqual(["resize", "rect", "cursor"]));
+    await vi.waitFor(() => expect(again.map((e) => e.type)).toEqual(["security", "resize", "rect", "cursor"]));
+  });
+
+  it("reports the RDP protection once, before the first resize, with only encrypted and auth", async () => {
+    const { ipc, id, events } = await open();
+    await vi.waitFor(() => expect(events[0]?.type).toBe("certPrompt"));
+    await ipc.fbCertDecision(id, true);
+    const security = events.filter((e) => e.type === "security");
+    expect(security).toEqual([{ type: "security", encrypted: true, auth: "negotiate" }]);
+    expect(Object.keys(security[0] ?? {}).sort()).toEqual(["auth", "encrypted", "type"]);
+    expect(events.findIndex((e) => e.type === "security")).toBeLessThan(
+      events.findIndex((e) => e.type === "resize"),
+    );
+    // A resize of the session does not report it again.
+    await ipc.fbResize(id, 100, 80);
+    expect(events.filter((e) => e.type === "security")).toHaveLength(1);
   });
 
   it("closes the session when the certificate is declined", async () => {

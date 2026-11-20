@@ -23,6 +23,7 @@ import type {
   Connection,
 } from "../ipc";
 import type { ConnectionKind } from "../tree/model";
+import type { SessionToolbarModel } from "./toolbar.svelte";
 
 export type SessionEvent = TermEvent | FbEvent;
 
@@ -82,6 +83,11 @@ export interface SessionContext {
   readonly shouldShow: boolean;
   fail(error: AppError): void;
   retry(): void;
+  /**
+   * Hands the session toolbar what this view knows (target, resolution, protection, extra
+   * actions). Returns the function that withdraws it; call it when the view goes away.
+   */
+  publishToolbar(model: SessionToolbarModel): () => void;
 }
 
 const SESSION_KEY = Symbol("portolano.session");

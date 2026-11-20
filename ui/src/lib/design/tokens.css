@@ -193,6 +193,8 @@
   --switch-thumb: 16px;
   --splitter-hit: 6px;
   --scrollbar-size: 10px;
+  --toolbar-tab-width: 44px;
+  --toolbar-tab-height: 14px;
   --menu-min-width: 200px;
   --toast-width: 380px;
   --tooltip-max-width: 240px;

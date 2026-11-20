@@ -12,6 +12,7 @@
   import HomeView from "./HomeView.svelte";
   import type { Tab } from "./model";
   import SessionSlot from "./SessionSlot.svelte";
+  import SessionToolbar from "./SessionToolbar.svelte";
 
   let { tab }: { tab: Tab } = $props();
 
@@ -32,56 +33,61 @@
 >
   {#if tab.type === "home"}
     <HomeView testid="home" />
-  {:else if tab.status === "opening"}
-    <div class="state" role="status">
-      <ChartBackdrop />
-      <div class="state-body">
-        <EmptyState title={t("tabs.opening")}>
-          {#snippet graphic()}<Spinner size={20} />{/snippet}
-        </EmptyState>
-      </div>
+  {:else}
+    <SessionToolbar {tab} />
+    <div class="body">
+      {#if tab.status === "opening"}
+        <div class="state" role="status">
+          <ChartBackdrop />
+          <div class="state-body">
+            <EmptyState title={t("tabs.opening")}>
+              {#snippet graphic()}<Spinner size={20} />{/snippet}
+            </EmptyState>
+          </div>
+        </div>
+      {:else if tab.status === "failed"}
+        <div class="state failure" role="alert">
+          <ChartBackdrop />
+          <div class="state-body">
+            <EmptyState
+              icon="unplug"
+              title={t("tabs.failedTitle")}
+              text={tab.error?.code === "unsupported" ? t("tabs.unsupported") : undefined}
+            >
+              {#snippet action()}
+                <div class="detail">
+                  <Banner variant="danger" role="note">{tab.error?.message}</Banner>
+                  <p class="code">{t("tabs.errorCode", { code: tab.error?.code ?? "" })}</p>
+                  <div class="buttons">
+                    {#if locked}
+                      <Button variant="primary" onclick={() => tabs.unlockAndRetry(tab.id)}>
+                        {#snippet icon()}<Icon name="lock-open" />{/snippet}
+                        {t("tabs.unlockAndRetry")}
+                      </Button>
+                      <Button onclick={() => tabs.enterManuallyAndRetry(tab.id)}>
+                        {#snippet icon()}<Icon name="key" />{/snippet}
+                        {t("tabs.enterManually")}
+                      </Button>
+                    {/if}
+                    <Button variant={locked ? "secondary" : "primary"} onclick={() => tabs.retry(tab.id)}>
+                      {#snippet icon()}<Icon name="refresh" />{/snippet}
+                      {t("tabs.retry")}
+                    </Button>
+                    <Button variant="plain" onclick={() => tabs.close(tab.id)}>
+                      {t("tabs.close")}
+                    </Button>
+                  </div>
+                </div>
+              {/snippet}
+            </EmptyState>
+          </div>
+        </div>
+      {:else if tab.sessionId}
+        {#key tab.sessionId}
+          <SessionSlot {tab} sessionId={tab.sessionId} />
+        {/key}
+      {/if}
     </div>
-  {:else if tab.status === "failed"}
-    <div class="state failure" role="alert">
-      <ChartBackdrop />
-      <div class="state-body">
-        <EmptyState
-          icon="unplug"
-          title={t("tabs.failedTitle")}
-          text={tab.error?.code === "unsupported" ? t("tabs.unsupported") : undefined}
-        >
-          {#snippet action()}
-            <div class="detail">
-              <Banner variant="danger" role="note">{tab.error?.message}</Banner>
-              <p class="code">{t("tabs.errorCode", { code: tab.error?.code ?? "" })}</p>
-              <div class="buttons">
-                {#if locked}
-                  <Button variant="primary" onclick={() => tabs.unlockAndRetry(tab.id)}>
-                    {#snippet icon()}<Icon name="lock-open" />{/snippet}
-                    {t("tabs.unlockAndRetry")}
-                  </Button>
-                  <Button onclick={() => tabs.enterManuallyAndRetry(tab.id)}>
-                    {#snippet icon()}<Icon name="key" />{/snippet}
-                    {t("tabs.enterManually")}
-                  </Button>
-                {/if}
-                <Button variant={locked ? "secondary" : "primary"} onclick={() => tabs.retry(tab.id)}>
-                  {#snippet icon()}<Icon name="refresh" />{/snippet}
-                  {t("tabs.retry")}
-                </Button>
-                <Button variant="plain" onclick={() => tabs.close(tab.id)}>
-                  {t("tabs.close")}
-                </Button>
-              </div>
-            </div>
-          {/snippet}
-        </EmptyState>
-      </div>
-    </div>
-  {:else if tab.sessionId}
-    {#key tab.sessionId}
-      <SessionSlot {tab} sessionId={tab.sessionId} />
-    {/key}
   {/if}
 </div>
 
@@ -89,11 +95,21 @@
   .pane {
     position: absolute;
     inset: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  /* Below the session toolbar: the session fills what is left. */
+  .body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
     overflow: auto;
   }
 
   /* A terminal fills the pane edge to edge with its own surface, padding included. */
-  .pane.terminal {
+  .pane.terminal .body {
     background: var(--terminal-bg);
   }
 

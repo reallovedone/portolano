@@ -54,8 +54,8 @@ function recordingIpc(): { ipc: Ipc; calls: Calls } {
 }
 
 async function mount(ipc: Ipc, options: { standIn?: boolean; urlEvents?: UrlSubscribe } = {}) {
-  const session = createTestSession("web-sess");
   const app = createApp(ipc);
+  const session = createTestSession("web-sess", { app });
   // The shell loads the document before any tab opens.
   await app.doc.load();
   // Not spread: `visible` and `overlayOpen` are reactive getters.

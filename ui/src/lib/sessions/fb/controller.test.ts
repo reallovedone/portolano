@@ -57,6 +57,15 @@ describe("events", () => {
     expect(controller.state).toMatchObject({ phase: "live", transport: "encrypted" });
   });
 
+  it("remembers how an RDP login was authenticated; VNC never says", () => {
+    const { controller } = setup();
+    expect(controller.state.auth).toBeNull();
+    controller.handleEvent({ type: "security", encrypted: true, auth: "ntlm" });
+    expect(controller.state.auth).toBe("ntlm");
+    controller.handleEvent({ type: "security", encrypted: true });
+    expect(controller.state.auth).toBeNull();
+  });
+
   it("resizes the canvas, goes live and draws rectangles per frame", () => {
     const { controller, clock, drawn, sizes } = setup();
     expect(controller.state.phase).toBe("connecting");

@@ -154,8 +154,13 @@ export function decodeFbEvent(frame: Uint8Array): FbEvent {
       return { type: "error", error: parseJson<AppError>(body) };
     case 6:
       return { type: "credentialPrompt", ...parseCredentialPrompt(body) };
-    case 7:
-      return { type: "security", encrypted: parseJson<{ encrypted: boolean }>(body).encrypted === true };
+    case 7: {
+      const json = parseJson<{ encrypted?: boolean; auth?: unknown }>(body);
+      const auth = json.auth === "negotiate" || json.auth === "ntlm" || json.auth === "none" ? json.auth : undefined;
+      return auth === undefined
+        ? { type: "security", encrypted: json.encrypted === true }
+        : { type: "security", encrypted: json.encrypted === true, auth };
+    }
     case 8:
       return { type: "unencryptedPrompt" };
     case 9:

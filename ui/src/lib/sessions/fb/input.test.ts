@@ -460,3 +460,30 @@ describe("Mac shortcuts", () => {
     }
   });
 });
+
+describe("Ctrl+Alt+Del", () => {
+  const SEQUENCE = ["ControlLeft+", "AltLeft+", "Delete+", "Delete-", "AltLeft-", "ControlLeft-"];
+
+  it("presses Ctrl, Alt, Delete and releases them in reverse order", async () => {
+    const { input, calls } = setup();
+    input.ctrlAltDel();
+    await flushPromises();
+    expect(keys(calls)).toEqual(SEQUENCE);
+    expect(input.pressedKeys).toEqual([]);
+  });
+
+  it("sends the same sequence with the Mac shortcuts on", async () => {
+    const { input, calls } = setup({ mac: true });
+    input.ctrlAltDel();
+    await flushPromises();
+    expect(keys(calls)).toEqual(SEQUENCE);
+  });
+
+  it("stays in order behind keys already queued, on a slow backend", async () => {
+    const { input, calls } = setup({ delayMs: 5 });
+    input.keyDown(fakeKey("KeyA"));
+    input.ctrlAltDel();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(keys(calls)).toEqual(["KeyA+", ...SEQUENCE]);
+  });
+});

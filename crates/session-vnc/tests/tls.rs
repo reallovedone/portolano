@@ -314,10 +314,13 @@ async fn first_contact_prompts_and_sends_no_credential_before_the_decision() {
     let security = events.position(is_security).expect("security");
     let resize = events.position(is_resize).expect("resize");
     assert!(cert < security && security < resize);
-    assert!(events
-        .all()
-        .iter()
-        .any(|e| matches!(e, FbEvent::Security { encrypted: true })));
+    assert!(events.all().iter().any(|e| matches!(
+        e,
+        FbEvent::Security {
+            encrypted: true,
+            ..
+        }
+    )));
     assert_eq!(events.count(is_cert), 1);
 
     // The store pins exactly what was shown.
@@ -357,10 +360,13 @@ async fn the_second_connection_is_silent_and_a_tampered_pin_is_a_change() {
         .wait("the first Rect", |e| e.iter().any(is_rect))
         .await;
     assert_eq!(events.count(is_cert), 0, "{:?}", summary(&events.all()));
-    assert!(events
-        .all()
-        .iter()
-        .any(|e| matches!(e, FbEvent::Security { encrypted: true })));
+    assert!(events.all().iter().any(|e| matches!(
+        e,
+        FbEvent::Security {
+            encrypted: true,
+            ..
+        }
+    )));
     finish(session).await;
 
     // A different pinned fingerprint: the attempt ends with the changed-certificate report
@@ -559,10 +565,13 @@ async fn plain_vnc_still_works_and_reports_it_is_not_encrypted() {
         .wait("the first Rect", |e| e.iter().any(is_rect))
         .await;
     assert_eq!(events.count(is_cert), 0);
-    assert!(events
-        .all()
-        .iter()
-        .any(|e| matches!(e, FbEvent::Security { encrypted: false })));
+    assert!(events.all().iter().any(|e| matches!(
+        e,
+        FbEvent::Security {
+            encrypted: false,
+            ..
+        }
+    )));
     assert!(!CertStore::in_data_dir(&dir).path().exists());
     finish(session).await;
 }
@@ -635,10 +644,13 @@ async fn plain_vnc_asks_before_the_password_exchange_and_remembers_the_answer() 
         .wait("the first Rect", |e| e.iter().any(is_rect))
         .await;
     assert!(relay.sent() > waiting);
-    assert!(events
-        .all()
-        .iter()
-        .any(|e| matches!(e, FbEvent::Security { encrypted: false })));
+    assert!(events.all().iter().any(|e| matches!(
+        e,
+        FbEvent::Security {
+            encrypted: false,
+            ..
+        }
+    )));
     finish(session).await;
     assert!(PlainStore::in_data_dir(&dir)
         .allowed(HOST, relay.port)

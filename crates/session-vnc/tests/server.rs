@@ -122,7 +122,7 @@ fn summary(events: &[FbEvent]) -> Vec<String> {
             FbEvent::Closed { reason } => format!("closed {reason}"),
             FbEvent::Error(e) => format!("error {}: {}", e.code.as_str(), e.message),
             FbEvent::CredentialPrompt(p) => format!("prompt {:?} err={:?}", p.kind, p.error),
-            FbEvent::Security { encrypted } => format!("security encrypted={encrypted}"),
+            FbEvent::Security { encrypted, .. } => format!("security encrypted={encrypted}"),
             FbEvent::UnencryptedPrompt => "unencrypted prompt".into(),
             FbEvent::Clipboard(_) => "clipboard".into(),
         })
@@ -268,7 +268,13 @@ async fn connects_authenticates_and_the_backend_image_is_the_desktop() {
     // The security report (plain VNC: not encrypted) comes first, then the size of the
     // desktop, before any pixel.
     let all = events.all();
-    assert_eq!(all.first(), Some(&FbEvent::Security { encrypted: false }));
+    assert_eq!(
+        all.first(),
+        Some(&FbEvent::Security {
+            encrypted: false,
+            auth: None
+        })
+    );
     assert_eq!(all.get(1), Some(&FbEvent::Resize { w: 1280, h: 800 }));
     // Give the xterm a moment to appear, then look at the backend image.
     tokio::time::sleep(Duration::from_millis(1500)).await;

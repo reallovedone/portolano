@@ -204,7 +204,7 @@ describe("mock framebuffer: credential prompt", () => {
     await ipc.sessionCredential(id, answer(), false);
     expect(events.map((e) => e.type)).toEqual(["credentialPrompt", "certPrompt"]);
     await ipc.fbCertDecision(id, true);
-    expect(events.map((e) => e.type).slice(2)).toEqual(["resize", "rect", "cursor"]);
+    expect(events.map((e) => e.type).slice(2)).toEqual(["security", "resize", "rect", "cursor"]);
     await FB_TICK();
   });
 

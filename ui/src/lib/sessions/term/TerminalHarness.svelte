@@ -57,6 +57,7 @@
     get shouldShow() {
       return visible && !overlayOpen;
     },
+    publishToolbar: (model) => app.toolbar.publish("tab-1", model),
     fail: (error) => hooks.onFail(error),
     retry: () => hooks.onRetry(),
   });

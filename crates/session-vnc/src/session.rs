@@ -893,6 +893,7 @@ async fn run_inner(
     );
     if !sink(FbEvent::Security {
         encrypted: established.encrypted,
+        auth: None,
     }) {
         return Ok(());
     }

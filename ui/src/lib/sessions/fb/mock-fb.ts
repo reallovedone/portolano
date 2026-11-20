@@ -85,8 +85,8 @@ interface Session {
   certificate: boolean;
   /** The certificate is shown before the credentials are asked (VNC over TLS). */
   certFirst: boolean;
-  /** VNC reports whether it is encrypted; RDP does not report anything. */
-  security: boolean | null;
+  /** The `security` event this session reports once connected (`null`: none). */
+  security: Extract<FbEvent, { type: "security" }> | null;
   /** Plain VNC: the user must agree to an unencrypted password exchange (once per host). */
   plain: boolean;
   /** The session ended with the changed-certificate report: nothing to do but reconnect. */
@@ -177,7 +177,10 @@ export class MockFramebuffer {
       closed: false,
       certificate: transport !== "vnc",
       certFirst: transport === "vnc-tls",
-      security: transport === "rdp" ? null : transport === "vnc-tls",
+      security:
+        transport === "rdp"
+          ? { type: "security", encrypted: true, auth: "negotiate" }
+          : { type: "security", encrypted: transport === "vnc-tls" },
       plain: transport === "vnc",
       ended: false,
       keysDrawn: 0,
@@ -269,7 +272,7 @@ export class MockFramebuffer {
 
   #connect(s: Session): void {
     s.connected = true;
-    if (s.security !== null) s.onEvent({ type: "security", encrypted: s.security });
+    if (s.security !== null) s.onEvent(s.security);
     s.onEvent({ type: "resize", w: s.w, h: s.h });
     this.#sendRect(s, 0, 0, s.w, s.h);
     s.onEvent(crosshair());

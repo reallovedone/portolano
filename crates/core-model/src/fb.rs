@@ -16,7 +16,7 @@
 //! | 4   | `Closed`     | UTF-8 JSON `{"reason"}` |
 //! | 5   | `Error`      | UTF-8 JSON `AppError` |
 //! | 6   | `CredentialPrompt` | UTF-8 JSON `{"kind","usernameHint","domainHint","target","error","canSaveToVault"}` |
-//! | 7   | `Security`   | UTF-8 JSON `{"encrypted"}` (VNC only: sent once, before the first `Resize`) |
+//! | 7   | `Security`   | UTF-8 JSON `{"encrypted"}` (VNC) or `{"encrypted","auth"}` (RDP, `auth` is `"negotiate"`, `"ntlm"` or `"none"`): sent once, before the first `Resize`. Never carries a user, domain, KDC or host |
 //! | 8   | `UnencryptedPrompt` | UTF-8 JSON `{}` (VNC only: the server offers no encryption and wants a password; nothing was sent yet, the user decides) |
 //! | 9   | `Clipboard`  | UTF-8 JSON [`ClipboardEvent`] (RDP only, and only when the connection shares the clipboard): `{"type":"remoteFiles","count","bytes","skipped"}`, `{"type":"progress","filesDone","filesTotal","bytesDone","bytesTotal"}`, `{"type":"done","files","bytes","skipped"}`, `{"type":"failed","reason"}`. Never carries file names or clipboard contents |
 //!
@@ -129,10 +129,13 @@ pub enum FbEvent {
     Error(AppError),
     /// The connection has no credential (or the last one did not work): ask the user.
     CredentialPrompt(CredentialPrompt),
-    /// Whether the connection is encrypted (VNC: TLS through VeNCrypt, or not). Additive event;
-    /// RDP and sessions that never send it are encrypted or have no such notion.
+    /// Whether the connection is encrypted (VNC: TLS through VeNCrypt, or not; RDP: always) and,
+    /// for RDP, how the login was authenticated. Sent once per connection. Additive event;
+    /// sessions that never send it have no such notion.
     Security {
         encrypted: bool,
+        /// RDP only; `None` (VNC) leaves the field out of the frame.
+        auth: Option<SecurityAuth>,
     },
     /// The VNC server offers no encryption and asks for a password: the user must agree
     /// before anything derived from it is sent. Answered with `fb_unencrypted_decision`.
@@ -140,6 +143,28 @@ pub enum FbEvent {
     UnencryptedPrompt,
     /// Shared-clipboard news (RDP). Additive event.
     Clipboard(ClipboardEvent),
+}
+
+/// How an RDP login was authenticated. Serialized in lowercase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SecurityAuth {
+    /// NLA through Negotiate with Kerberos offered: the final mechanism may be Kerberos or NTLM
+    /// (sspi can fall back to NTLM inside Negotiate; IronRDP 0.12 does not expose the final
+    /// package, `CredSspClient.context` is private).
+    Negotiate,
+    /// NLA with NTLM only.
+    Ntlm,
+    /// No NLA: TLS only (the connection allows it).
+    None,
+}
+
+/// The JSON body of [`FbEvent::Security`]: `encrypted` and, when known, `auth`.
+#[derive(Serialize)]
+struct SecurityBody {
+    encrypted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth: Option<SecurityAuth>,
 }
 
 /// `[tag][JSON]` frame used by every non-binary event of the Terminal and Framebuffer families.
@@ -201,9 +226,13 @@ impl FbEvent {
             }
             Self::Error(err) => json_frame(TAG_ERROR, err),
             Self::CredentialPrompt(prompt) => json_frame(TAG_CREDENTIAL_PROMPT, prompt),
-            Self::Security { encrypted } => {
-                json_frame(TAG_SECURITY, &serde_json::json!({"encrypted": encrypted}))
-            }
+            Self::Security { encrypted, auth } => json_frame(
+                TAG_SECURITY,
+                &SecurityBody {
+                    encrypted: *encrypted,
+                    auth: *auth,
+                },
+            ),
             Self::UnencryptedPrompt => json_frame(TAG_UNENCRYPTED_PROMPT, &serde_json::json!({})),
             Self::Clipboard(event) => json_frame(TAG_CLIPBOARD, event),
         }
@@ -296,11 +325,49 @@ mod tests {
     #[test]
     fn security_frame_layout() {
         // The TypeScript decoder test (ui/src/lib/ipc/frames.test.ts) decodes these same vectors.
-        let frame = FbEvent::Security { encrypted: true }.encode();
+        let frame = FbEvent::Security {
+            encrypted: true,
+            auth: None,
+        }
+        .encode();
         assert_eq!(frame[0], 7);
         assert_eq!(&frame[1..], br#"{"encrypted":true}"#);
-        let frame = FbEvent::Security { encrypted: false }.encode();
+        let frame = FbEvent::Security {
+            encrypted: false,
+            auth: None,
+        }
+        .encode();
         assert_eq!(&frame[1..], br#"{"encrypted":false}"#);
+    }
+
+    #[test]
+    fn rdp_security_frame_carries_only_encrypted_and_auth() {
+        // The TypeScript decoder test decodes these same vectors.
+        for (auth, word) in [
+            (SecurityAuth::Negotiate, "negotiate"),
+            (SecurityAuth::Ntlm, "ntlm"),
+            (SecurityAuth::None, "none"),
+        ] {
+            let frame = FbEvent::Security {
+                encrypted: true,
+                auth: Some(auth),
+            }
+            .encode();
+            assert_eq!(frame[0], 7);
+            assert_eq!(
+                &frame[1..],
+                format!(r#"{{"encrypted":true,"auth":"{word}"}}"#).as_bytes()
+            );
+            let json: serde_json::Value = serde_json::from_slice(&frame[1..]).expect("json");
+            let mut keys: Vec<&str> = json
+                .as_object()
+                .expect("object")
+                .keys()
+                .map(String::as_str)
+                .collect();
+            keys.sort_unstable();
+            assert_eq!(keys, ["auth", "encrypted"]);
+        }
     }
 
     #[test]

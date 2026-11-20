@@ -237,6 +237,9 @@ export interface KnownHostEntry {
 
 // ---- framebuffer family (session-rdp, session-vnc) ----
 
+/** How an RDP login was authenticated (see the `security` event). */
+export type SecurityAuth = "negotiate" | "ntlm" | "none";
+
 export type FbEvent =
   | { type: "resize"; w: number; h: number }
   | { type: "rect"; x: number; y: number; w: number; h: number; rgba: Uint8Array }
@@ -257,8 +260,12 @@ export type FbEvent =
   | { type: "closed"; reason: string }
   | { type: "error"; error: AppError }
   | ({ type: "credentialPrompt" } & CredentialPrompt)
-  /** VNC only, once, before the first `resize`: whether the connection is encrypted (TLS). */
-  | { type: "security"; encrypted: boolean }
+  /**
+   * Once per connection, before the first `resize`: whether the connection is encrypted. RDP also
+   * sends `auth`, how the login was authenticated: `negotiate` = NLA through Negotiate with Kerberos offered (the final mechanism may be Kerberos or NTLM, not observable), `ntlm` = NLA with NTLM only, `none` = TLS without NLA; VNC leaves it out.
+   * Never carries a user, domain, KDC or host.
+   */
+  | { type: "security"; encrypted: boolean; auth?: SecurityAuth }
   /**
    * VNC only: the server offers no encryption and wants a password. Nothing derived from it was
    * sent yet; answer with `fbUnencryptedDecision`.
