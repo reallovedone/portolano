@@ -73,18 +73,18 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    min-height: var(--control-h-regular);
+    min-height: var(--row-h-regular);
     padding: 0 var(--space-2);
-    padding-left: calc(var(--space-2) + var(--depth, 0) * var(--space-4));
+    padding-left: calc(var(--space-2) + var(--depth, 0) * var(--row-indent));
     border-radius: var(--radius-control);
     color: var(--text-primary);
     cursor: default;
   }
   .compact {
-    min-height: var(--control-h-compact);
+    min-height: var(--row-h-compact);
   }
   .comfortable {
-    min-height: calc(var(--control-h-large) + var(--space-1));
+    min-height: var(--row-h-comfortable);
   }
   .row:hover:not(.disabled),
   .force-hover {

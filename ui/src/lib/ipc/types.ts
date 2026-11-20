@@ -334,6 +334,38 @@ export interface ImportPreview {
   warnings: ImportWarning[];
 }
 
+// ---- appearance ----
+
+export const THEME_CHOICES = ["system", "light", "dark"] as const;
+export type ThemeChoice = (typeof THEME_CHOICES)[number];
+export const SCHEME_CHOICES = ["portolano", "nord", "solarized", "rose-pine"] as const;
+export type SchemeChoice = (typeof SCHEME_CHOICES)[number];
+export const ACCENT_CHOICES = ["blue", "teal", "purple", "orange", "graphite"] as const;
+export type AccentChoice = (typeof ACCENT_CHOICES)[number];
+export const DENSITY_CHOICES = ["comfortable", "compact"] as const;
+export type DensityChoice = (typeof DENSITY_CHOICES)[number];
+/** Terminal font size, in px: the range the backend accepts and the size a terminal always had. */
+export const TERMINAL_FONT_SIZE_MIN = 10;
+export const TERMINAL_FONT_SIZE_MAX = 24;
+export const DEFAULT_TERMINAL_FONT_SIZE = 13;
+
+/** The appearance choices (`settings.json`, copied to `localStorage` for the first paint). */
+export interface Appearance {
+  theme: ThemeChoice;
+  scheme: SchemeChoice;
+  accent: AccentChoice;
+  density: DensityChoice;
+  terminalFontSize: number;
+}
+
+export const DEFAULT_APPEARANCE: Appearance = {
+  theme: "system",
+  scheme: "portolano",
+  accent: "blue",
+  density: "comfortable",
+  terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
+};
+
 // ---- updates (WP13a) ----
 
 export interface UpdateSettings {

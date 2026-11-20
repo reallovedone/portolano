@@ -5,7 +5,7 @@
 
 use std::sync::Mutex;
 
-use tauri::menu::{Menu, MenuEvent, MenuItem, MenuItemKind, Submenu};
+use tauri::menu::{Menu, MenuEvent, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Emitter, WindowEvent, Wry};
 
@@ -15,6 +15,13 @@ const CHECK_FOR_UPDATES_ID: &str = "portolano.check-for-updates";
 /// Event (to the main webview, no payload) emitted when the menu item is chosen. The UI opens the
 /// same "Software update" dialog as the sidebar entry.
 pub const CHECK_FOR_UPDATES_EVENT: &str = "menu-check-for-updates";
+
+/// Id of the "Settings…" menu item (⌘,).
+const SETTINGS_ID: &str = "portolano.settings";
+
+/// Event (to the main webview, no payload) emitted when "Settings…" is chosen. The UI opens the
+/// Settings window.
+pub const SETTINGS_EVENT: &str = "menu-settings";
 
 /// Id of the "Close Tab" menu item (⌘W), which replaces the predefined "Close Window".
 const CLOSE_TAB_ID: &str = "portolano.close-tab";
@@ -32,12 +39,16 @@ const CLOSE_WINDOW_TEXT: &str = "Close Window";
 /// Position of the new item in the application menu: right after "About".
 const INSERT_POSITION: usize = 1;
 
+/// Position of "Settings…": after "About", "Check for Updates…" and the separator that follows.
+const SETTINGS_POSITION: usize = 3;
+
 /// The webview event a menu item id stands for, if the id is one of ours. Predefined items
 /// (Quit, Copy, Paste...) have ids of their own and are handled natively, never by us.
 fn event_for_menu_id(id: &str) -> Option<&'static str> {
     match id {
         CHECK_FOR_UPDATES_ID => Some(CHECK_FOR_UPDATES_EVENT),
         CLOSE_TAB_ID => Some(CLOSE_TAB_EVENT),
+        SETTINGS_ID => Some(SETTINGS_EVENT),
         _ => None,
     }
 }
@@ -54,6 +65,9 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<Menu<Wry>> {
             error = %e,
             "could not add \"Check for Updates…\" to the menu; using the default menu"
         ),
+    }
+    if let Err(e) = add_settings(app, &menu) {
+        tracing::warn!(error = %e, "could not add \"Settings…\" to the menu");
     }
     if let Err(e) = replace_close_window(app, &menu) {
         tracing::warn!(error = %e, "could not replace \"Close Window\" with \"Close Tab\"");
@@ -78,6 +92,22 @@ fn add_check_for_updates(app: &AppHandle<Wry>, menu: &Menu<Wry>) -> tauri::Resul
     )?;
     app_menu.insert(&item, INSERT_POSITION)?;
     Ok(true)
+}
+
+/// Adds "Settings…" (⌘,) to the application menu, in the usual macOS place: after the "Check for
+/// Updates…" group, before "Services", with a separator on each side.
+fn add_settings(app: &AppHandle<Wry>, menu: &Menu<Wry>) -> tauri::Result<()> {
+    let Some(app_menu) = menu.items()?.into_iter().find_map(|item| match item {
+        MenuItemKind::Submenu(submenu) => Some(submenu),
+        _ => None,
+    }) else {
+        return Ok(());
+    };
+    let item = MenuItem::with_id(app, SETTINGS_ID, "Settings…", true, Some("CmdOrCtrl+,"))?;
+    // [About, Check for Updates…, separator, <here>, Services, ...]
+    app_menu.insert(&item, SETTINGS_POSITION)?;
+    app_menu.insert(&PredefinedMenuItem::separator(app)?, SETTINGS_POSITION + 1)?;
+    Ok(())
 }
 
 /// Replaces every predefined "Close Window" (the File and Window menus both have one, with ⌘W)
@@ -287,6 +317,7 @@ mod tests {
             Some(CHECK_FOR_UPDATES_EVENT)
         );
         assert_eq!(event_for_menu_id(CLOSE_TAB_ID), Some(CLOSE_TAB_EVENT));
+        assert_eq!(event_for_menu_id(SETTINGS_ID), Some(SETTINGS_EVENT));
         assert_eq!(event_for_menu_id("quit"), None);
         assert_eq!(event_for_menu_id("close_window"), None);
         assert_eq!(event_for_menu_id(""), None);
@@ -297,6 +328,7 @@ mod tests {
         let ui = include_str!("../../ui/src/lib/ipc/tauri.ts");
         assert!(ui.contains(&format!("\"{CHECK_FOR_UPDATES_EVENT}\"")));
         assert!(ui.contains(&format!("\"{CLOSE_TAB_EVENT}\"")));
+        assert!(ui.contains(&format!("\"{SETTINGS_EVENT}\"")));
     }
 
     #[test]

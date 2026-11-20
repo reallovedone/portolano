@@ -121,6 +121,18 @@ describe("watchTheme", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it("fires when the colour scheme or the accent changes", async () => {
+    const onChange = vi.fn();
+    const stop = watchTheme(onChange);
+    document.documentElement.setAttribute("data-scheme", "nord");
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    document.documentElement.setAttribute("data-accent", "teal");
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(2));
+    stop();
+    document.documentElement.removeAttribute("data-scheme");
+    document.documentElement.removeAttribute("data-accent");
+  });
+
   it("fires on a system colour scheme change", () => {
     let listener: (() => void) | null = null;
     const removed = vi.fn();

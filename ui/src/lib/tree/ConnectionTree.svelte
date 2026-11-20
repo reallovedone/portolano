@@ -356,6 +356,12 @@
         action: () => ui.open({ type: "updates" }),
         icon: "refresh",
       },
+      {
+        label: t("settings.menu"),
+        action: () => ui.open({ type: "settings" }),
+        icon: "settings",
+        shortcut: isMac ? "⌘," : undefined,
+      },
     ];
   }
 
@@ -807,7 +813,7 @@
     grid-template-columns: minmax(0, 1fr);
     flex: 1;
     align-content: start;
-    gap: 1px;
+    gap: var(--row-gap);
     min-height: var(--control-h-large);
     padding: 0 var(--space-2) var(--space-2);
     overflow: auto;

@@ -87,6 +87,9 @@ export const tauriIpc: Ipc = {
   vaultSetQuickUnlock: (enabled) => call("vault_set_quick_unlock", { enabled }),
   vaultQuickUnlock: () => call("vault_quick_unlock"),
 
+  appearanceGet: () => call("appearance_get"),
+  appearanceSet: (appearance) => call("appearance_set", { appearance }),
+
   termOpen: (connectionId, cols, rows, onEvent, options) =>
     call("term_open", {
       connectionId,
@@ -156,6 +159,7 @@ export const tauriIpc: Ipc = {
 
   onVaultLocked: (handler) => subscribe<null>("vault-locked", () => handler()),
   onCheckForUpdatesMenu: (handler) => subscribe<null>("menu-check-for-updates", () => handler()),
+  onSettingsMenu: (handler) => subscribe<null>("menu-settings", () => handler()),
   onCloseTabMenu: (handler) => subscribe<null>("menu-close-tab", () => handler()),
   onQuitRequested: (handler) => subscribe<null>("quit-requested", () => handler()),
   onCredentialSaveFailed: (handler) =>

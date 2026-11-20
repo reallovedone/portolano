@@ -61,6 +61,17 @@ export function connectBackendEvents(app: App): () => void {
       }
       ui.open({ type: "updates" });
     }),
+    // macOS menu bar "Settings…" (⌘,): the Settings window.
+    app.ipc.onSettingsMenu(() => {
+      const { ui, notices } = app;
+      if (ui.dialog?.type === "settings") return;
+      // Another dialog may hold unsaved input: do not replace it.
+      if (ui.dialog) {
+        notices.push("info", t("settings.menuBusy"));
+        return;
+      }
+      ui.open({ type: "settings" });
+    }),
     // macOS menu bar "Close Tab" (⌘W): closes the active tab, asking first if it is connected.
     app.ipc.onCloseTabMenu(() => {
       const id = app.tabs.state.activeId;

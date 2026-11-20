@@ -10,7 +10,17 @@ import { IpcError } from "./errors";
 import { MockPrompter, type MockPromptHooks } from "./mock-credentials";
 import { createMockTransfer, readMockKeyFile, type MockExport } from "./mock-transfer";
 import { createMockUpdates, type MockUpdateOptions, type MockUpdates } from "./mock-updates";
+import {
+  ACCENT_CHOICES,
+  SCHEME_CHOICES,
+  DEFAULT_APPEARANCE,
+  DENSITY_CHOICES,
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+  THEME_CHOICES,
+} from "./types";
 import type {
+  Appearance,
   Connection,
   CredentialAnswer,
   CredentialInput,
@@ -478,6 +488,8 @@ export interface MockOptions {
   autoLockMinutes?: number;
   /** Whether the pretend system has Touch ID / Windows Hello (default `true`). */
   quickUnlockAvailable?: boolean;
+  /** The saved appearance at the start (default: system theme, portolano scheme, blue, comfortable, 13 px). */
+  appearance?: Appearance;
   /** Canned answers of the update commands (default: up to date, no "What's new"). */
   updates?: MockUpdateOptions;
 }
@@ -506,6 +518,8 @@ export interface MockIpc extends Ipc {
     checkForUpdatesMenu(): void;
     /** "Close Tab" (⌘W) chosen in the macOS menu bar. */
     closeTabMenu(): void;
+    /** "Settings…" (⌘,) chosen in the macOS menu bar. */
+    settingsMenu(): void;
     /** The user asked to quit or to close the window (`quit-requested`). */
     quitRequested(): void;
   };
@@ -549,6 +563,8 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
   const quitReplies: QuitReply[] = [];
   const sessionKeyCaptures: boolean[] = [];
   const menuCloseTabHandlers = new Set<() => void>();
+  const menuSettingsHandlers = new Set<() => void>();
+  let appearance: Appearance = { ...(options.appearance ?? DEFAULT_APPEARANCE) };
   const saveFailedHandlers = new Set<(notice: CredentialSaveFailed) => void>();
   const lockVault = (): void => {
     if (vaultStatus !== "unlocked") return;
@@ -645,6 +661,9 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       },
       closeTabMenu() {
         for (const handler of [...menuCloseTabHandlers]) handler();
+      },
+      settingsMenu() {
+        for (const handler of [...menuSettingsHandlers]) handler();
       },
       quitRequested() {
         for (const handler of [...quitHandlers]) handler();
@@ -829,6 +848,23 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       }
       autoLockMinutes = minutes;
     },
+    async appearanceGet() {
+      return { ...appearance };
+    },
+    async appearanceSet(next) {
+      // The same checks as the backend: a value outside the lists changes nothing.
+      const valid =
+        (THEME_CHOICES as readonly string[]).includes(next.theme) &&
+        (SCHEME_CHOICES as readonly string[]).includes(next.scheme) &&
+        (ACCENT_CHOICES as readonly string[]).includes(next.accent) &&
+        (DENSITY_CHOICES as readonly string[]).includes(next.density) &&
+        Number.isInteger(next.terminalFontSize) &&
+        next.terminalFontSize >= TERMINAL_FONT_SIZE_MIN &&
+        next.terminalFontSize <= TERMINAL_FONT_SIZE_MAX;
+      if (!valid) throw new IpcError("invalid_input", "unsupported appearance");
+      appearance = { ...next };
+      return { ...appearance };
+    },
     async vaultQuickUnlockInfo() {
       return {
         available: options.quickUnlockAvailable ?? true,
@@ -916,6 +952,10 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     onCheckForUpdatesMenu(handler) {
       menuUpdateHandlers.add(handler);
       return () => menuUpdateHandlers.delete(handler);
+    },
+    onSettingsMenu(handler) {
+      menuSettingsHandlers.add(handler);
+      return () => menuSettingsHandlers.delete(handler);
     },
     onCloseTabMenu(handler) {
       menuCloseTabHandlers.add(handler);
