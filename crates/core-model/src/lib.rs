@@ -15,6 +15,7 @@
 //! - Bytes and pixels never travel as JSON: they use raw binary bodies (see `fb` and the
 //!   session crates for the frame layouts).
 
+pub mod appearance;
 pub mod credential;
 pub mod error;
 pub mod fb;

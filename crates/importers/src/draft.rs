@@ -78,6 +78,9 @@ impl Draft {
     ) -> Result<Uuid, ImportError> {
         self.push(
             Node::Folder(Folder {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: Uuid::new_v4(),
                 parent_id: parent,
                 name: name.to_owned(),
@@ -97,6 +100,9 @@ impl Draft {
     ) -> Result<Uuid, ImportError> {
         self.push(
             Node::Connection(Connection {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: Uuid::new_v4(),
                 parent_id: parent,
                 name: entry.name,

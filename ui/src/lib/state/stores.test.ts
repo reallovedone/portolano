@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { IpcError, type Ipc } from "../ipc";
 import { MOCK_IDS, MOCK_MASTER_PASSWORD, createMockIpc } from "../ipc/mock";
 import { createApp } from "./app";
+import { compareNodes } from "../tree/model";
 import { SessionBridge } from "../tabs/session";
 import { isNumber, isStringArray, loadJson, saveJson, type KeyValueStore } from "./storage";
 
@@ -169,6 +170,35 @@ describe("document store", () => {
 
       app.doc.collapseAll();
       expect(app.doc.expanded.size).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reorders with the visible order and sorts by name again", async () => {
+    vi.stubGlobal("localStorage", memoryStore());
+    try {
+      const app = createApp(createMockIpc());
+      await app.doc.load();
+      const group = (): string[] =>
+        app.doc.nodes
+          .filter((n) => n.parentId === null && n.type === "folder")
+          .sort(compareNodes)
+          .map((n) => n.id);
+      const original = group();
+      expect(original.length).toBeGreaterThan(1);
+      const last = original[original.length - 1] as string;
+      const first = original[0] as string;
+      const moved = await app.doc.reorder(last, null, first, original);
+      expect(moved.ok).toBe(true);
+      expect(group()).toEqual([last, ...original.slice(0, -1)]);
+
+      const sorted = await app.doc.sortByName(null);
+      expect(sorted.ok).toBe(true);
+      expect(group()).toEqual(original);
+
+      const bad = await app.doc.reorder(first, null, first, original);
+      expect(bad.ok).toBe(false);
     } finally {
       vi.unstubAllGlobals();
     }

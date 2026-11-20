@@ -82,6 +82,35 @@ export class DocumentStore {
     return result;
   }
 
+  /**
+   * Moves a node under `newParentId`, before the sibling `before` (null = end of its group),
+   * and refreshes from the backend, which renumbers the group. `visibleOrder` is the order the
+   * UI shows the target group in; the backend needs it to keep the first reorder from
+   * reshuffling the other nodes.
+   */
+  async reorder(
+    id: Uuid,
+    newParentId: Uuid | null,
+    before: Uuid | null,
+    visibleOrder: readonly Uuid[],
+  ): Promise<Result<void>> {
+    const result = await attempt(() =>
+      this.#ipc.nodeReorder(id, newParentId, before, [...visibleOrder]),
+    );
+    if (result.ok) {
+      await this.#refresh();
+      if (newParentId !== null) this.expand(newParentId);
+    }
+    return result;
+  }
+
+  /** Drops the custom order of a folder's children (null = top level): alphabetical again. */
+  async sortByName(parentId: Uuid | null): Promise<Result<void>> {
+    const result = await attempt(() => this.#ipc.nodeSortByName(parentId));
+    if (result.ok) await this.#refresh();
+    return result;
+  }
+
   isExpanded(id: Uuid): boolean {
     return this.expanded.has(id);
   }

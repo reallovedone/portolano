@@ -61,6 +61,22 @@ fn move_to(state: &AppState, id: Uuid, new_parent_id: Option<Uuid>) -> Result<()
     with_store(state, |store| Ok(store.move_node(id, new_parent_id)?))
 }
 
+fn reorder_node(
+    state: &AppState,
+    id: Uuid,
+    new_parent_id: Option<Uuid>,
+    before: Option<Uuid>,
+    visible_order: Option<Vec<Uuid>>,
+) -> Result<(), AppError> {
+    with_store(state, |store| {
+        Ok(store.reorder(id, new_parent_id, before, visible_order.as_deref())?)
+    })
+}
+
+fn sort_by_name(state: &AppState, parent_id: Option<Uuid>) -> Result<(), AppError> {
+    with_store(state, |store| Ok(store.sort_by_name(parent_id)?))
+}
+
 #[tauri::command]
 pub async fn doc_get(state: State<'_, AppState>) -> Result<Document, AppError> {
     get(&state)
@@ -90,6 +106,29 @@ pub async fn doc_move_node(
     new_parent_id: Option<Uuid>,
 ) -> Result<(), AppError> {
     move_to(&state, id, new_parent_id)
+}
+
+/// Moves a node under `new_parent_id`, right before the sibling `before` (end of its group
+/// when `None`), and renumbers the group. `visible_order` is the UI's order of the group's
+/// siblings, used only while the group has no index yet.
+#[tauri::command]
+pub async fn node_reorder(
+    state: State<'_, AppState>,
+    id: Uuid,
+    new_parent_id: Option<Uuid>,
+    before: Option<Uuid>,
+    visible_order: Option<Vec<Uuid>>,
+) -> Result<(), AppError> {
+    reorder_node(&state, id, new_parent_id, before, visible_order)
+}
+
+/// Puts the children of `parent_id` (`None` = root) back in alphabetical order.
+#[tauri::command]
+pub async fn node_sort_by_name(
+    state: State<'_, AppState>,
+    parent_id: Option<Uuid>,
+) -> Result<(), AppError> {
+    sort_by_name(&state, parent_id)
 }
 
 #[cfg(test)]
@@ -135,6 +174,9 @@ mod tests {
 
     fn folder(id: u128, parent: Option<u128>) -> Node {
         Node::Folder(Folder {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(id),
             parent_id: parent.map(u),
             name: "folder".into(),
@@ -144,6 +186,9 @@ mod tests {
 
     fn conn(id: u128, parent: Option<u128>) -> Node {
         Node::Connection(Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(id),
             parent_id: parent.map(u),
             name: "conn".into(),
@@ -236,5 +281,60 @@ mod tests {
         upsert(&state, conn(1, None)).expect("conn");
         let found = with_document(&state, |doc| Ok(doc.node(u(1)).is_some())).expect("read");
         assert!(found);
+    }
+
+    #[test]
+    fn reorder_and_sort_by_name_persist_and_map_errors() {
+        let dir = TempDir::new();
+        let state = AppState::new(dir.0.clone());
+        upsert(&state, conn(1, None)).expect("one");
+        upsert(&state, conn(2, None)).expect("two");
+        reorder_node(&state, u(2), None, Some(u(1)), None).expect("reorder");
+
+        let fresh = AppState::new(dir.0.clone());
+        let doc = get(&fresh).expect("get");
+        assert_eq!(doc.node(u(2)).and_then(Node::sort_index), Some(0));
+        assert_eq!(doc.node(u(1)).and_then(Node::sort_index), Some(1));
+
+        assert_eq!(
+            reorder_node(&state, u(9), None, None, None)
+                .expect_err("nf")
+                .code,
+            ErrorCode::NotFound
+        );
+        assert_eq!(
+            reorder_node(&state, u(1), None, Some(u(9)), None)
+                .expect_err("before")
+                .code,
+            ErrorCode::NotFound
+        );
+        sort_by_name(&state, None).expect("sort");
+        let doc = get(&state).expect("get");
+        assert!(doc.nodes.iter().all(|n| n.sort_index().is_none()));
+        assert_eq!(
+            sort_by_name(&state, Some(u(1)))
+                .expect_err("not a folder")
+                .code,
+            ErrorCode::InvalidInput
+        );
+    }
+
+    #[test]
+    fn unknown_icon_or_color_is_rejected_when_saving() {
+        let dir = TempDir::new();
+        let state = AppState::new(dir.0.clone());
+        let Node::Folder(mut f) = folder(1, None) else {
+            panic!("folder");
+        };
+        f.icon = Some("not-an-icon".into());
+        assert_eq!(
+            upsert(&state, Node::Folder(f.clone()))
+                .expect_err("icon")
+                .code,
+            ErrorCode::InvalidInput
+        );
+        f.icon = Some("server".into());
+        f.color = Some("blue".into());
+        upsert(&state, Node::Folder(f)).expect("valid names");
     }
 }

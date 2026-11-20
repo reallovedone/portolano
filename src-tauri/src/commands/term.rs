@@ -383,6 +383,9 @@ mod tests {
         jump: Option<Uuid>,
     ) -> Connection {
         Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: Uuid::new_v4(),
             parent_id: None,
             name: name.into(),
@@ -426,6 +429,9 @@ mod tests {
         upsert(
             &state,
             Node::Connection(Connection {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id,
                 parent_id: None,
                 name: "shell".into(),
@@ -464,6 +470,9 @@ mod tests {
         upsert(
             &state,
             Node::Folder(Folder {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: folder,
                 parent_id: None,
                 name: "f".into(),
@@ -476,6 +485,9 @@ mod tests {
         upsert(
             &state,
             Node::Connection(Connection {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: web,
                 parent_id: None,
                 name: "w".into(),
@@ -586,6 +598,9 @@ mod tests {
         upsert(
             &state,
             Node::Folder(Folder {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: folder,
                 parent_id: None,
                 name: "lab".into(),
@@ -661,6 +676,9 @@ mod tests {
         upsert(
             &state,
             Node::Connection(Connection {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: shell,
                 parent_id: None,
                 name: "sh".into(),
@@ -818,6 +836,9 @@ mod tests {
         upsert(
             &state,
             Node::Folder(Folder {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: folder,
                 parent_id: None,
                 name: "lab".into(),

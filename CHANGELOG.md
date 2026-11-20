@@ -9,6 +9,7 @@ attention when you upgrade.
 
 ### ✨ Added
 
+- Folders and connections can be put in your own order: drag them between others (a line shows where they land), use *Move up* and *Move down* in the right-click menu, or go back to alphabetical with *Sort by name* in a folder's menu or the sidebar's more-actions menu.
 - *Reconnect* in the tab menu, and ⌘⇧R (Ctrl+Shift+R on Windows), closes the session and opens it again, for every kind of connection, even while it is still connected.
 - A *Home* tab, from the house button in the tab strip or ⌘⇧H (Ctrl+Shift+H on Windows), keeps the welcome screen with its connection tiles one click away next to your sessions.
 - A slim toolbar above every session with Reconnect, Duplicate and Close, a *Send Ctrl+Alt+Del* button for remote desktops (RDP and VNC), and on the right the host, the remote screen size and a lock that tells how the connection is protected. Web pages keep their back, forward, reload and address controls in the same row.
@@ -16,6 +17,7 @@ attention when you upgrade.
 
 ### 🔄 Changed
 
+- A connections file saved by 0.4.0 still opens in 0.3.x, but if you go back to 0.3.x and save there, your custom order, icons and colours are lost.
 - After an update, the release notes of every version you skipped are shown; they are no longer shown before installing.
 - The RDP connection editor is shorter: options are grouped into Display, Sign-in, Clipboard & keyboard and Security sections, and long explanations open with "Learn more".
 

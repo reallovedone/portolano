@@ -159,6 +159,9 @@ mod tests {
         let dir = TempDir::new();
         let state = state_in(&dir);
         let folder = Node::Folder(Folder {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(1),
             parent_id: None,
             name: "Target".into(),
@@ -228,6 +231,9 @@ mod tests {
             let mut store = state.store.lock().expect("lock");
             store
                 .upsert_node(Node::Connection(Connection {
+                    sort_index: None,
+                    icon: None,
+                    color: None,
                     id: u(2),
                     parent_id: None,
                     name: "desk01".into(),
@@ -251,6 +257,9 @@ mod tests {
                 .expect("rdp connection");
             store
                 .upsert_node(Node::Connection(Connection {
+                    sort_index: None,
+                    icon: None,
+                    color: None,
                     id: u(3),
                     parent_id: None,
                     name: "ssh01".into(),

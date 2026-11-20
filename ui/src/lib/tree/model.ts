@@ -31,13 +31,23 @@ export interface TreeNode {
   children: TreeNode[];
 }
 
-function compareNodes(a: Node, b: Node): number {
+/**
+ * Display order (same rule as the backend): folders first; within a group, nodes with a
+ * `sortIndex` by index, then the ones without, by name. Without any index this is the plain
+ * alphabetical order of a 0.3.x file.
+ */
+export function compareNodes(a: Node, b: Node): number {
   if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+  const ai = a.sortIndex;
+  const bi = b.sortIndex;
+  if (ai !== undefined && bi !== undefined && ai !== bi) return ai - bi;
+  if (ai !== undefined && bi === undefined) return -1;
+  if (ai === undefined && bi !== undefined) return 1;
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 }
 
 /**
- * Builds the forest. Folders sort before connections, then by name. A node whose parent is
+ * Builds the forest. Folders sort before connections, then by manual order and name (see `compareNodes`). A node whose parent is
  * missing (or is not a folder) is shown at the top level instead of being lost; a node in a
  * parent cycle is also promoted to the top level.
  */
@@ -239,6 +249,87 @@ export function moveTargets(
   };
   walk(buildTree(nodes), 0);
   return targets;
+}
+
+// ---- manual ordering ----
+
+/** Parent as shown: nodes `buildTree` promotes to the top level (orphans, cycles) count as roots. */
+function shownParentId(nodes: readonly Node[], node: Node): Uuid | null {
+  if (node.parentId === null) return null;
+  return buildTree(nodes).some((t) => t.node.id === node.id) ? null : node.parentId;
+}
+
+/** Ids of the folders (or connections) under `parentId`, in display order. */
+export function siblingIds(nodes: readonly Node[], parentId: Uuid | null, folders: boolean): Uuid[] {
+  if (parentId === null) {
+    // The root group is what is actually shown at the top level.
+    return buildTree(nodes)
+      .filter((t) => (t.node.type === "folder") === folders)
+      .map((t) => t.node.id);
+  }
+  return nodes
+    .filter((n) => n.parentId === parentId && (n.type === "folder") === folders)
+    .sort(compareNodes)
+    .map((n) => n.id);
+}
+
+/** Whether any node of that group has a manual position yet. */
+export function groupHasIndices(
+  nodes: readonly Node[],
+  parentId: Uuid | null,
+  folders: boolean,
+): boolean {
+  return nodes.some(
+    (n) => n.parentId === parentId && (n.type === "folder") === folders && n.sortIndex !== undefined,
+  );
+}
+
+export type DropEdge = "before" | "after";
+
+/** Arguments for `nodeReorder`. */
+export interface ReorderPlan {
+  parentId: Uuid | null;
+  before: Uuid | null;
+  /** The target group as shown now. */
+  visibleOrder: Uuid[];
+}
+
+/**
+ * Places `id` before or after the sibling-to-be `targetId` (same kind: folders are never
+ * mixed with connections). Dropping "after" X means before X's next sibling, or the end of the
+ * group. Returns `null` when the drop is not allowed or would change nothing.
+ */
+export function planReorder(
+  nodes: readonly Node[],
+  id: Uuid,
+  targetId: Uuid,
+  edge: DropEdge,
+): ReorderPlan | null {
+  const node = nodes.find((n) => n.id === id);
+  const target = nodes.find((n) => n.id === targetId);
+  if (!node || !target || id === targetId || node.type !== target.type) return null;
+  const parentId = shownParentId(nodes, target);
+  if (parentId !== null && subtreeIds(nodes, id).has(parentId)) return null;
+  const folders = node.type === "folder";
+  const current = siblingIds(nodes, parentId, folders);
+  const others = current.filter((other) => other !== id);
+  const position = others.indexOf(targetId) + (edge === "after" ? 1 : 0);
+  const before = others[position] ?? null;
+  if (shownParentId(nodes, node) === parentId) {
+    const next = [...others.slice(0, position), id, ...others.slice(position)];
+    if (next.every((other, index) => other === current[index])) return null;
+  }
+  return { parentId, before, visibleOrder: current };
+}
+
+/** Plan for "Move up" (`-1`) or "Move down" (`1`) within the node's group; `null` at the edge. */
+export function planStep(nodes: readonly Node[], id: Uuid, delta: -1 | 1): ReorderPlan | null {
+  const node = nodes.find((n) => n.id === id);
+  if (!node) return null;
+  const group = siblingIds(nodes, shownParentId(nodes, node), node.type === "folder");
+  const target = group[group.indexOf(id) + delta];
+  if (target === undefined) return null;
+  return planReorder(nodes, id, target, delta < 0 ? "before" : "after");
 }
 
 // ---- credential inheritance ----

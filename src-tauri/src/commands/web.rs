@@ -172,6 +172,9 @@ mod tests {
 
     fn web_conn(n: u128, url: &str, isolated: bool) -> Node {
         Node::Connection(Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: Uuid::from_u128(n),
             parent_id: None,
             name: format!("c{n}"),
@@ -207,6 +210,9 @@ mod tests {
     #[test]
     fn spec_of_rejects_unknown_folder_and_other_protocols() {
         let folder = Node::Folder(Folder {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: Uuid::from_u128(2),
             parent_id: None,
             name: "f".into(),

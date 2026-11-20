@@ -64,6 +64,79 @@ describe("mock document", () => {
     expect(await codeOf(ipc.docMoveNode(folder.id, folder.id))).toBe("invalid_input");
   });
 
+  it("reorders nodes inside and across folders and sorts them back by name", async () => {
+    const ipc = createMockIpc({ seed: false });
+    const mk = (n: number, type: "folder" | "connection", parentId: string | null, name: string): Node => {
+      const id = `00000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}`;
+      return type === "folder"
+        ? { type, id, parentId, name, credential: { type: "inherit" } }
+        : { ...newConnection(id, parentId), name };
+    };
+    const folderA = mk(1, "folder", null, "A");
+    const folderB = mk(2, "folder", null, "B");
+    const [a, b, c] = [3, 4, 5].map((n, i) => mk(n, "connection", folderA.id, ["a", "b", "c"][i] ?? ""));
+    for (const node of [folderA, folderB, a, b, c]) await ipc.docUpsertNode(node);
+    const index = async (id: string) => (await ipc.docGet()).nodes.find((n) => n.id === id)?.sortIndex;
+
+    // c before a: c a b, contiguous indices; the folders keep no index.
+    await ipc.nodeReorder(c.id, folderA.id, a.id);
+    expect([await index(c.id), await index(a.id), await index(b.id)]).toEqual([0, 1, 2]);
+    expect(await index(folderA.id)).toBeUndefined();
+    // No "before": to the end of the group.
+    await ipc.nodeReorder(c.id, folderA.id, null);
+    expect([await index(a.id), await index(b.id), await index(c.id)]).toEqual([0, 1, 2]);
+    // Across parents.
+    await ipc.nodeReorder(a.id, folderB.id, null);
+    const moved = (await ipc.docGet()).nodes.find((n) => n.id === a.id);
+    expect([moved?.parentId, moved?.sortIndex]).toEqual([folderB.id, 0]);
+    // A hint decides the first numbering of an unindexed group; an indexed one ignores it.
+    const folderC = mk(9, "folder", null, "C");
+    await ipc.docUpsertNode(folderC);
+    const [x, y, z] = [6, 7, 8].map((n, i) =>
+      mk(n, "connection", folderC.id, ["x", "y", "z"][i] ?? ""),
+    );
+    for (const node of [x, y, z]) await ipc.docUpsertNode(node);
+    await ipc.nodeReorder(x.id, folderC.id, null, [z.id, y.id, x.id, "unknown"]);
+    expect([await index(z.id), await index(y.id), await index(x.id)]).toEqual([0, 1, 2]);
+    await ipc.nodeReorder(z.id, folderC.id, null, [x.id, y.id, z.id]);
+    expect([await index(y.id), await index(x.id), await index(z.id)]).toEqual([0, 1, 2]);
+    // Errors: not a sibling, not the same kind, unknown node, cycle.
+    expect(await codeOf(ipc.nodeReorder(b.id, folderA.id, a.id))).toBe("invalid_input");
+    expect(await codeOf(ipc.nodeReorder(b.id, folderA.id, folderB.id))).toBe("invalid_input");
+    expect(await codeOf(ipc.nodeReorder("missing", null, null))).toBe("not_found");
+    expect(await codeOf(ipc.nodeReorder(folderA.id, folderA.id, null))).toBe("invalid_input");
+    // Sorting one parent only clears that parent's indices.
+    await ipc.nodeSortByName(folderA.id);
+    expect(await index(b.id)).toBeUndefined();
+    expect(await index(a.id)).toBe(0);
+    expect(await codeOf(ipc.nodeSortByName(a.id))).toBe("invalid_input");
+  });
+
+  it("keeps the stored order when a node is edited and drops it when the parent changes", async () => {
+    const ipc = createMockIpc({ seed: false });
+    const folder: Node = {
+      type: "folder",
+      id: "00000000-0000-4000-8000-0000000002f1",
+      parentId: null,
+      name: "f",
+      credential: { type: "inherit" },
+    };
+    const a = { ...newConnection("00000000-0000-4000-8000-0000000002a1", null), name: "a" };
+    const b = { ...newConnection("00000000-0000-4000-8000-0000000002a2", null), name: "b" };
+    for (const node of [folder, a, b]) await ipc.docUpsertNode(node);
+    await ipc.nodeReorder(b.id, null, a.id);
+    const find = async (id: string) => (await ipc.docGet()).nodes.find((n) => n.id === id);
+    expect((await find(b.id))?.sortIndex).toBe(0);
+    // An edit that carries no index, or a wrong one, keeps the stored index.
+    await ipc.docUpsertNode({ ...b, name: "b2" });
+    expect((await find(b.id))?.sortIndex).toBe(0);
+    await ipc.docUpsertNode({ ...b, name: "b3", sortIndex: 9 });
+    expect((await find(b.id))?.sortIndex).toBe(0);
+    // A parent change drops it.
+    await ipc.docUpsertNode({ ...b, parentId: folder.id, sortIndex: 5 });
+    expect((await find(b.id))?.sortIndex).toBeUndefined();
+  });
+
   it("does not leak internal state through returned values", async () => {
     const ipc = createMockIpc();
     const doc = await ipc.docGet();

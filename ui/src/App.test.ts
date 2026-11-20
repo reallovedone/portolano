@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App.svelte";
@@ -200,6 +200,8 @@ describe("connection tree", () => {
       "Edit…",
       "Rename",
       "Move to…",
+      "Move up",
+      "Move down",
       "Export…",
       "Delete",
     ]);
@@ -256,6 +258,120 @@ describe("connection tree", () => {
       expect(await fireEvent.dragOver(tree, { dataTransfer: dt })).toBe(false);
       await fireEvent.drop(tree, { dataTransfer: dt });
       await waitFor(() => expect(app.doc.node(MOCK_IDS.localSshd)?.parentId).toBeNull());
+    });
+
+    describe("reordering zones", () => {
+      /** Drags over `target` at `fraction` of its height (rows have no layout in jsdom). */
+      async function dragOver(
+        dragged: string,
+        target: string,
+        fraction: number,
+      ): Promise<{ prevented: boolean; el: HTMLElement; dt: ReturnType<typeof dataTransfer> }> {
+        const dt = dataTransfer();
+        await fireEvent.dragStart(row(dragged), { dataTransfer: dt });
+        const el = row(target);
+        el.getBoundingClientRect = () => ({ top: 0, height: 100 }) as DOMRect;
+        // jsdom's drag events carry no coordinates: add clientY by hand.
+        const event = createEvent.dragOver(el, { dataTransfer: dt });
+        Object.defineProperty(event, "clientY", { value: fraction * 100 });
+        const notPrevented = await fireEvent(el, event);
+        return { prevented: !notPrevented, el, dt };
+      }
+      async function dropAt(el: HTMLElement, dt: ReturnType<typeof dataTransfer>, fraction: number): Promise<void> {
+        const event = createEvent.drop(el, { dataTransfer: dt });
+        Object.defineProperty(event, "clientY", { value: fraction * 100 });
+        await fireEvent(el, event);
+      }
+      const topLevel = (): string[] => rowNames().filter((n) => ["Lab", "Production"].includes(n));
+
+      it("drops a folder before and after another folder", async () => {
+        const { app } = await mountApp();
+        const first = await dragOver("Production", "Lab", 0.1);
+        expect(first.prevented).toBe(true);
+        expect(first.el.classList.contains("edge-before")).toBe(true);
+        await dropAt(first.el, first.dt, 0.1);
+        await waitFor(() => expect(topLevel()).toEqual(["Production", "Lab"]));
+        expect(app.doc.node(MOCK_IDS.production)?.sortIndex).toBeDefined();
+
+        const second = await dragOver("Production", "Lab", 0.9);
+        expect(second.el.classList.contains("edge-after")).toBe(true);
+        await dropAt(second.el, second.dt, 0.9);
+        await waitFor(() => expect(topLevel()).toEqual(["Lab", "Production"]));
+      });
+
+      it("drops into the middle of a folder, as before", async () => {
+        const { app } = await mountApp();
+        const over = await dragOver("Local shell", "Production", 0.5);
+        expect(over.prevented).toBe(true);
+        expect(over.el.classList.contains("edge-before")).toBe(false);
+        expect(over.el.classList.contains("edge-after")).toBe(false);
+        await dropAt(over.el, over.dt, 0.5);
+        await waitFor(() => expect(app.doc.node(MOCK_IDS.localZsh)?.parentId).toBe(MOCK_IDS.production));
+      });
+
+      it("drops a connection before and after another connection (top and bottom half)", async () => {
+        const { app } = await mountApp();
+        await expand("Production");
+        const first = await dragOver("Public site (isolated)", "Intranet", 0.4);
+        expect(first.el.classList.contains("edge-before")).toBe(true);
+        await dropAt(first.el, first.dt, 0.4);
+        await waitFor(() => expect(app.doc.node(MOCK_IDS.publicSite)?.sortIndex).toBe(0));
+        expect(rowNames().indexOf("Public site (isolated)")).toBeLessThan(rowNames().indexOf("Intranet"));
+
+        const second = await dragOver("Public site (isolated)", "Intranet", 0.6);
+        expect(second.el.classList.contains("edge-after")).toBe(true);
+        await dropAt(second.el, second.dt, 0.6);
+        await waitFor(() =>
+          expect(rowNames().indexOf("Intranet")).toBeLessThan(rowNames().indexOf("Public site (isolated)")),
+        );
+      });
+
+      it("shows no line and refuses a drop that changes nothing", async () => {
+        const { app } = await mountApp();
+        await expand("Production");
+        const over = await dragOver("Intranet", "Intranet", 0.9);
+        expect(over.prevented).toBe(false);
+        expect(over.el.classList.contains("edge-after")).toBe(false);
+        await dropAt(over.el, over.dt, 0.9);
+        expect(app.doc.node(MOCK_IDS.intranet)?.parentId).toBe(MOCK_IDS.production);
+      });
+
+      it("never puts a connection among folders, nor a folder among connections", async () => {
+        const { app } = await mountApp();
+        const connection = await dragOver("Local shell", "Lab", 0.05);
+        expect(connection.el.classList.contains("edge-before")).toBe(false);
+        expect(connection.el.classList.contains("edge-after")).toBe(false);
+        await fireEvent.dragEnd(row("Local shell"));
+
+        const folder = await dragOver("Production", "Local shell", 0.1);
+        expect(folder.el.classList.contains("edge-before")).toBe(false);
+        expect(app.doc.node(MOCK_IDS.production)?.sortIndex).toBeUndefined();
+      });
+
+      it("treats the lower part of an expanded folder as into, not as a line under it", async () => {
+        await mountApp();
+        await expand("Lab");
+        const over = await dragOver("Production", "Lab", 0.9);
+        expect(over.el.classList.contains("edge-after")).toBe(false);
+        expect(over.prevented).toBe(true);
+      });
+
+      it("disables Move up / Move down and drag lines while a filter is active", async () => {
+        await mountApp();
+        await fireEvent.input(screen.getByRole("searchbox", { name: "Filter connections" }), {
+          target: { value: "Intranet" },
+        });
+        const target = row("Intranet");
+        target.focus();
+        await fireEvent.keyDown(target, { key: "ContextMenu" });
+        const menu = screen.getByRole("menu");
+        expect((within(menu).getByRole("menuitem", { name: "Move up" }) as HTMLButtonElement).disabled).toBe(true);
+        expect((within(menu).getByRole("menuitem", { name: "Move down" }) as HTMLButtonElement).disabled).toBe(true);
+        await fireEvent.keyDown(menu, { key: "Escape" });
+
+        const over = await dragOver("Intranet", "Intranet", 0.9);
+        expect(over.el.classList.contains("edge-after")).toBe(false);
+      });
     });
   });
 });

@@ -422,6 +422,19 @@ function createMockTerminal(
   };
 }
 
+/** Ids of the folders (or connections) under `parent` in on-screen order: manual index first, then name. */
+function siblingOrder(nodes: Node[], parent: Uuid | null, folders: boolean): Uuid[] {
+  return nodes
+    .filter((n) => n.parentId === parent && (n.type === "folder") === folders)
+    .sort((a, b) => {
+      const ai = a.sortIndex ?? Number.POSITIVE_INFINITY;
+      const bi = b.sortIndex ?? Number.POSITIVE_INFINITY;
+      if (ai !== bi) return ai < bi ? -1 : 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
+    })
+    .map((n) => n.id);
+}
+
 function descendantIds(nodes: Node[], rootId: Uuid): Set<Uuid> {
   const ids = new Set<Uuid>([rootId]);
   let grew = true;
@@ -659,8 +672,15 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       const stored = clone(node);
       const index = doc.nodes.findIndex((n) => n.id === node.id);
       const nodes = doc.nodes.slice();
-      if (index >= 0) nodes[index] = stored;
-      else nodes.push(stored);
+      if (index >= 0) {
+        // Order is owned by nodeReorder / nodeSortByName: an edit keeps the stored index,
+        // unless the node changes parent (then it joins the unindexed nodes of its new group).
+        const old = nodes[index];
+        const kept = old && old.parentId === node.parentId ? old.sortIndex : undefined;
+        delete stored.sortIndex;
+        if (kept !== undefined) stored.sortIndex = kept;
+        nodes[index] = stored;
+      } else nodes.push(stored);
       doc = { ...doc, nodes };
       return clone(stored);
     },
@@ -684,6 +704,61 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       doc = {
         ...doc,
         nodes: doc.nodes.map((n) => (n.id === node.id ? { ...n, parentId: newParentId } : n)),
+      };
+    },
+    async nodeReorder(id, newParentId, before, visibleOrder) {
+      const node = requireNode(id);
+      if (newParentId !== null) {
+        const parent = requireNode(newParentId);
+        if (parent.type !== "folder") {
+          throw new IpcError("invalid_input", "the new parent is not a folder");
+        }
+        if (descendantIds(doc.nodes, id).has(newParentId)) {
+          throw new IpcError("invalid_input", "a node cannot be moved into itself");
+        }
+      }
+      if (before !== null) {
+        const target = requireNode(before);
+        if (
+          before === id ||
+          target.parentId !== newParentId ||
+          target.type !== node.type
+        ) {
+          throw new IpcError(
+            "invalid_input",
+            "the node to move before must be a sibling of the same kind",
+          );
+        }
+      }
+      let group = siblingOrder(doc.nodes, newParentId, node.type === "folder");
+      if (visibleOrder && group.every((g) => doc.nodes.find((n) => n.id === g)?.sortIndex === undefined)) {
+        const members = new Set(group);
+        const hinted = [...new Set(visibleOrder)].filter((h) => members.has(h));
+        group = [...hinted, ...group.filter((g) => !hinted.includes(g))];
+      }
+      group = group.filter((other) => other !== id);
+      group.splice(before === null ? group.length : group.indexOf(before), 0, id);
+      const indices = new Map(group.map((nodeId, index) => [nodeId, index]));
+      doc = {
+        ...doc,
+        nodes: doc.nodes.map((n) => {
+          const index = indices.get(n.id);
+          if (n.id === id) return { ...n, parentId: newParentId, sortIndex: index };
+          return index === undefined ? n : { ...n, sortIndex: index };
+        }),
+      };
+    },
+    async nodeSortByName(parentId) {
+      if (parentId !== null && requireNode(parentId).type !== "folder") {
+        throw new IpcError("invalid_input", "the parent is not a folder");
+      }
+      doc = {
+        ...doc,
+        nodes: doc.nodes.map((n) => {
+          if (n.parentId !== parentId) return n;
+          const { sortIndex: _removed, ...rest } = n;
+          return rest as Node;
+        }),
       };
     },
 

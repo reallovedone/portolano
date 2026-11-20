@@ -22,6 +22,7 @@
 //! [`DocumentStore::ensure_loaded`] first, so a store whose file could not be read can never
 //! overwrite it with an empty document.
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -137,7 +138,18 @@ impl DocumentStore {
                             "a folder that has children cannot become a connection".into(),
                         ));
                     }
+                    // Order belongs to `reorder` / `sort_by_name`: an edit keeps the stored
+                    // index whatever the caller sent, unless the node changes parent (then it
+                    // joins the unindexed nodes of its new group, as with `move_node`).
+                    let mut node = node;
+                    let moved = doc.nodes[pos].parent_id() != node.parent_id();
+                    node.set_sort_index(if moved {
+                        None
+                    } else {
+                        doc.nodes[pos].sort_index()
+                    });
                     doc.nodes[pos] = node.clone();
+                    return Ok(node);
                 }
                 None => doc.nodes.push(node.clone()),
             }
@@ -232,6 +244,113 @@ impl DocumentStore {
         })
     }
 
+    /// Moves a node under `new_parent_id` (`None` = root), right before the sibling `before`, or
+    /// at the end of its group (folders and connections are ordered separately, folders always
+    /// show first) when `before` is `None`. `before` must be a sibling of the same kind under
+    /// the new parent. Parent and cycle rules are those of [`DocumentStore::move_node`].
+    ///
+    /// The siblings of the group get contiguous indices (0, 1, 2...), starting from the order
+    /// they have on screen now (see [`visible_order`]), so only the moved node changes place.
+    /// The group it leaves keeps its order (gaps in the indices are harmless).
+    ///
+    /// `visible_order` is the UI's own order of the siblings of the target group. It is used
+    /// only while the group has no index yet (the order then comes from the UI's locale-aware
+    /// name comparison, which Rust only approximates): ids it lists come first in its order,
+    /// ids of the group it does not list follow in Rust order, unknown ids are ignored. Once the
+    /// group is indexed the hint is ignored.
+    pub fn reorder(
+        &mut self,
+        id: Uuid,
+        new_parent_id: Option<Uuid>,
+        before: Option<Uuid>,
+        visible_order_hint: Option<&[Uuid]>,
+    ) -> Result<(), ModelError> {
+        self.mutate(|doc| {
+            let Some(node) = doc.node(id) else {
+                return Err(ModelError::NotFound(id.to_string()));
+            };
+            let is_folder = node.is_folder();
+            check_parent(doc, id, new_parent_id)?;
+            if let Some(before_id) = before {
+                let Some(target) = doc.node(before_id) else {
+                    return Err(ModelError::NotFound(before_id.to_string()));
+                };
+                if before_id == id
+                    || target.parent_id() != new_parent_id
+                    || target.is_folder() != is_folder
+                {
+                    return Err(ModelError::InvalidInput(
+                        "the node to move before must be a sibling of the same kind".into(),
+                    ));
+                }
+            }
+            let mut group = visible_order(doc, new_parent_id, is_folder);
+            if let Some(hint) = visible_order_hint {
+                let unindexed = group
+                    .iter()
+                    .all(|g| doc.node(*g).is_some_and(|n| n.sort_index().is_none()));
+                if unindexed {
+                    let members: HashSet<Uuid> = group.iter().copied().collect();
+                    let mut seen = HashSet::new();
+                    let mut hinted: Vec<Uuid> = hint
+                        .iter()
+                        .copied()
+                        .filter(|h| members.contains(h) && seen.insert(*h))
+                        .collect();
+                    hinted.extend(group.iter().copied().filter(|g| !seen.contains(g)));
+                    group = hinted;
+                }
+            }
+            group.retain(|sibling| *sibling != id);
+            let position = match before {
+                Some(before_id) => group.iter().position(|s| *s == before_id),
+                None => Some(group.len()),
+            }
+            .ok_or_else(|| ModelError::InvalidInput("the sibling is not in the group".into()))?;
+            group.insert(position, id);
+
+            let indices: HashMap<Uuid, u32> = group
+                .iter()
+                .zip(0u32..)
+                .map(|(node_id, index)| (*node_id, index))
+                .collect();
+            if indices.len() != group.len() {
+                return Err(ModelError::InvalidInput("too many siblings".into()));
+            }
+            for node in &mut doc.nodes {
+                if node.id() == id {
+                    node.set_parent_id(new_parent_id);
+                }
+                if let Some(index) = indices.get(&node.id()) {
+                    node.set_sort_index(Some(*index));
+                }
+            }
+            Ok(())
+        })
+    }
+
+    /// Removes the manual order of the children of `parent_id` (`None` = root): they go back to
+    /// alphabetical order. Deeper levels are left alone.
+    pub fn sort_by_name(&mut self, parent_id: Option<Uuid>) -> Result<(), ModelError> {
+        self.mutate(|doc| {
+            if let Some(parent) = parent_id {
+                match doc.node(parent) {
+                    None => return Err(ModelError::NotFound(parent.to_string())),
+                    Some(p) if !p.is_folder() => {
+                        return Err(ModelError::InvalidInput(format!(
+                            "parent {parent} is not a folder"
+                        )))
+                    }
+                    Some(_) => {}
+                }
+            }
+            for node in doc.nodes.iter_mut().filter(|n| n.parent_id() == parent_id) {
+                node.set_sort_index(None);
+            }
+            Ok(())
+        })
+    }
+
     /// Runs `f` once on a working copy of the document, then validates and saves the result
     /// once. The in-memory document is replaced only when everything succeeded: on any error
     /// (the closure's, validation or the save) memory and disk are left exactly as they were.
@@ -303,6 +422,59 @@ fn migrate_step(value: serde_json::Value, from: u32) -> Result<serde_json::Value
     }
 }
 
+/// The ids of the folders (or of the connections) under `parent`, in the order the tree shows
+/// them: nodes with a manual index first, by index, then the others by name; ties by name and
+/// id. Without any index this is plain alphabetical order, like the UI's `compareNodes`.
+fn visible_order(doc: &Document, parent: Option<Uuid>, folders: bool) -> Vec<Uuid> {
+    let mut group: Vec<&Node> = doc
+        .nodes
+        .iter()
+        .filter(|n| n.parent_id() == parent && n.is_folder() == folders)
+        .collect();
+    group.sort_by(|a, b| {
+        (a.sort_index().is_none(), a.sort_index())
+            .cmp(&(b.sort_index().is_none(), b.sort_index()))
+            .then_with(|| compare_names(a.name(), b.name()))
+            .then_with(|| a.id().cmp(&b.id()))
+    });
+    group.iter().map(|n| n.id()).collect()
+}
+
+/// Case-insensitive comparison where runs of digits compare as numbers ("host2" < "host10"),
+/// an approximation of the UI's `localeCompare(..., { sensitivity: "base", numeric: true })`.
+fn compare_names(a: &str, b: &str) -> Ordering {
+    let mut left = a.chars().flat_map(char::to_lowercase).peekable();
+    let mut right = b.chars().flat_map(char::to_lowercase).peekable();
+    loop {
+        match (left.peek().copied(), right.peek().copied()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
+                let take = |it: &mut std::iter::Peekable<_>| {
+                    let mut digits = String::new();
+                    while let Some(c) = it.next_if(|c: &char| c.is_ascii_digit()) {
+                        digits.push(c);
+                    }
+                    digits.trim_start_matches('0').to_owned()
+                };
+                let (dx, dy) = (take(&mut left), take(&mut right));
+                let order = dx.len().cmp(&dy.len()).then_with(|| dx.cmp(&dy));
+                if order != Ordering::Equal {
+                    return order;
+                }
+            }
+            (Some(x), Some(y)) => {
+                if x != y {
+                    return x.cmp(&y);
+                }
+                left.next();
+                right.next();
+            }
+        }
+    }
+}
+
 /// A parent reference is valid when it is `None`, or an existing folder that is neither the
 /// node itself nor one of its descendants.
 fn check_parent(doc: &Document, id: Uuid, parent: Option<Uuid>) -> Result<(), ModelError> {
@@ -362,6 +534,7 @@ fn validate_document(doc: &Document) -> Result<(), ModelError> {
                 node.id()
             )));
         }
+        crate::appearance::check_node(node)?;
     }
     for node in &doc.nodes {
         if let Some(parent_id) = node.parent_id() {
@@ -448,7 +621,7 @@ fn read_file(path: &Path) -> Result<FileRead, ModelError> {
         Err(ModelError::Corrupt(reason)) => return Ok(FileRead::Invalid(reason)),
         Err(e) => return Err(e),
     };
-    let document: Document = match serde_json::from_value(value) {
+    let mut document: Document = match serde_json::from_value(value) {
         Ok(d) => d,
         Err(e) => {
             return Ok(FileRead::Invalid(format!(
@@ -457,6 +630,8 @@ fn read_file(path: &Path) -> Result<FileRead, ModelError> {
             )))
         }
     };
+    // A name from a newer version is dropped, not an error: the file must still open.
+    crate::appearance::sanitize_document(&mut document);
     if let Err(e) = validate_document(&document) {
         return Ok(FileRead::Invalid(e.to_string()));
     }
@@ -578,6 +753,7 @@ fn write_atomic(path: &Path, document: &Document) -> Result<(), ModelError> {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering as Cmp;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use super::*;
@@ -618,6 +794,9 @@ mod tests {
 
     fn folder(id: u128, parent: Option<u128>, name: &str) -> Node {
         Node::Folder(Folder {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(id),
             parent_id: parent.map(u),
             name: name.into(),
@@ -627,6 +806,9 @@ mod tests {
 
     fn conn(id: u128, parent: Option<u128>, name: &str) -> Node {
         Node::Connection(Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(id),
             parent_id: parent.map(u),
             name: name.into(),
@@ -1082,6 +1264,9 @@ mod tests {
 
     fn ssh_via(id: u128, parent: Option<u128>, jump: Option<u128>) -> Node {
         Node::Connection(Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(id),
             parent_id: parent.map(u),
             name: format!("ssh{id}"),
@@ -1290,5 +1475,317 @@ mod tests {
         assert_eq!(value["nodes"][0]["type"], "connection");
         assert_eq!(value["nodes"][0]["parentId"], serde_json::Value::Null);
         assert_eq!(value["nodes"][0]["credential"]["type"], "inherit");
+    }
+
+    const OLD_FILE: &str = r#"{"schemaVersion":1,"nodes":[
+        {"type":"folder","id":"00000000-0000-0000-0000-000000000001","parentId":null,"name":"Prod","credential":{"type":"inherit"}},
+        {"type":"connection","id":"00000000-0000-0000-0000-000000000002","parentId":"00000000-0000-0000-0000-000000000001","name":"web01","host":"h","port":22,"credential":{"type":"none"},"username":null,"tags":[],"notes":"","options":{"type":"vnc","viewOnly":false}}
+    ]}"#;
+
+    #[test]
+    fn a_file_without_the_appearance_fields_is_read_and_rewritten_unchanged() {
+        let dir = TempDir::new();
+        fs::write(dir.file(), OLD_FILE).expect("write");
+        let store = DocumentStore::load(dir.file()).expect("load");
+        let expected: serde_json::Value = serde_json::from_str(OLD_FILE).expect("json");
+        assert_eq!(
+            serde_json::to_value(store.document()).expect("value"),
+            expected
+        );
+        store.save().expect("save");
+        let text = fs::read_to_string(dir.file()).expect("read");
+        assert!(!text.contains("sortIndex") && !text.contains("icon") && !text.contains("color"));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("json"),
+            expected
+        );
+    }
+
+    #[test]
+    fn order_icon_and_color_survive_save_and_reload() {
+        let dir = TempDir::new();
+        let mut store = DocumentStore::load(dir.file()).expect("load");
+        let mut f = folder(1, None, "F");
+        if let Node::Folder(f) = &mut f {
+            f.sort_index = Some(3);
+            f.icon = Some("server".into());
+            f.color = Some("teal".into());
+        }
+        store.upsert_node(f).expect("folder");
+        let mut c = conn(2, Some(1), "C");
+        if let Node::Connection(c) = &mut c {
+            c.sort_index = Some(0);
+            c.icon = Some("key".into());
+            c.color = Some("red".into());
+        }
+        store.upsert_node(c).expect("conn");
+        let text = fs::read_to_string(dir.file()).expect("read");
+        assert!(text.contains(r#""sortIndex": 3"#) && text.contains(r#""color": "teal""#));
+        let reloaded = DocumentStore::load(dir.file()).expect("reload");
+        assert_eq!(reloaded.document(), store.document());
+    }
+
+    #[test]
+    fn unknown_icon_or_color_is_refused_on_save_and_dropped_on_read() {
+        let dir = TempDir::new();
+        let mut store = DocumentStore::load(dir.file()).expect("load");
+        for (icon, color) in [(Some("nope"), None), (None, Some("#ff0000"))] {
+            let mut node = conn(1, None, "C");
+            if let Node::Connection(c) = &mut node {
+                c.icon = icon.map(Into::into);
+                c.color = color.map(Into::into);
+            }
+            assert_eq!(
+                code(store.upsert_node(node)),
+                crate::ErrorCode::InvalidInput
+            );
+        }
+        assert!(store.document().nodes.is_empty());
+
+        let future = OLD_FILE.replace(
+            r#""name":"Prod""#,
+            r#""name":"Prod","icon":"from-the-future","color":"mauve","sortIndex":4"#,
+        );
+        fs::write(dir.file(), future).expect("write");
+        let reloaded = DocumentStore::load(dir.file()).expect("a future name must not fail");
+        let Some(Node::Folder(f)) = reloaded.document().node(u(1)) else {
+            panic!("folder missing");
+        };
+        assert_eq!(
+            (f.icon.as_deref(), f.color.as_deref(), f.sort_index),
+            (None, None, Some(4))
+        );
+    }
+
+    /// Names of the children of `parent` in the order the store would show them, with indices.
+    fn order(
+        store: &DocumentStore,
+        parent: Option<u128>,
+        folders: bool,
+    ) -> Vec<(Uuid, Option<u32>)> {
+        visible_order(store.document(), parent.map(u), folders)
+            .into_iter()
+            .map(|id| (id, store.document().node(id).and_then(Node::sort_index)))
+            .collect()
+    }
+
+    fn ids(list: &[(Uuid, Option<u32>)]) -> Vec<Uuid> {
+        list.iter().map(|(id, _)| *id).collect()
+    }
+
+    fn store_with_connections() -> (TempDir, DocumentStore) {
+        let dir = TempDir::new();
+        let mut store = DocumentStore::load(dir.file()).expect("load");
+        store.upsert_node(folder(1, None, "F1")).expect("f1");
+        store.upsert_node(folder(2, None, "F2")).expect("f2");
+        // Alphabetical: a (10), b (11), c (12), d (13).
+        for (id, name) in [(13, "d"), (11, "b"), (10, "a"), (12, "c")] {
+            store.upsert_node(conn(id, Some(1), name)).expect("conn");
+        }
+        (dir, store)
+    }
+
+    #[test]
+    fn reorder_in_the_same_parent_changes_only_the_moved_node() {
+        let (_dir, mut store) = store_with_connections();
+        // d before b: a d b c.
+        store
+            .reorder(u(13), Some(u(1)), Some(u(11)), None)
+            .expect("reorder");
+        let now = order(&store, Some(1), false);
+        assert_eq!(ids(&now), vec![u(10), u(13), u(11), u(12)]);
+        assert_eq!(
+            now.iter().map(|(_, i)| *i).collect::<Vec<_>>(),
+            vec![Some(0), Some(1), Some(2), Some(3)]
+        );
+        // The other group (folders) is untouched.
+        assert!(order(&store, None, true).iter().all(|(_, i)| i.is_none()));
+        // Survives a reload.
+        let reloaded = DocumentStore::load(store.path().to_path_buf()).expect("reload");
+        assert_eq!(
+            ids(&order(&reloaded, Some(1), false)),
+            vec![u(10), u(13), u(11), u(12)]
+        );
+    }
+
+    #[test]
+    fn reorder_without_before_goes_to_the_end_of_its_group() {
+        let (_dir, mut store) = store_with_connections();
+        store
+            .reorder(u(10), Some(u(1)), None, None)
+            .expect("to the end");
+        assert_eq!(
+            ids(&order(&store, Some(1), false)),
+            vec![u(11), u(12), u(13), u(10)]
+        );
+        // A folder moved to the end stays in the folder group.
+        store
+            .reorder(u(1), None, None, None)
+            .expect("folder to the end");
+        assert_eq!(ids(&order(&store, None, true)), vec![u(2), u(1)]);
+    }
+
+    #[test]
+    fn reorder_to_another_parent_keeps_the_old_parent_order() {
+        let (_dir, mut store) = store_with_connections();
+        store.upsert_node(conn(20, Some(2), "x")).expect("x");
+        store
+            .reorder(u(12), Some(u(2)), Some(u(20)), None)
+            .expect("across");
+        assert_eq!(
+            store.document().node(u(12)).and_then(Node::parent_id),
+            Some(u(2))
+        );
+        assert_eq!(ids(&order(&store, Some(2), false)), vec![u(12), u(20)]);
+        // The old parent still shows a b d.
+        assert_eq!(
+            ids(&order(&store, Some(1), false)),
+            vec![u(10), u(11), u(13)]
+        );
+        // Moving to the root works and the node keeps its place in the array.
+        store.reorder(u(10), None, None, None).expect("root");
+        assert_eq!(store.document().node(u(10)).and_then(Node::parent_id), None);
+    }
+
+    #[test]
+    fn reorder_rejects_a_bad_before_and_cycles() {
+        let (_dir, mut store) = store_with_connections();
+        // Not a sibling (other parent), not the same kind, itself, unknown.
+        store.upsert_node(conn(20, Some(2), "x")).expect("x");
+        for target in [u(20), u(2), u(10), u(99)] {
+            assert!(store
+                .reorder(u(10), Some(u(1)), Some(target), None)
+                .is_err());
+        }
+        assert_eq!(
+            code(store.reorder(u(10), Some(u(1)), Some(u(2)), None)),
+            crate::ErrorCode::InvalidInput
+        );
+        assert_eq!(
+            code(store.reorder(u(99), None, None, None)),
+            crate::ErrorCode::NotFound
+        );
+        // Cycles are refused as in move_node.
+        store.upsert_node(folder(3, Some(1), "F3")).expect("f3");
+        let before = store.document().clone();
+        assert_eq!(
+            code(store.reorder(u(1), Some(u(3)), None, None)),
+            crate::ErrorCode::InvalidInput
+        );
+        assert_eq!(
+            code(store.reorder(u(1), Some(u(1)), None, None)),
+            crate::ErrorCode::InvalidInput
+        );
+        assert_eq!(
+            code(store.reorder(u(10), Some(u(11)), None, None)),
+            crate::ErrorCode::InvalidInput
+        );
+        assert_eq!(store.document(), &before);
+    }
+
+    #[test]
+    fn the_ui_order_hint_decides_the_first_numbering_of_an_unindexed_group() {
+        let dir = TempDir::new();
+        let mut store = DocumentStore::load(dir.file()).expect("load");
+        store.upsert_node(folder(1, None, "F")).expect("f");
+        // Rust order puts "a_b" before "Élan"; the UI shows Élan, a_b, zed, b.
+        for (id, name) in [(10, "Élan"), (11, "a_b"), (12, "zed"), (13, "b")] {
+            store.upsert_node(conn(id, Some(1), name)).expect("conn");
+        }
+        store.upsert_node(conn(14, Some(1), "new")).expect("new");
+        let hint = [u(10), u(11), u(12), u(13), u(99)]; // 14 missing, 99 unknown
+                                                        // Move zed to the end: Élan, a_b, b, new (not hinted: after), zed.
+        store
+            .reorder(u(12), Some(u(1)), None, Some(&hint))
+            .expect("reorder");
+        assert_eq!(
+            ids(&order(&store, Some(1), false)),
+            vec![u(10), u(11), u(13), u(14), u(12)]
+        );
+        // Indexed now: a hint is ignored.
+        let other = [u(13), u(12), u(11), u(10), u(14)];
+        store
+            .reorder(u(10), Some(u(1)), None, Some(&other))
+            .expect("again");
+        assert_eq!(
+            ids(&order(&store, Some(1), false)),
+            vec![u(11), u(13), u(14), u(12), u(10)]
+        );
+    }
+
+    #[test]
+    fn editing_a_node_keeps_its_index_and_changing_its_parent_drops_it() {
+        let (_dir, mut store) = store_with_connections();
+        store
+            .reorder(u(13), Some(u(1)), Some(u(10)), None)
+            .expect("reorder");
+        // An edit that sends no index (or a wrong one) keeps the stored one.
+        for sent in [None, Some(99)] {
+            let mut edited = conn(13, Some(1), "d renamed");
+            if let Node::Connection(c) = &mut edited {
+                c.sort_index = sent;
+                c.icon = Some("key".into());
+            }
+            let stored = store.upsert_node(edited).expect("edit");
+            assert_eq!(stored.sort_index(), Some(0));
+        }
+        assert_eq!(
+            store.document().node(u(13)).and_then(Node::sort_index),
+            Some(0)
+        );
+        // Changing the parent drops it.
+        let mut moved = conn(13, Some(2), "d renamed");
+        if let Node::Connection(c) = &mut moved {
+            c.sort_index = Some(7);
+        }
+        let stored = store.upsert_node(moved).expect("move");
+        assert_eq!(stored.sort_index(), None);
+        // A new node keeps what it brings.
+        let mut fresh = conn(30, Some(1), "new");
+        if let Node::Connection(c) = &mut fresh {
+            c.sort_index = Some(4);
+        }
+        assert_eq!(store.upsert_node(fresh).expect("new").sort_index(), Some(4));
+    }
+
+    #[test]
+    fn sort_by_name_clears_the_indices_of_that_parent_only() {
+        let (_dir, mut store) = store_with_connections();
+        store.upsert_node(conn(20, Some(2), "x")).expect("x");
+        store.upsert_node(conn(21, Some(2), "y")).expect("y");
+        store
+            .reorder(u(13), Some(u(1)), Some(u(10)), None)
+            .expect("in 1");
+        store
+            .reorder(u(21), Some(u(2)), Some(u(20)), None)
+            .expect("in 2");
+        store.sort_by_name(Some(u(1))).expect("sort");
+        assert!(order(&store, Some(1), false)
+            .iter()
+            .all(|(_, i)| i.is_none()));
+        assert_eq!(
+            ids(&order(&store, Some(1), false)),
+            vec![u(10), u(11), u(12), u(13)]
+        );
+        assert!(order(&store, Some(2), false)
+            .iter()
+            .all(|(_, i)| i.is_some()));
+        assert_eq!(
+            code(store.sort_by_name(Some(u(10)))),
+            crate::ErrorCode::InvalidInput
+        );
+        assert_eq!(
+            code(store.sort_by_name(Some(u(99)))),
+            crate::ErrorCode::NotFound
+        );
+        store.sort_by_name(None).expect("root");
+    }
+
+    #[test]
+    fn names_compare_like_the_tree_does() {
+        assert_eq!(compare_names("host2", "host10"), Cmp::Less);
+        assert_eq!(compare_names("Alpha", "alpha"), Cmp::Equal);
+        assert_eq!(compare_names("a", "B"), Cmp::Less);
+        assert_eq!(compare_names("a1", "a01"), Cmp::Equal);
     }
 }

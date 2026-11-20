@@ -53,6 +53,9 @@ mod tests {
 
     fn folder(id: u128, parent: Option<u128>, credential: CredentialRef) -> Node {
         Node::Folder(Folder {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(id),
             parent_id: parent.map(u),
             name: format!("f{id}"),
@@ -62,6 +65,9 @@ mod tests {
 
     fn conn(id: u128, parent: Option<u128>, credential: CredentialRef) -> Node {
         Node::Connection(Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(id),
             parent_id: parent.map(u),
             name: format!("c{id}"),
