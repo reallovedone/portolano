@@ -17,20 +17,22 @@ async function open(id: string | null, kind?: ConnectionKind) {
   return screen.findByRole("dialog");
 }
 
+const sectionTitles = (root: HTMLElement) =>
+  [...root.querySelectorAll("section h3")].map((h) => h.querySelector(".title")?.textContent ?? h.textContent);
+
 describe("ConnectionEditor structure", () => {
   it("groups the fields into titled sections, in reading order", async () => {
     const dialog = await open(null);
-    const titles = [...dialog.querySelectorAll("section h3")].map((h) => h.textContent);
+    const titles = sectionTitles(dialog);
     // SSH is the default kind: it has options, so every section is present.
-    expect(titles).toEqual(["General", "Connection", "Credentials", "Options", "Notes"]);
+    expect(titles).toEqual(["General", "Connection", "Credentials", "Icon & colour", "Options", "Notes"]);
   });
 
   it("drops the Options section for a local shell", async () => {
     const dialog = await open(null);
     const group = within(dialog).getByRole("radiogroup", { name: "Connection type" });
     await fireEvent.click(within(group).getByLabelText("Local shell"));
-    const titles = [...dialog.querySelectorAll("section h3")].map((h) => h.textContent);
-    expect(titles).toEqual(["General", "Connection", "Credentials", "Notes"]);
+    expect(sectionTitles(dialog)).toEqual(["General", "Connection", "Credentials", "Icon & colour", "Notes"]);
   });
 
   it("offers the kind as a radio group that is fixed once the connection exists", async () => {
@@ -294,6 +296,7 @@ describe("ConnectionEditor RDP sections", () => {
       "General",
       "Connection",
       "Credentials",
+      "Icon & colour",
       "Display",
       "Sign-in",
       "Clipboard & keyboard",

@@ -201,6 +201,11 @@ export const ANSI_TOKENS = [
   "bright-white",
 ].map((name) => `--ansi-${name}`);
 
+/** The colour names a node can have; the token of each is `--node-<name>`. */
+export const NODE_COLOR_TOKENS = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "gray"].map(
+  (name) => `--node-${name}`,
+);
+
 /** Every foreground/background combination the design promises to keep readable. */
 export const PAIRS: Pair[] = [
   ...SURFACES.flatMap((bg) =>
@@ -251,6 +256,19 @@ export const PAIRS: Pair[] = [
       "--protocol-vnc",
       "--protocol-web",
     ].map((fg) => ({ fg, bg, min: GRAPHIC, note: "icon" })),
+  ),
+  // Node colours (a dot in the tree, a bar on a tab) on every surface they sit on, including the
+  // selected, inactive-selected, hovered and drop-target row (translucent overlays over the sidebar).
+  ...NODE_COLOR_TOKENS.flatMap((fg) =>
+    [
+      "--surface-window",
+      "--surface-content",
+      "--surface-sidebar",
+      "--surface-sidebar+--selection-bg",
+      "--surface-sidebar+--selection-bg-inactive",
+      "--surface-sidebar+--surface-hover",
+      "--surface-sidebar+--accent-subtle",
+    ].map((bg) => ({ fg, bg, min: GRAPHIC, note: "node colour" })),
   ),
 ];
 

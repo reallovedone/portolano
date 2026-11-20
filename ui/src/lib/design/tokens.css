@@ -135,6 +135,18 @@
   --protocol-vnc: #7a55b8;
   --protocol-web: #b5651a;
 
+  /* ---- Node colours: the optional colour of a connection or folder (a dot in the tree, a bar
+       on its tab), readable as a graphic on every surface, selection and scheme ---- */
+  --node-red: #c8372d;
+  --node-orange: #b1540e;
+  --node-yellow: #8d6a00;
+  --node-green: #1d7f46;
+  --node-teal: #117b89;
+  --node-blue: #2d6fcb;
+  --node-purple: #7a55b8;
+  --node-pink: #c2338a;
+  --node-gray: #67717f;
+
   /* ---- Terminal -----------------------------------------------------------
      terminal-bg          : background of the whole terminal pane (xterm and the padding around it)
      terminal-line-height : xterm line height multiplier
@@ -357,6 +369,18 @@
     --protocol-rdp: #6fa8f0;
     --protocol-vnc: #b394e8;
     --protocol-web: #e0954a;
+
+    /* ---- Node colours: the optional colour of a connection or folder (a dot in the tree, a bar
+         on its tab), readable as a graphic on every surface, selection and scheme ---- */
+    --node-red: #f4958e;
+    --node-orange: #f19951;
+    --node-yellow: #e3b93c;
+    --node-green: #5bc98a;
+    --node-teal: #4fc3d0;
+    --node-blue: #7db1f2;
+    --node-purple: #bca1eb;
+    --node-pink: #f18ec1;
+    --node-gray: #a4afbd;
   }
 }
 
@@ -457,6 +481,18 @@
   --protocol-rdp: #6fa8f0;
   --protocol-vnc: #b394e8;
   --protocol-web: #e0954a;
+
+  /* ---- Node colours: the optional colour of a connection or folder (a dot in the tree, a bar
+       on its tab), readable as a graphic on every surface, selection and scheme ---- */
+  --node-red: #f4958e;
+  --node-orange: #f19951;
+  --node-yellow: #e3b93c;
+  --node-green: #5bc98a;
+  --node-teal: #4fc3d0;
+  --node-blue: #7db1f2;
+  --node-purple: #bca1eb;
+  --node-pink: #f18ec1;
+  --node-gray: #a4afbd;
 }
 
 /* ---- Accent colours -------------------------------------------------------

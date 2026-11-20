@@ -30,6 +30,32 @@ async function codeOf(p: Promise<unknown>): Promise<string> {
   return "no error";
 }
 
+describe("mock node appearance", () => {
+  const id = "00000000-0000-4000-8000-0000000000b1";
+
+  it("stores a known icon and colour and rejects unknown ones", async () => {
+    const ipc = createMockIpc();
+    const base = newConnection(id, null);
+    const stored = await ipc.docUpsertNode({ ...base, icon: "server", color: "teal" });
+    expect(stored).toMatchObject({ icon: "server", color: "teal" });
+    expect((await ipc.docGet()).nodes.find((n) => n.id === id)).toMatchObject({ icon: "server", color: "teal" });
+
+    expect(await codeOf(ipc.docUpsertNode({ ...base, icon: "not-an-icon" }))).toBe("invalid_input");
+    expect(await codeOf(ipc.docUpsertNode({ ...base, icon: "" }))).toBe("invalid_input");
+    expect(await codeOf(ipc.docUpsertNode({ ...base, color: "magenta" }))).toBe("invalid_input");
+    expect(await codeOf(ipc.docUpsertNode({ ...base, color: "" }))).toBe("invalid_input");
+    // The rejected saves changed nothing.
+    expect((await ipc.docGet()).nodes.find((n) => n.id === id)).toMatchObject({ icon: "server", color: "teal" });
+  });
+
+  it("validates folders the same way", async () => {
+    const ipc = createMockIpc();
+    const folder: Node = { type: "folder", id, parentId: null, name: "f", credential: { type: "inherit" } };
+    expect(await codeOf(ipc.docUpsertNode({ ...folder, icon: "folder", color: "gray" }))).toBe("no error");
+    expect(await codeOf(ipc.docUpsertNode({ ...folder, color: "mauve" }))).toBe("invalid_input");
+  });
+});
+
 describe("mock document", () => {
   it("returns the seed and upserts, moves and deletes nodes", async () => {
     const ipc = createMockIpc();

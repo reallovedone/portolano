@@ -2,6 +2,7 @@
 // without the backend. Session commands are not simulated and reject with `unsupported`.
 // NOTHING here is secure: the "vault" keeps secrets in plain memory.
 
+import { isNodeColor, isNodeIcon } from "../design/nodeAppearance";
 import { createMockFramebuffer } from "../sessions/fb/mock-fb";
 import { createMockWeb } from "../sessions/web/mock-web";
 import { effectiveCredentialOf } from "../tree/model";
@@ -679,6 +680,13 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     },
     async docUpsertNode(node) {
       if (node.name.trim() === "") throw new IpcError("invalid_input", "the name is empty");
+      // Like the backend: only the icons and colours of appearance.json are accepted on save.
+      if (node.icon !== undefined && !isNodeIcon(node.icon)) {
+        throw new IpcError("invalid_input", `unknown icon: ${node.icon}`);
+      }
+      if (node.color !== undefined && !isNodeColor(node.color)) {
+        throw new IpcError("invalid_input", `unknown colour: ${node.color}`);
+      }
       if (node.parentId !== null) {
         const parent = requireNode(node.parentId);
         if (parent.type !== "folder") {

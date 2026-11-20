@@ -15,6 +15,7 @@
     preview,
     variant = "card",
     columns,
+    captions = true,
   }: {
     /** Accessible name of the group. */
     label: string;
@@ -27,6 +28,8 @@
     variant?: "card" | "swatch";
     /** Fixed number of columns; by default as many as fit. */
     columns?: number;
+    /** false hides the names under the pictures (they stay the accessible names and tooltips). */
+    captions?: boolean;
   } = $props();
 
   const uid = $props.id();
@@ -41,7 +44,7 @@
 >
   {#each options as option (option.value)}
     {@const selected = value === option.value}
-    <label class="choice" class:selected>
+    <label class="choice" class:selected title={captions ? undefined : option.label}>
       <input
         type="radio"
         name="choice-{uid}"
@@ -50,7 +53,7 @@
         onchange={() => onselect(option.value)}
       />
       <span class="picture" aria-hidden="true">{@render preview(option.value, selected)}</span>
-      <span class="caption">{option.label}</span>
+      <span class="caption" class:sr-only={!captions}>{option.label}</span>
       {#if variant === "card" && selected}
         <span class="check" aria-hidden="true"><Icon name="check" size={14} strokeWidth={2.5} /></span>
       {/if}

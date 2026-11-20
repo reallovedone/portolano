@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACCENTS,
   ANSI_TOKENS,
+  NODE_COLOR_TOKENS,
   accentMediaTokens,
   accentTokens,
   PAIRS,
@@ -80,6 +81,7 @@ const COLOR_TOKENS = [
   "letterbox-bg",
   ...ACCENTS.map((accent) => `swatch-${accent}`),
   ...ANSI_TOKENS.map((token) => token.slice(2)),
+  ...NODE_COLOR_TOKENS.map((token) => token.slice(2)),
 ];
 
 const SHARED_TOKENS = [
@@ -445,6 +447,36 @@ describe("colour schemes", () => {
         const failures = rows
           .filter((m) => !m.pass)
           .map((m) => `${scheme} ${accent} ${m.theme} ${m.fg} on ${m.bg}: ${m.value.toFixed(2)} < ${m.min}`);
+        expect(failures).toEqual([]);
+      });
+    }
+  }
+});
+
+describe("node colours", () => {
+  it("has the nine colours of appearance.json as tokens", () => {
+    const shared = JSON.parse(
+      readFileSync(join(process.cwd(), "../crates/core-model/src/appearance.json"), "utf8"),
+    ) as { colors: string[] };
+    expect(NODE_COLOR_TOKENS).toEqual(shared.colors.map((name) => `--node-${name}`));
+  });
+
+  it("keeps the nine colours apart from each other in both themes", () => {
+    for (const theme of [light, dark]) {
+      expect(new Set(NODE_COLOR_TOKENS.map((name) => theme[name])).size).toBe(NODE_COLOR_TOKENS.length);
+    }
+  });
+
+  // Every scheme x theme x accent, on the window, content and sidebar surfaces and on the
+  // selected (active and inactive), hovered and drop-target tree row.
+  for (const scheme of SCHEMES) {
+    for (const accent of ACCENTS) {
+      it(`${scheme} with the ${accent} accent keeps every node colour at 3:1 on every surface and row state`, () => {
+        const rows = measure(css, accent, scheme).filter((m) => m.note === "node colour");
+        expect(rows.length).toBe(NODE_COLOR_TOKENS.length * 7 * 2);
+        const failures = rows
+          .filter((m) => !m.pass)
+          .map((m) => `${m.theme} ${m.fg} on ${m.bg}: ${m.value.toFixed(2)} < ${m.min}`);
         expect(failures).toEqual([]);
       });
     }
