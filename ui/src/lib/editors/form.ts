@@ -60,7 +60,7 @@ export interface ConnectionDraft {
   // web
   url: string;
   isolatedProfile: boolean;
-  /** Kept as loaded and written back unchanged (no picker yet). Absent when unset. */
+  /** Chosen in the appearance picker, and written back as loaded otherwise. Absent when unset. */
   icon?: string;
   color?: string;
 }
@@ -353,7 +353,7 @@ export interface FolderDraft {
   parentId: Uuid | null;
   name: string;
   credential: CredentialDraft;
-  /** Kept as loaded and written back unchanged (no picker yet). Absent when unset. */
+  /** Chosen in the appearance picker, and written back as loaded otherwise. Absent when unset. */
   icon?: string;
   color?: string;
 }

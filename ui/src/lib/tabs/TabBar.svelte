@@ -1,15 +1,16 @@
 <script lang="ts">
   import { tick } from "svelte";
 
+  import { nodeColorVar } from "../design/icons/nodeIcons";
   import { t } from "../i18n/strings";
   import { detectMac, shortcutLabel } from "../shortcuts";
   import { getApp } from "../state/app";
-  import { defaultParentFor } from "../tree/model";
+  import { defaultParentFor, isConnection } from "../tree/model";
   import ContextMenu from "../ui/ContextMenu.svelte";
   import Icon from "../ui/Icon.svelte";
   import IconButton from "../ui/IconButton.svelte";
-  import KindIcon from "../ui/KindIcon.svelte";
   import type { MenuItem } from "../ui/menu";
+  import NodeIcon from "../ui/NodeIcon.svelte";
   import Spinner from "../ui/Spinner.svelte";
   import { scrollEdges, wheelToScroll, type ScrollEdges } from "./overflow";
 
@@ -183,8 +184,13 @@
   >
     {#each tabs.tabs as tab, index (tab.id)}
       {@const active = tab.id === tabs.state.activeId}
+      {@const node = tab.type === "connection" ? doc.node(tab.connectionId) : undefined}
+      {@const appearance = node && isConnection(node) ? node : undefined}
+      {@const tint = nodeColorVar(appearance?.color)}
       <div
         class="tab"
+        class:tinted={tint !== undefined}
+        style:--node-color={tint}
         class:active
         class:over={overIndex === index && dragIndex !== index}
         class:dragging={dragIndex === index}
@@ -237,7 +243,7 @@
           {:else if tab.status === "opening"}
             <Spinner size={14} />
           {:else}
-            <KindIcon kind={tab.kind} />
+            <NodeIcon kind={tab.kind} icon={appearance?.icon} />
           {/if}
           <span class="title">{tabs.title(tab)}</span>
           {#if tab.type === "connection" && tab.status === "failed"}
@@ -350,6 +356,18 @@
     border-radius: var(--radius-control) var(--radius-control) 0 0;
     color: var(--text-secondary);
     transition: background var(--duration-fast) var(--ease-standard);
+  }
+
+  /* A coloured connection: a thin bar along the top edge of its tab (never the title colour).
+     A folder's colour is not inherited by the connections inside it. */
+  .tab.tinted::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    inset-inline: var(--space-2);
+    height: var(--focus-ring-width);
+    background: var(--node-color);
+    border-radius: var(--radius-full);
   }
 
   .tab:hover:not(.active) {

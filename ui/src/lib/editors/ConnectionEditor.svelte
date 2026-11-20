@@ -18,6 +18,7 @@
   import Select from "../ui/Select.svelte";
   import TextArea from "../ui/TextArea.svelte";
   import TextField from "../ui/TextField.svelte";
+  import AppearancePicker from "./AppearancePicker.svelte";
   import CredentialField from "./CredentialField.svelte";
   import EditorHeader from "./EditorHeader.svelte";
   import {
@@ -73,6 +74,8 @@
   let signInOpen = $state(draft.domain.trim() !== "" || draft.kerberosKdc.trim() !== "");
   let clipboardOpen = $state(true);
   let securityOpen = $state(draft.ignoreCert || draft.allowWithoutNla);
+  // Icon and colour start closed unless one is set.
+  let appearanceOpen = $state(draft.icon !== undefined || draft.color !== undefined);
   const FIELD_SECTION: Partial<Record<ConnectionField, "display" | "signIn">> = {
     width: "display",
     height: "display",
@@ -258,6 +261,21 @@
         parentId={draft.parentId}
         error={errorText("credential")}
         idPrefix={uid}
+      />
+    </FormSection>
+
+    <FormSection
+      title={t("editor.section.appearance")}
+      summary={t("editor.section.appearanceSummary")}
+      grouped
+      collapsible
+      bind:open={appearanceOpen}
+    >
+      <AppearancePicker
+        kind={draft.kind}
+        bind:icon={draft.icon}
+        bind:color={draft.color}
+        id="{uid}-look"
       />
     </FormSection>
 

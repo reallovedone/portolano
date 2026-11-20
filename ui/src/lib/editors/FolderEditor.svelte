@@ -11,6 +11,7 @@
   import FormRow from "../ui/FormRow.svelte";
   import FormSection from "../ui/FormSection.svelte";
   import TextField from "../ui/TextField.svelte";
+  import AppearancePicker from "./AppearancePicker.svelte";
   import CredentialField from "./CredentialField.svelte";
   import EditorHeader from "./EditorHeader.svelte";
   import {
@@ -43,6 +44,8 @@
   let saveError = $state<string | null>(null);
   let busy = $state(false);
   let form: HTMLFormElement | undefined = $state();
+  // Icon and colour start closed unless one is set.
+  let appearanceOpen = $state(draft.icon !== undefined || draft.color !== undefined);
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -103,6 +106,16 @@
         error={errors.credential ? t(errors.credential) : null}
         idPrefix={uid}
       />
+    </FormSection>
+
+    <FormSection
+      title={t("editor.section.appearance")}
+      summary={t("editor.section.appearanceSummary")}
+      grouped
+      collapsible
+      bind:open={appearanceOpen}
+    >
+      <AppearancePicker kind="folder" bind:icon={draft.icon} bind:color={draft.color} id="{uid}-look" />
     </FormSection>
   </form>
 

@@ -98,7 +98,7 @@ describe("no hard-coded design literals outside tokens.css", () => {
     const css = TOKENS_CSS;
     const defined = new Set([...Object.keys(lightTokens(css)), ...Object.keys(darkTokens(css))]);
     // Variables set by components themselves for their own styles.
-    const local = new Set(["--depth", "--spinner-size", "--sidebar-width", "--columns"]);
+    const local = new Set(["--depth", "--spinner-size", "--sidebar-width", "--columns", "--node-color"]);
     const missing: string[] = [];
     for (const file of FILES) {
       const source = BY_NAME.get(file) ?? "";

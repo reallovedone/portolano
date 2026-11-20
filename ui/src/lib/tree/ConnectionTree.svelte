@@ -14,8 +14,9 @@
   import EmptyState from "../ui/EmptyState.svelte";
   import Icon from "../ui/Icon.svelte";
   import IconButton from "../ui/IconButton.svelte";
-  import KindIcon from "../ui/KindIcon.svelte";
   import ListRow from "../ui/ListRow.svelte";
+  import NodeDot from "../ui/NodeDot.svelte";
+  import NodeIcon from "../ui/NodeIcon.svelte";
   import type { MenuItem } from "../ui/menu";
   import { startExport, startImport } from "../transfer/actions";
   import PromptDialog from "../ui/PromptDialog.svelte";
@@ -712,10 +713,13 @@
                 {:else}
                   <span class="twisty spacer"></span>
                 {/if}
-                <KindIcon kind={nodeKind(node)} open={row.expanded} size={20} />
+                <NodeIcon kind={nodeKind(node)} icon={node.icon} open={row.expanded} size={20} />
               </span>
             {/snippet}
-            <span class="name" title={node.name}>{node.name}</span>
+            <span class="name-line">
+              <span class="name" title={node.name}>{node.name}</span>
+              <NodeDot color={node.color} />
+            </span>
             {#snippet secondary()}
               {#if isConnection(node)}<span class="host" title={node.host}>{node.host}</span>{/if}
             {/snippet}
@@ -824,6 +828,20 @@
     background: var(--accent-subtle);
     outline: 2px dashed var(--accent);
     outline-offset: calc(-1 * var(--space-1));
+  }
+
+  /* The name truncates with an ellipsis; the colour dot after it always stays visible. */
+  .name-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .lead {

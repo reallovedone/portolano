@@ -9,6 +9,7 @@ attention when you upgrade.
 
 ### ✨ Added
 
+- Connections and folders can have their own icon (40 to choose from, with search) and colour, picked in the editor under *General*: the icon replaces the default one in the list, and the colour shows as a dot after the name and as a thin bar on the tab of an open connection.
 - A new Settings window (⋯ menu, or *Settings…* with ⌘, on macOS) lets you choose the theme (system, light or dark), a colour theme (Portolano, Nord, Solarized or Rosé Pine, each with a light and a dark look), one of five accent colours, a compact list density and the terminal font size; changes apply immediately, including to terminals that are already open, and the window opens in the right theme without a white flash.
 - Folders and connections can be put in your own order: drag them between others (a line shows where they land), use *Move up* and *Move down* in the right-click menu, or go back to alphabetical with *Sort by name* in a folder's menu or the sidebar's more-actions menu.
 - *Reconnect* in the tab menu, and ⌘⇧R (Ctrl+Shift+R on Windows), closes the session and opens it again, for every kind of connection, even while it is still connected.
