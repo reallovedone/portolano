@@ -11,7 +11,9 @@ export type Dialog =
   | { type: "import"; path: string }
   | { type: "createVault" }
   // "Check for updates…": version, the automatic-check setting, and the result of a check.
-  | { type: "updates" };
+  | { type: "updates" }
+  // Settings window (for now only the Appearance section).
+  | { type: "settings" };
 
 export class UiStore {
   dialog = $state<Dialog | null>(null);

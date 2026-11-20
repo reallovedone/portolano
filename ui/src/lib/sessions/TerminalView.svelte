@@ -161,6 +161,7 @@
   onMount(() => {
     const terminal = new Terminal({
       ...deriveTerminalMetrics(),
+      fontSize: app.appearance.value.terminalFontSize,
       cursorBlink: true,
       scrollback: 10000,
       macOptionIsMeta: false,
@@ -226,6 +227,15 @@
       term = null;
       fit = null;
     };
+  });
+
+  // A new font size from Settings reaches terminals that are already open: the cell size changes,
+  // so the grid is refitted (which also tells the remote side the new rows and columns).
+  $effect(() => {
+    const size = app.appearance.value.terminalFontSize;
+    if (!ready || !term || term.options.fontSize === size) return;
+    term.options.fontSize = size;
+    scheduleFit();
   });
 
   // The tab became visible: its size may have changed while hidden.

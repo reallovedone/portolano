@@ -1,4 +1,5 @@
 import type {
+  Appearance,
   Bounds,
   CredentialAnswer,
   CredentialInput,
@@ -85,6 +86,15 @@ export interface Ipc {
    * in every case the master password is the fallback.
    */
   vaultQuickUnlock(): Promise<void>;
+
+  // appearance
+  /** The saved appearance (theme, colour scheme, accent, density, terminal font size). */
+  appearanceGet(): Promise<Appearance>;
+  /**
+   * Saves a new appearance and returns what is saved. Refused with `invalid_input` (nothing
+   * saved) when a value is not one of the lists or the font size is outside 10 to 24.
+   */
+  appearanceSet(appearance: Appearance): Promise<Appearance>;
 
   // terminal family (local shell, SSH)
   termOpen(
@@ -209,6 +219,8 @@ export interface Ipc {
    * it and waits for `quitReply`. Without an answer within 2 seconds the application quits.
    */
   onQuitRequested(handler: () => void): () => void;
+  /** macOS menu bar: "Settings…" (⌘,) was chosen (the event never fires elsewhere). */
+  onSettingsMenu(handler: () => void): () => void;
   /** macOS menu bar: "Close Tab" (⌘W) was chosen; the active tab is to be closed. */
   onCloseTabMenu(handler: () => void): () => void;
   /** "Save to the vault" failed at connect time; the session stays connected. */

@@ -8,6 +8,7 @@ import { CloseConfirmStore } from "../tabs/closeConfirm.svelte";
 import { TabsStore } from "../tabs/store.svelte";
 import { SessionToolbarStore } from "../tabs/toolbar.svelte";
 import { createMockFilePicker, tauriFilePicker, type FilePicker } from "../transfer/files";
+import { AppearanceStore } from "./appearance.svelte";
 import { DocumentStore } from "./document.svelte";
 import { NoticeStore } from "./notices.svelte";
 import { OverlayStore } from "./overlay.svelte";
@@ -30,6 +31,8 @@ export interface App {
   /** What the session toolbar shows and whether it is visible. */
   toolbar: SessionToolbarStore;
   updates: UpdateStore;
+  /** Theme, accent, density and terminal font size. */
+  appearance: AppearanceStore;
 }
 
 export function createApp(
@@ -53,6 +56,7 @@ export function createApp(
     ui: new UiStore(),
     toolbar: new SessionToolbarStore(),
     updates: new UpdateStore(ipc, notices, updateTiming),
+    appearance: new AppearanceStore(ipc, notices),
   };
 }
 

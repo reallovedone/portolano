@@ -49,9 +49,65 @@ export function darkMediaTokens(css: string): TokenMap {
   return body ? declarations(body) : {};
 }
 
-export function themeTokens(css: string, theme: Theme): TokenMap {
+/** Accent names the user can choose. Blue is the base of tokens.css; the others have blocks. */
+export const ACCENTS = ["blue", "teal", "purple", "orange", "graphite"] as const;
+export type AccentName = (typeof ACCENTS)[number];
+
+/** What an accent redefines for one theme (empty for blue, which is the base). */
+export function accentTokens(css: string, accent: string, theme: Theme): TokenMap {
+  const selector =
+    theme === "light" ? `:root[data-accent="${accent}"]` : `:root[data-theme="dark"][data-accent="${accent}"]`;
+  const body = ruleBody(css, selector);
+  return body ? declarations(body) : {};
+}
+
+/** The dark block of an accent inside the prefers-color-scheme media query. */
+export function accentMediaTokens(css: string, accent: string): TokenMap {
+  const media = css.indexOf("@media (prefers-color-scheme: dark)");
+  if (media < 0) return {};
+  const body = ruleBody(css, `:root:not([data-theme="light"])[data-accent="${accent}"]`, media);
+  return body ? declarations(body) : {};
+}
+
+/** Colour schemes the user can choose. Portolano is the base of tokens.css (no attribute on <html>). */
+export const SCHEMES = ["portolano", "nord", "solarized", "rose-pine"] as const;
+export type SchemeName = (typeof SCHEMES)[number];
+
+/** Selector of the light block of a scheme (root or preview card): a line of its own. */
+const schemeLightSelector = (scheme: string): string => `\n[data-scheme="${scheme}"]`;
+/** The dark selector lists: system preference (inside the media query) and forced. */
+export const schemeMediaSelector = (scheme: string): string =>
+  `:root:not([data-theme="light"])[data-scheme="${scheme}"], :root:not([data-theme="light"]) [data-scheme="${scheme}"]`;
+export const schemeForcedSelector = (scheme: string): string =>
+  `:root[data-theme="dark"][data-scheme="${scheme}"], :root[data-theme="dark"] [data-scheme="${scheme}"]`;
+
+/** What a scheme redefines for one theme. */
+export function schemeTokens(css: string, scheme: string, theme: Theme): TokenMap {
+  const body = ruleBody(css, theme === "light" ? schemeLightSelector(scheme) : schemeForcedSelector(scheme));
+  return body ? declarations(body) : {};
+}
+
+/** The dark block of a scheme inside the prefers-color-scheme media query. */
+export function schemeMediaTokens(css: string, scheme: string): TokenMap {
+  const media = css.indexOf("@media (prefers-color-scheme: dark)");
+  if (media < 0) return {};
+  const body = ruleBody(css, schemeMediaSelector(scheme), media);
+  return body ? declarations(body) : {};
+}
+
+/** The tokens the page resolves for a scheme, theme and accent. Portolano is the bare base:
+ *  a page with that choice has no scheme attribute, so its blocks (for the preview cards) are
+ *  not applied here. */
+export function themeTokens(
+  css: string,
+  theme: Theme,
+  accent: string = "blue",
+  scheme: string = "portolano",
+): TokenMap {
   const light = lightTokens(css);
-  return theme === "light" ? light : { ...light, ...darkTokens(css) };
+  const base = theme === "light" ? light : { ...light, ...darkTokens(css) };
+  const schemed = scheme === "portolano" ? {} : schemeTokens(css, scheme, theme);
+  return { ...base, ...schemed, ...accentTokens(css, accent, theme) };
 }
 
 export function parseColor(value: string): Rgba | null {
@@ -217,10 +273,10 @@ export interface Measured extends Pair {
   pass: boolean;
 }
 
-export function measure(css: string): Measured[] {
+export function measure(css: string, accent: string = "blue", scheme: string = "portolano"): Measured[] {
   const out: Measured[] = [];
   for (const theme of ["light", "dark"] as const) {
-    const tokens = themeTokens(css, theme);
+    const tokens = themeTokens(css, theme, accent, scheme);
     for (const pair of PAIRS) {
       const bg = resolve(tokens, pair.bg);
       // A translucent foreground (none today) would be composited over the background.

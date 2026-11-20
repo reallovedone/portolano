@@ -5,6 +5,7 @@
 //! webviews from one blocks on Windows). Until the owning work package lands, each returns
 //! `AppError { code: "unsupported" }`.
 
+pub mod appearance;
 pub mod fb;
 pub mod keyfile;
 pub mod model;

@@ -9,6 +9,7 @@ attention when you upgrade.
 
 ### ✨ Added
 
+- A new Settings window (⋯ menu, or *Settings…* with ⌘, on macOS) lets you choose the theme (system, light or dark), a colour theme (Portolano, Nord, Solarized or Rosé Pine, each with a light and a dark look), one of five accent colours, a compact list density and the terminal font size; changes apply immediately, including to terminals that are already open, and the window opens in the right theme without a white flash.
 - Folders and connections can be put in your own order: drag them between others (a line shows where they land), use *Move up* and *Move down* in the right-click menu, or go back to alphabetical with *Sort by name* in a folder's menu or the sidebar's more-actions menu.
 - *Reconnect* in the tab menu, and ⌘⇧R (Ctrl+Shift+R on Windows), closes the session and opens it again, for every kind of connection, even while it is still connected.
 - A *Home* tab, from the house button in the tab strip or ⌘⇧H (Ctrl+Shift+H on Windows), keeps the welcome screen with its connection tiles one click away next to your sessions.
@@ -17,7 +18,7 @@ attention when you upgrade.
 
 ### 🔄 Changed
 
-- A connections file saved by 0.4.0 still opens in 0.3.x, but if you go back to 0.3.x and save there, your custom order, icons and colours are lost.
+- A connections file saved by 0.4.0 still opens in 0.3.x, but if you go back to 0.3.x and save there, your custom order, icons, colours and appearance settings are lost.
 - After an update, the release notes of every version you skipped are shown; they are no longer shown before installing.
 - The RDP connection editor is shorter: options are grouped into Display, Sign-in, Clipboard & keyboard and Security sections, and long explanations open with "Learn more".
 

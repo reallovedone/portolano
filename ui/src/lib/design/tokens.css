@@ -9,6 +9,8 @@
    - `prefers-color-scheme: dark` switches to dark unless `data-theme="light"` is set on <html>.
    - `data-theme="dark"` / `data-theme="light"` on <html> force a theme (gallery and tests).
    - The two dark blocks must stay identical; tokens.test.ts enforces it.
+   - `data-scheme` (nord, solarized, rose-pine) swaps the neutral palette and the terminal colours;
+     `data-accent` swaps the accent. Both are independent of the theme and of each other.
 
    Palette idea: neutral graphite surfaces with a slight cool tint, one restrained blue accent
    that appears ONLY on selection, the focus ring and the primary action, and quiet hues that
@@ -68,6 +70,22 @@
   --accent-pressed: #084a9c;
   --accent-text: #0a5bbf;
   --accent-subtle: rgb(11 100 207 / 10%);
+
+  /* ---- Accent swatches: the fill of each accent, for the picker in Settings ONLY ---- */
+  --swatch-blue: #0b64cf;
+  --swatch-teal: #0b7285;
+  --swatch-purple: #7a3fa8;
+  --swatch-orange: #b4530a;
+  --swatch-graphite: #4f525a;
+
+  /* ---- Theme preview: the little windows of the theme choice in Settings ONLY.
+     They show light and dark whatever the page is showing, so they are fixed values. */
+  --preview-light-bg: #f3f3f5;
+  --preview-light-bar: #ffffff;
+  --preview-light-line: #c9ccd3;
+  --preview-dark-bg: #26272b;
+  --preview-dark-bar: #303136;
+  --preview-dark-line: #5c5d66;
 
   /* ---- Focus ring ----------------------------------------------------- */
   --focus-ring: #1a73e0;
@@ -183,6 +201,14 @@
   --control-h-regular: 28px;
   --control-h-large: 32px;
 
+  /* ---- Row metrics of the connection tree and the lists ------------------
+     [data-density="compact"] on <html> (the user's choice) shrinks them. */
+  --row-h-compact: 24px;
+  --row-h-regular: 28px;
+  --row-h-comfortable: 36px;
+  --row-indent: var(--space-4);
+  --row-gap: 1px;
+
   /* ---- Component metrics (sizes that are not on the spacing scale) ----- */
   --icon-size-sm: 14px;
   --icon-size-md: 16px;
@@ -270,6 +296,11 @@
     --accent-text: #6cb0ff;
     --accent-subtle: rgb(108 176 255 / 14%);
 
+    --swatch-blue: #1766cf;
+    --swatch-teal: #0f7483;
+    --swatch-purple: #7b44b3;
+    --swatch-orange: #a94b08;
+    --swatch-graphite: #5c5d66;
     --focus-ring: #4d9bff;
 
     --selection-bg: rgb(77 155 255 / 24%);
@@ -365,6 +396,11 @@
   --accent-text: #6cb0ff;
   --accent-subtle: rgb(108 176 255 / 14%);
 
+  --swatch-blue: #1766cf;
+  --swatch-teal: #0f7483;
+  --swatch-purple: #7b44b3;
+  --swatch-orange: #a94b08;
+  --swatch-graphite: #5c5d66;
   --focus-ring: #4d9bff;
 
   --selection-bg: rgb(77 155 255 / 24%);
@@ -423,9 +459,685 @@
   --protocol-web: #e0954a;
 }
 
+/* ---- Accent colours -------------------------------------------------------
+   The user's accent (Settings > Appearance) is `data-accent` on <html>. Blue is the base above and
+   has no block. Every other accent redefines every accent variable, once for light and once
+   (twice, like the dark theme: system preference and forced) for dark. The dark blocks are one
+   class more specific than the light ones, so they win in dark without depending on order.
+   tokens.test.ts checks every accent against the contrast pairs in both themes.
+   KEEP the two dark blocks of an accent identical. */
+
+/* Teal */
+:root[data-accent="teal"] {
+  --accent: #0b7285;
+  --accent-hover: #09606f;
+  --accent-pressed: #074d59;
+  --accent-text: #0a6a7c;
+  --accent-subtle: rgb(11 114 133 / 10%);
+  --focus-ring: #0f8aa0;
+  --selection-bg: rgb(11 114 133 / 15%);
+  --selection-solid-bg: #0b7285;
+  --text-selection-bg: rgb(11 114 133 / 28%);
+}
+
+/* Purple */
+:root[data-accent="purple"] {
+  --accent: #7a3fa8;
+  --accent-hover: #6a3592;
+  --accent-pressed: #592c7a;
+  --accent-text: #7a3fa8;
+  --accent-subtle: rgb(122 63 168 / 10%);
+  --focus-ring: #8f55c0;
+  --selection-bg: rgb(122 63 168 / 15%);
+  --selection-solid-bg: #7a3fa8;
+  --text-selection-bg: rgb(122 63 168 / 28%);
+}
+
+/* Orange */
+:root[data-accent="orange"] {
+  --accent: #b4530a;
+  --accent-hover: #9b4608;
+  --accent-pressed: #7e3906;
+  --accent-text: #a64a08;
+  --accent-subtle: rgb(180 83 10 / 10%);
+  --focus-ring: #c25f12;
+  --selection-bg: rgb(180 83 10 / 15%);
+  --selection-solid-bg: #b4530a;
+  --text-selection-bg: rgb(180 83 10 / 28%);
+}
+
+/* Graphite */
+:root[data-accent="graphite"] {
+  --accent: #4f525a;
+  --accent-hover: #3f424a;
+  --accent-pressed: #31333a;
+  --accent-text: #4f525a;
+  --accent-subtle: rgb(79 82 90 / 10%);
+  --focus-ring: #6b6e77;
+  --selection-bg: rgb(79 82 90 / 15%);
+  --selection-solid-bg: #4f525a;
+  --text-selection-bg: rgb(79 82 90 / 28%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-accent="teal"] {
+    --accent: #0f7483;
+    --accent-hover: #14808f;
+    --accent-pressed: #0b6270;
+    --accent-text: #5cd0d6;
+    --accent-subtle: rgb(92 208 214 / 14%);
+    --focus-ring: #5cd0d6;
+    --selection-bg: rgb(92 208 214 / 24%);
+    --selection-solid-bg: #0f7483;
+    --text-selection-bg: rgb(92 208 214 / 38%);
+  }
+  :root:not([data-theme="light"])[data-accent="purple"] {
+    --accent: #7b44b3;
+    --accent-hover: #8a52c4;
+    --accent-pressed: #6a3a9a;
+    --accent-text: #c9a8f5;
+    --accent-subtle: rgb(201 168 245 / 14%);
+    --focus-ring: #b394e8;
+    --selection-bg: rgb(179 148 232 / 24%);
+    --selection-solid-bg: #7b44b3;
+    --text-selection-bg: rgb(179 148 232 / 38%);
+  }
+  :root:not([data-theme="light"])[data-accent="orange"] {
+    --accent: #a94b08;
+    --accent-hover: #b8560e;
+    --accent-pressed: #8f4006;
+    --accent-text: #f0a368;
+    --accent-subtle: rgb(240 163 104 / 14%);
+    --focus-ring: #e8944e;
+    --selection-bg: rgb(232 148 78 / 24%);
+    --selection-solid-bg: #a94b08;
+    --text-selection-bg: rgb(232 148 78 / 38%);
+  }
+  :root:not([data-theme="light"])[data-accent="graphite"] {
+    --accent: #5c5d66;
+    --accent-hover: #686973;
+    --accent-pressed: #4f5059;
+    --accent-text: #c4c6cc;
+    --accent-subtle: rgb(196 198 204 / 14%);
+    --focus-ring: #a3a6ae;
+    --selection-bg: rgb(163 166 174 / 24%);
+    --selection-solid-bg: #5c5d66;
+    --text-selection-bg: rgb(163 166 174 / 38%);
+  }
+}
+
+:root[data-theme="dark"][data-accent="teal"] {
+  --accent: #0f7483;
+  --accent-hover: #14808f;
+  --accent-pressed: #0b6270;
+  --accent-text: #5cd0d6;
+  --accent-subtle: rgb(92 208 214 / 14%);
+  --focus-ring: #5cd0d6;
+  --selection-bg: rgb(92 208 214 / 24%);
+  --selection-solid-bg: #0f7483;
+  --text-selection-bg: rgb(92 208 214 / 38%);
+}
+
+:root[data-theme="dark"][data-accent="purple"] {
+  --accent: #7b44b3;
+  --accent-hover: #8a52c4;
+  --accent-pressed: #6a3a9a;
+  --accent-text: #c9a8f5;
+  --accent-subtle: rgb(201 168 245 / 14%);
+  --focus-ring: #b394e8;
+  --selection-bg: rgb(179 148 232 / 24%);
+  --selection-solid-bg: #7b44b3;
+  --text-selection-bg: rgb(179 148 232 / 38%);
+}
+
+:root[data-theme="dark"][data-accent="orange"] {
+  --accent: #a94b08;
+  --accent-hover: #b8560e;
+  --accent-pressed: #8f4006;
+  --accent-text: #f0a368;
+  --accent-subtle: rgb(240 163 104 / 14%);
+  --focus-ring: #e8944e;
+  --selection-bg: rgb(232 148 78 / 24%);
+  --selection-solid-bg: #a94b08;
+  --text-selection-bg: rgb(232 148 78 / 38%);
+}
+
+:root[data-theme="dark"][data-accent="graphite"] {
+  --accent: #5c5d66;
+  --accent-hover: #686973;
+  --accent-pressed: #4f5059;
+  --accent-text: #c4c6cc;
+  --accent-subtle: rgb(196 198 204 / 14%);
+  --focus-ring: #a3a6ae;
+  --selection-bg: rgb(163 166 174 / 24%);
+  --selection-solid-bg: #5c5d66;
+  --text-selection-bg: rgb(163 166 174 / 38%);
+}
+
+/* ---- Colour schemes ---------------------------------------------------------
+   The user's colour scheme (Settings > Appearance) is `data-scheme` on <html>. A scheme redefines
+   the neutral surfaces, the text, the terminal pane and the 16 ANSI colours; it has a light and a
+   dark variant, so the theme (system, light, dark) keeps working on top of it. The accent is
+   independent: no scheme block touches an accent variable. The default scheme, portolano, is the
+   base above and has no attribute on <html>; its blocks here only exist for the preview cards of
+   the Settings window and tokens.test.ts checks they equal the base.
+   A block also matches any ELEMENT carrying the attribute (the preview cards), which then shows
+   the scheme in the theme that is active on the page. So the selectors have two forms:
+   - light  : `[data-scheme="x"]` (root or card), one class weaker than the dark blocks;
+   - dark   : `:root:not([data-theme="light"])` (system preference, in the media query) and
+              `:root[data-theme="dark"]` (forced), each for the root itself and for a descendant.
+   KEEP the media-query block and the forced block of a scheme identical. */
+
+[data-scheme="portolano"] {
+  --surface-window: #f3f3f5;
+  --surface-sidebar: #eceef1;
+  --surface-content: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-field: #ffffff;
+  --surface-control: #ffffff;
+  --surface-control-hover: #f6f6f8;
+  --surface-control-pressed: #ececef;
+  --surface-inset: rgb(60 66 80 / 12%);
+  --surface-hover: rgb(60 66 80 / 8%);
+  --surface-pressed: rgb(60 66 80 / 14%);
+  --text-primary: #1c1c1e;
+  --text-secondary: #4f525a;
+  --text-tertiary: #666a73;
+  --text-disabled: #a4a7ae;
+  --text-link: #0a5bbf;
+  --border-hairline: rgb(30 34 44 / 11%);
+  --border-strong: rgb(30 34 44 / 24%);
+  --decor-line: rgb(30 34 44 / 7%);
+  --decor-line-strong: rgb(30 34 44 / 14%);
+  --decor-text: rgb(30 34 44 / 34%);
+  --segment-selected-bg: #ffffff;
+  --terminal-bg: #ffffff;
+  --ansi-black: #1c1c1e;
+  --ansi-red: #c8261a;
+  --ansi-green: #1b6b37;
+  --ansi-yellow: #8a5a00;
+  --ansi-blue: #0a5bbf;
+  --ansi-magenta: #7a3fa8;
+  --ansi-cyan: #0b7285;
+  --ansi-white: #666a73;
+  --ansi-bright-black: #585c65;
+  --ansi-bright-red: #d63a2c;
+  --ansi-bright-green: #23803f;
+  --ansi-bright-yellow: #9c6500;
+  --ansi-bright-blue: #1f6fd6;
+  --ansi-bright-magenta: #8e52bd;
+  --ansi-bright-cyan: #0d8095;
+  --ansi-bright-white: #4f525a;
+}
+
+[data-scheme="nord"] {
+  --surface-window: #dde3ec;
+  --surface-sidebar: #e4e8f0;
+  --surface-content: #eceff4;
+  --surface-raised: #f6f8fb;
+  --surface-field: #f6f8fb;
+  --surface-control: #f6f8fb;
+  --surface-control-hover: #eceff4;
+  --surface-control-pressed: #dfe5ee;
+  --surface-inset: rgb(46 52 64 / 12%);
+  --surface-hover: rgb(46 52 64 / 8%);
+  --surface-pressed: rgb(46 52 64 / 14%);
+  --text-primary: #2e3440;
+  --text-secondary: #434c5e;
+  --text-tertiary: #4c566a;
+  --text-disabled: #a3abb9;
+  --text-link: #325986;
+  --border-hairline: rgb(46 52 64 / 14%);
+  --border-strong: rgb(46 52 64 / 28%);
+  --decor-line: rgb(46 52 64 / 8%);
+  --decor-line-strong: rgb(46 52 64 / 16%);
+  --decor-text: rgb(46 52 64 / 36%);
+  --segment-selected-bg: #f6f8fb;
+  --terminal-bg: #eceff4;
+  --ansi-black: #2e3440;
+  --ansi-red: #a2525a;
+  --ansi-green: #597341;
+  --ansi-yellow: #82661f;
+  --ansi-blue: #4f6c90;
+  --ansi-magenta: #90588b;
+  --ansi-cyan: #3d737f;
+  --ansi-white: #626b7d;
+  --ansi-bright-black: #4c566a;
+  --ansi-bright-red: #b24753;
+  --ansi-bright-green: #517536;
+  --ansi-bright-yellow: #866611;
+  --ansi-bright-blue: #446d9d;
+  --ansi-bright-magenta: #9a4f94;
+  --ansi-bright-cyan: #327385;
+  --ansi-bright-white: #434c5e;
+}
+
+[data-scheme="solarized"] {
+  --surface-window: #f3ecd8;
+  --surface-sidebar: #eee8d5;
+  --surface-content: #fdf6e3;
+  --surface-raised: #fffbef;
+  --surface-field: #fffbef;
+  --surface-control: #fffbef;
+  --surface-control-hover: #f7f1de;
+  --surface-control-pressed: #ebe4cf;
+  --surface-inset: rgb(7 54 66 / 12%);
+  --surface-hover: rgb(7 54 66 / 8%);
+  --surface-pressed: rgb(7 54 66 / 14%);
+  --text-primary: #073642;
+  --text-secondary: #2f4d57;
+  --text-tertiary: #47595f;
+  --text-disabled: #a8b0a8;
+  --text-link: #195a88;
+  --border-hairline: rgb(7 54 66 / 14%);
+  --border-strong: rgb(7 54 66 / 28%);
+  --decor-line: rgb(7 54 66 / 8%);
+  --decor-line-strong: rgb(7 54 66 / 16%);
+  --decor-text: rgb(7 54 66 / 36%);
+  --segment-selected-bg: #fffbef;
+  --terminal-bg: #fdf6e3;
+  --ansi-black: #073642;
+  --ansi-red: #d1302d;
+  --ansi-green: #667600;
+  --ansi-yellow: #8b6900;
+  --ansi-blue: #2075b0;
+  --ansi-magenta: #c6337a;
+  --ansi-cyan: #207c75;
+  --ansi-white: #586e75;
+  --ansi-bright-black: #586e75;
+  --ansi-bright-red: #c14715;
+  --ansi-bright-green: #687700;
+  --ansi-bright-yellow: #8e6a00;
+  --ansi-bright-blue: #2074b1;
+  --ansi-bright-magenta: #6368b4;
+  --ansi-bright-cyan: #1d7d74;
+  --ansi-bright-white: #073642;
+}
+
+[data-scheme="rose-pine"] {
+  --surface-window: #f2e9e1;
+  --surface-sidebar: #efe5dc;
+  --surface-content: #faf4ed;
+  --surface-raised: #fffaf3;
+  --surface-field: #fffaf3;
+  --surface-control: #fffaf3;
+  --surface-control-hover: #f6efe6;
+  --surface-control-pressed: #ebe1d8;
+  --surface-inset: rgb(87 82 121 / 12%);
+  --surface-hover: rgb(87 82 121 / 8%);
+  --surface-pressed: rgb(87 82 121 / 14%);
+  --text-primary: #464261;
+  --text-secondary: #534e73;
+  --text-tertiary: #58556b;
+  --text-disabled: #b0abbf;
+  --text-link: #245d75;
+  --border-hairline: rgb(87 82 121 / 14%);
+  --border-strong: rgb(87 82 121 / 28%);
+  --decor-line: rgb(87 82 121 / 8%);
+  --decor-line-strong: rgb(87 82 121 / 16%);
+  --decor-text: rgb(87 82 121 / 36%);
+  --segment-selected-bg: #fffaf3;
+  --terminal-bg: #faf4ed;
+  --ansi-black: #575279;
+  --ansi-red: #a0586d;
+  --ansi-green: #4d7858;
+  --ansi-yellow: #966421;
+  --ansi-blue: #286983;
+  --ansi-magenta: #79668e;
+  --ansi-cyan: #45767f;
+  --ansi-white: #6f6c87;
+  --ansi-bright-black: #6e6a86;
+  --ansi-bright-red: #b64a65;
+  --ansi-bright-green: #3f7a53;
+  --ansi-bright-yellow: #966318;
+  --ansi-bright-blue: #31748f;
+  --ansi-bright-magenta: #7c649e;
+  --ansi-bright-cyan: #397882;
+  --ansi-bright-white: #575279;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-scheme="portolano"], :root:not([data-theme="light"]) [data-scheme="portolano"] {
+    --surface-window: #26272b;
+    --surface-sidebar: #2d2e33;
+    --surface-content: #1e1f22;
+    --surface-raised: #303136;
+    --surface-field: #1a1b1e;
+    --surface-control: #303136;
+    --surface-control-hover: #3a3b42;
+    --surface-control-pressed: #45464e;
+    --surface-inset: rgb(255 255 255 / 10%);
+    --surface-hover: rgb(255 255 255 / 8%);
+    --surface-pressed: rgb(255 255 255 / 14%);
+    --text-primary: #f2f2f5;
+    --text-secondary: #b9bbc3;
+    --text-tertiary: #a3a6ae;
+    --text-disabled: #62646c;
+    --text-link: #6cb0ff;
+    --border-hairline: rgb(255 255 255 / 10%);
+    --border-strong: rgb(255 255 255 / 22%);
+    --decor-line: rgb(255 255 255 / 6%);
+    --decor-line-strong: rgb(255 255 255 / 12%);
+    --decor-text: rgb(255 255 255 / 32%);
+    --segment-selected-bg: #5c5d66;
+    --terminal-bg: #1e1f22;
+    --ansi-black: #8d909a;
+    --ansi-red: #ff8d84;
+    --ansi-green: #72d38d;
+    --ansi-yellow: #f2b95c;
+    --ansi-blue: #7cb9ff;
+    --ansi-magenta: #c9a8f5;
+    --ansi-cyan: #5cd0d6;
+    --ansi-white: #b9bbc3;
+    --ansi-bright-black: #a3a6ae;
+    --ansi-bright-red: #ffb0a9;
+    --ansi-bright-green: #98e3ab;
+    --ansi-bright-yellow: #f8d08c;
+    --ansi-bright-blue: #a6d0ff;
+    --ansi-bright-magenta: #dcc7fa;
+    --ansi-bright-cyan: #8fe2e6;
+    --ansi-bright-white: #f2f2f5;
+  }
+
+  :root:not([data-theme="light"])[data-scheme="nord"], :root:not([data-theme="light"]) [data-scheme="nord"] {
+    --surface-window: #2e3440;
+    --surface-sidebar: #323946;
+    --surface-content: #2b303b;
+    --surface-raised: #363d4c;
+    --surface-field: #272c36;
+    --surface-control: #363d4c;
+    --surface-control-hover: #434c5e;
+    --surface-control-pressed: #4c566a;
+    --surface-inset: rgb(255 255 255 / 10%);
+    --surface-hover: rgb(255 255 255 / 8%);
+    --surface-pressed: rgb(255 255 255 / 14%);
+    --text-primary: #eceff4;
+    --text-secondary: #cdd5e1;
+    --text-tertiary: #c4cbd8;
+    --text-disabled: #6b7589;
+    --text-link: #b0ceeb;
+    --border-hairline: rgb(255 255 255 / 12%);
+    --border-strong: rgb(255 255 255 / 24%);
+    --decor-line: rgb(255 255 255 / 6%);
+    --decor-line-strong: rgb(255 255 255 / 12%);
+    --decor-text: rgb(255 255 255 / 32%);
+    --segment-selected-bg: #4c566a;
+    --terminal-bg: #2b303b;
+    --ansi-black: #8f9aaf;
+    --ansi-red: #e0818a;
+    --ansi-green: #a3be8c;
+    --ansi-yellow: #ebcb8b;
+    --ansi-blue: #81a1c1;
+    --ansi-magenta: #b48ead;
+    --ansi-cyan: #88c0d0;
+    --ansi-white: #e5e9f0;
+    --ansi-bright-black: #8d9ab3;
+    --ansi-bright-red: #ee9aa1;
+    --ansi-bright-green: #b5d19e;
+    --ansi-bright-yellow: #f2d9a4;
+    --ansi-bright-blue: #9bb8d6;
+    --ansi-bright-magenta: #c8a6c1;
+    --ansi-bright-cyan: #a3d1de;
+    --ansi-bright-white: #eceff4;
+  }
+
+  :root:not([data-theme="light"])[data-scheme="solarized"], :root:not([data-theme="light"]) [data-scheme="solarized"] {
+    --surface-window: #04303b;
+    --surface-sidebar: #073642;
+    --surface-content: #002b36;
+    --surface-raised: #0d3f4c;
+    --surface-field: #00232c;
+    --surface-control: #0d3f4c;
+    --surface-control-hover: #164b58;
+    --surface-control-pressed: #1f5865;
+    --surface-inset: rgb(238 232 213 / 10%);
+    --surface-hover: rgb(238 232 213 / 8%);
+    --surface-pressed: rgb(238 232 213 / 14%);
+    --text-primary: #eee8d5;
+    --text-secondary: #c1c8c5;
+    --text-tertiary: #b8c1c1;
+    --text-disabled: #586e75;
+    --text-link: #8fc5ee;
+    --border-hairline: rgb(238 232 213 / 12%);
+    --border-strong: rgb(238 232 213 / 24%);
+    --decor-line: rgb(238 232 213 / 6%);
+    --decor-line-strong: rgb(238 232 213 / 12%);
+    --decor-text: rgb(238 232 213 / 32%);
+    --segment-selected-bg: #1f5865;
+    --terminal-bg: #002b36;
+    --ansi-black: #809298;
+    --ansi-red: #e56765;
+    --ansi-green: #859900;
+    --ansi-yellow: #b58900;
+    --ansi-blue: #3a95d6;
+    --ansi-magenta: #de66a0;
+    --ansi-cyan: #2aa198;
+    --ansi-white: #eee8d5;
+    --ansi-bright-black: #93a1a1;
+    --ansi-bright-red: #d7744c;
+    --ansi-bright-green: #9fb300;
+    --ansi-bright-yellow: #d4a017;
+    --ansi-bright-blue: #4aa3e8;
+    --ansi-bright-magenta: #8589ce;
+    --ansi-bright-cyan: #3cc0b6;
+    --ansi-bright-white: #fdf6e3;
+  }
+
+  :root:not([data-theme="light"])[data-scheme="rose-pine"], :root:not([data-theme="light"]) [data-scheme="rose-pine"] {
+    --surface-window: #1f1d2e;
+    --surface-sidebar: #232136;
+    --surface-content: #191724;
+    --surface-raised: #26233a;
+    --surface-field: #13111d;
+    --surface-control: #26233a;
+    --surface-control-hover: #302d47;
+    --surface-control-pressed: #393552;
+    --surface-inset: rgb(224 222 244 / 10%);
+    --surface-hover: rgb(224 222 244 / 8%);
+    --surface-pressed: rgb(224 222 244 / 14%);
+    --text-primary: #e0def4;
+    --text-secondary: #bfbcd8;
+    --text-tertiary: #b0adc4;
+    --text-disabled: #6e6a86;
+    --text-link: #9ccfd8;
+    --border-hairline: rgb(224 222 244 / 12%);
+    --border-strong: rgb(224 222 244 / 24%);
+    --decor-line: rgb(224 222 244 / 6%);
+    --decor-line-strong: rgb(224 222 244 / 12%);
+    --decor-text: rgb(224 222 244 / 32%);
+    --segment-selected-bg: #393552;
+    --terminal-bg: #191724;
+    --ansi-black: #908caa;
+    --ansi-red: #eb6f92;
+    --ansi-green: #a6d189;
+    --ansi-yellow: #f6c177;
+    --ansi-blue: #6fa8c4;
+    --ansi-magenta: #c4a7e7;
+    --ansi-cyan: #9ccfd8;
+    --ansi-white: #e0def4;
+    --ansi-bright-black: #a29fba;
+    --ansi-bright-red: #f08aa8;
+    --ansi-bright-green: #bde0a4;
+    --ansi-bright-yellow: #f9d398;
+    --ansi-bright-blue: #8bbdd6;
+    --ansi-bright-magenta: #d3bcee;
+    --ansi-bright-cyan: #b4dce2;
+    --ansi-bright-white: #f4f2ff;
+  }
+}
+
+:root[data-theme="dark"][data-scheme="portolano"], :root[data-theme="dark"] [data-scheme="portolano"] {
+  --surface-window: #26272b;
+  --surface-sidebar: #2d2e33;
+  --surface-content: #1e1f22;
+  --surface-raised: #303136;
+  --surface-field: #1a1b1e;
+  --surface-control: #303136;
+  --surface-control-hover: #3a3b42;
+  --surface-control-pressed: #45464e;
+  --surface-inset: rgb(255 255 255 / 10%);
+  --surface-hover: rgb(255 255 255 / 8%);
+  --surface-pressed: rgb(255 255 255 / 14%);
+  --text-primary: #f2f2f5;
+  --text-secondary: #b9bbc3;
+  --text-tertiary: #a3a6ae;
+  --text-disabled: #62646c;
+  --text-link: #6cb0ff;
+  --border-hairline: rgb(255 255 255 / 10%);
+  --border-strong: rgb(255 255 255 / 22%);
+  --decor-line: rgb(255 255 255 / 6%);
+  --decor-line-strong: rgb(255 255 255 / 12%);
+  --decor-text: rgb(255 255 255 / 32%);
+  --segment-selected-bg: #5c5d66;
+  --terminal-bg: #1e1f22;
+  --ansi-black: #8d909a;
+  --ansi-red: #ff8d84;
+  --ansi-green: #72d38d;
+  --ansi-yellow: #f2b95c;
+  --ansi-blue: #7cb9ff;
+  --ansi-magenta: #c9a8f5;
+  --ansi-cyan: #5cd0d6;
+  --ansi-white: #b9bbc3;
+  --ansi-bright-black: #a3a6ae;
+  --ansi-bright-red: #ffb0a9;
+  --ansi-bright-green: #98e3ab;
+  --ansi-bright-yellow: #f8d08c;
+  --ansi-bright-blue: #a6d0ff;
+  --ansi-bright-magenta: #dcc7fa;
+  --ansi-bright-cyan: #8fe2e6;
+  --ansi-bright-white: #f2f2f5;
+}
+
+:root[data-theme="dark"][data-scheme="nord"], :root[data-theme="dark"] [data-scheme="nord"] {
+  --surface-window: #2e3440;
+  --surface-sidebar: #323946;
+  --surface-content: #2b303b;
+  --surface-raised: #363d4c;
+  --surface-field: #272c36;
+  --surface-control: #363d4c;
+  --surface-control-hover: #434c5e;
+  --surface-control-pressed: #4c566a;
+  --surface-inset: rgb(255 255 255 / 10%);
+  --surface-hover: rgb(255 255 255 / 8%);
+  --surface-pressed: rgb(255 255 255 / 14%);
+  --text-primary: #eceff4;
+  --text-secondary: #cdd5e1;
+  --text-tertiary: #c4cbd8;
+  --text-disabled: #6b7589;
+  --text-link: #b0ceeb;
+  --border-hairline: rgb(255 255 255 / 12%);
+  --border-strong: rgb(255 255 255 / 24%);
+  --decor-line: rgb(255 255 255 / 6%);
+  --decor-line-strong: rgb(255 255 255 / 12%);
+  --decor-text: rgb(255 255 255 / 32%);
+  --segment-selected-bg: #4c566a;
+  --terminal-bg: #2b303b;
+  --ansi-black: #8f9aaf;
+  --ansi-red: #e0818a;
+  --ansi-green: #a3be8c;
+  --ansi-yellow: #ebcb8b;
+  --ansi-blue: #81a1c1;
+  --ansi-magenta: #b48ead;
+  --ansi-cyan: #88c0d0;
+  --ansi-white: #e5e9f0;
+  --ansi-bright-black: #8d9ab3;
+  --ansi-bright-red: #ee9aa1;
+  --ansi-bright-green: #b5d19e;
+  --ansi-bright-yellow: #f2d9a4;
+  --ansi-bright-blue: #9bb8d6;
+  --ansi-bright-magenta: #c8a6c1;
+  --ansi-bright-cyan: #a3d1de;
+  --ansi-bright-white: #eceff4;
+}
+
+:root[data-theme="dark"][data-scheme="solarized"], :root[data-theme="dark"] [data-scheme="solarized"] {
+  --surface-window: #04303b;
+  --surface-sidebar: #073642;
+  --surface-content: #002b36;
+  --surface-raised: #0d3f4c;
+  --surface-field: #00232c;
+  --surface-control: #0d3f4c;
+  --surface-control-hover: #164b58;
+  --surface-control-pressed: #1f5865;
+  --surface-inset: rgb(238 232 213 / 10%);
+  --surface-hover: rgb(238 232 213 / 8%);
+  --surface-pressed: rgb(238 232 213 / 14%);
+  --text-primary: #eee8d5;
+  --text-secondary: #c1c8c5;
+  --text-tertiary: #b8c1c1;
+  --text-disabled: #586e75;
+  --text-link: #8fc5ee;
+  --border-hairline: rgb(238 232 213 / 12%);
+  --border-strong: rgb(238 232 213 / 24%);
+  --decor-line: rgb(238 232 213 / 6%);
+  --decor-line-strong: rgb(238 232 213 / 12%);
+  --decor-text: rgb(238 232 213 / 32%);
+  --segment-selected-bg: #1f5865;
+  --terminal-bg: #002b36;
+  --ansi-black: #809298;
+  --ansi-red: #e56765;
+  --ansi-green: #859900;
+  --ansi-yellow: #b58900;
+  --ansi-blue: #3a95d6;
+  --ansi-magenta: #de66a0;
+  --ansi-cyan: #2aa198;
+  --ansi-white: #eee8d5;
+  --ansi-bright-black: #93a1a1;
+  --ansi-bright-red: #d7744c;
+  --ansi-bright-green: #9fb300;
+  --ansi-bright-yellow: #d4a017;
+  --ansi-bright-blue: #4aa3e8;
+  --ansi-bright-magenta: #8589ce;
+  --ansi-bright-cyan: #3cc0b6;
+  --ansi-bright-white: #fdf6e3;
+}
+
+:root[data-theme="dark"][data-scheme="rose-pine"], :root[data-theme="dark"] [data-scheme="rose-pine"] {
+  --surface-window: #1f1d2e;
+  --surface-sidebar: #232136;
+  --surface-content: #191724;
+  --surface-raised: #26233a;
+  --surface-field: #13111d;
+  --surface-control: #26233a;
+  --surface-control-hover: #302d47;
+  --surface-control-pressed: #393552;
+  --surface-inset: rgb(224 222 244 / 10%);
+  --surface-hover: rgb(224 222 244 / 8%);
+  --surface-pressed: rgb(224 222 244 / 14%);
+  --text-primary: #e0def4;
+  --text-secondary: #bfbcd8;
+  --text-tertiary: #b0adc4;
+  --text-disabled: #6e6a86;
+  --text-link: #9ccfd8;
+  --border-hairline: rgb(224 222 244 / 12%);
+  --border-strong: rgb(224 222 244 / 24%);
+  --decor-line: rgb(224 222 244 / 6%);
+  --decor-line-strong: rgb(224 222 244 / 12%);
+  --decor-text: rgb(224 222 244 / 32%);
+  --segment-selected-bg: #393552;
+  --terminal-bg: #191724;
+  --ansi-black: #908caa;
+  --ansi-red: #eb6f92;
+  --ansi-green: #a6d189;
+  --ansi-yellow: #f6c177;
+  --ansi-blue: #6fa8c4;
+  --ansi-magenta: #c4a7e7;
+  --ansi-cyan: #9ccfd8;
+  --ansi-white: #e0def4;
+  --ansi-bright-black: #a29fba;
+  --ansi-bright-red: #f08aa8;
+  --ansi-bright-green: #bde0a4;
+  --ansi-bright-yellow: #f9d398;
+  --ansi-bright-blue: #8bbdd6;
+  --ansi-bright-magenta: #d3bcee;
+  --ansi-bright-cyan: #b4dce2;
+  --ansi-bright-white: #f4f2ff;
+}
+
 /* Window not focused: selections turn graphite, like system lists. The platform helper sets
    data-window-active="false" on <html>. */
-:root[data-window-active="false"] {
+:root:root[data-window-active="false"] {
+  /* Doubled :root: this must beat the accent blocks above, which are as specific as any dark block. */
   --selection-bg: var(--selection-bg-inactive);
 }
 
@@ -435,6 +1147,15 @@
 :root[data-platform="macos"] {
   --titlebar-height: 40px;
   --titlebar-safe-left: 80px;
+}
+
+/* ---- Density: the compact choice shrinks the rows of the tree and the lists ---- */
+:root[data-density="compact"] {
+  --row-h-compact: 20px;
+  --row-h-regular: 24px;
+  --row-h-comfortable: 28px;
+  --row-indent: var(--space-3);
+  --row-gap: 0px;
 }
 
 /* ---- Reduced motion: transitions collapse to (almost) instant ------------ */

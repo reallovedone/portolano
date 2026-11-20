@@ -258,6 +258,15 @@ describe("TerminalView", () => {
     expect(status.textContent).toContain("127.0.0.1");
   });
 
+  it("opens with the saved font size and resizes open terminals when it changes", async () => {
+    const m = await mount();
+    expect((m.term().options as { fontSize?: number }).fontSize).toBe(13);
+    const fits = FakeFit.fits;
+    await m.app.appearance.update({ terminalFontSize: 18 });
+    await waitFor(() => expect((m.term().options as { fontSize?: number }).fontSize).toBe(18));
+    await waitFor(() => expect(FakeFit.fits).toBeGreaterThan(fits));
+  });
+
   it("recolours the terminal when the theme changes and refits", async () => {
     document.documentElement.style.setProperty("--terminal-bg", "#ffffff");
     document.documentElement.style.setProperty("--text-primary", "#1c1c1e");

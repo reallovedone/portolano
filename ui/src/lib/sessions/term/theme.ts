@@ -139,14 +139,14 @@ export function deriveTerminalMetrics(root: Element = document.documentElement):
   };
 }
 
-/** Calls `onChange` when the system colour scheme or the root `data-theme` attribute changes.
- *  Returns the stop function. */
+/** Calls `onChange` when the system colour scheme or the root `data-theme`, `data-scheme` or
+ *  `data-accent` attribute changes. Returns the stop function. */
 export function watchTheme(onChange: () => void, root: Element = document.documentElement): () => void {
   const media =
     typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
   media?.addEventListener("change", onChange);
   const observer = new MutationObserver(onChange);
-  observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+  observer.observe(root, { attributes: true, attributeFilter: ["data-theme", "data-scheme", "data-accent"] });
   return () => {
     media?.removeEventListener("change", onChange);
     observer.disconnect();

@@ -300,3 +300,41 @@ describe("mock quit", () => {
     expect(seen).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("mock appearance", () => {
+  const dark = { theme: "dark", scheme: "nord", accent: "teal", density: "compact", terminalFontSize: 16 } as const;
+
+  it("starts from the defaults and keeps what is saved", async () => {
+    const ipc = createMockIpc();
+    expect(await ipc.appearanceGet()).toEqual({
+      theme: "system",
+      scheme: "portolano",
+      accent: "blue",
+      density: "comfortable",
+      terminalFontSize: 13,
+    });
+    expect(await ipc.appearanceSet(dark)).toEqual(dark);
+    expect(await ipc.appearanceGet()).toEqual(dark);
+  });
+
+  it("refuses values outside the lists and changes nothing", async () => {
+    const ipc = createMockIpc({ appearance: dark });
+    await expect(ipc.appearanceSet({ ...dark, accent: "pink" as never })).rejects.toThrow();
+    await expect(ipc.appearanceSet({ ...dark, scheme: "dracula" as never })).rejects.toThrow();
+    await expect(ipc.appearanceSet({ ...dark, terminalFontSize: 9 })).rejects.toThrow();
+    await expect(ipc.appearanceSet({ ...dark, terminalFontSize: 25 })).rejects.toThrow();
+    await expect(ipc.appearanceSet({ ...dark, terminalFontSize: 12.5 })).rejects.toThrow();
+    expect(await ipc.appearanceGet()).toEqual(dark);
+  });
+
+  it("tells subscribers when the Settings menu item is chosen", () => {
+    const ipc = createMockIpc();
+    const handler = vi.fn();
+    const off = ipc.onSettingsMenu(handler);
+    ipc.simulate.settingsMenu();
+    expect(handler).toHaveBeenCalledTimes(1);
+    off();
+    ipc.simulate.settingsMenu();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+});

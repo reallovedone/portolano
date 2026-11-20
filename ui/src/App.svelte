@@ -17,6 +17,7 @@
   import Splitter from "./lib/ui/Splitter.svelte";
   import StatusBar from "./lib/ui/StatusBar.svelte";
   import Toasts from "./lib/ui/Toasts.svelte";
+  import SettingsDialog from "./lib/settings/SettingsDialog.svelte";
   import UpdateCheckDialog from "./lib/updates/UpdateCheckDialog.svelte";
   import UpdateOfferDialog from "./lib/updates/UpdateOfferDialog.svelte";
   import WhatsNewDialog from "./lib/updates/WhatsNewDialog.svelte";
@@ -46,6 +47,8 @@
 
   // Notices the backend sends on its own: the vault locking itself, a failed "save to vault".
   onMount(() => connectBackendEvents(app));
+  // The saved appearance replaces the copy the first paint used (a change made on another run).
+  onMount(() => void app.appearance.load());
   // A reload starts with the native Edit menu in place, whatever an earlier page left behind.
   onMount(() => {
     app.ipc
@@ -181,6 +184,8 @@
   <ImportDialog path={ui.dialog.path} onclose={() => ui.closeDialog()} />
 {:else if ui.dialog?.type === "updates"}
   <UpdateCheckDialog onclose={() => ui.closeDialog()} />
+{:else if ui.dialog?.type === "settings"}
+  <SettingsDialog onclose={() => ui.closeDialog()} />
 {/if}
 
 {#if updates.whatsNew}

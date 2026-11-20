@@ -63,6 +63,8 @@ const EXPECTED_COMMANDS = [
   "import_apply",
   "export_document",
   "read_private_key_file",
+  "appearance_get",
+  "appearance_set",
   "update_settings",
   "update_set_auto_check",
   "update_check",
@@ -140,6 +142,9 @@ describe("tauriIpc", () => {
       () => tauriIpc.importApply("a", null),
       () => tauriIpc.exportDocument("json", "/p", null),
       () => tauriIpc.readPrivateKeyFile("/p"),
+      () => tauriIpc.appearanceGet(),
+      () =>
+        tauriIpc.appearanceSet({ theme: "dark", scheme: "nord", accent: "teal", density: "compact", terminalFontSize: 16 }),
       () => tauriIpc.updateSettings(),
       () => tauriIpc.updateSetAutoCheck(false),
       () => tauriIpc.updateCheck(true),
@@ -288,14 +293,19 @@ describe("tauriIpc", () => {
     const stopQuit = fresh.onQuitRequested(quit);
     const closeTab = vi.fn();
     const stopCloseTab = fresh.onCloseTabMenu(closeTab);
-    await vi.waitFor(() => expect(listenMock).toHaveBeenCalledTimes(5));
+    const settings = vi.fn();
+    const stopSettings = fresh.onSettingsMenu(settings);
+    await vi.waitFor(() => expect(listenMock).toHaveBeenCalledTimes(6));
     expect(listenMock.mock.calls.map((c) => c[0])).toEqual([
       "vault-locked",
       "credential-save-failed",
       "menu-check-for-updates",
       "quit-requested",
       "menu-close-tab",
+      "menu-settings",
     ]);
+    listenMock.mock.calls[5]?.[1]({ payload: null });
+    expect(settings).toHaveBeenCalledTimes(1);
     listenMock.mock.calls[4]?.[1]({ payload: null });
     expect(closeTab).toHaveBeenCalledTimes(1);
     listenMock.mock.calls[3]?.[1]({ payload: null });
@@ -314,7 +324,8 @@ describe("tauriIpc", () => {
     stopMenu();
     stopQuit();
     stopCloseTab();
-    expect(off).toHaveBeenCalledTimes(5);
+    stopSettings();
+    expect(off).toHaveBeenCalledTimes(6);
     vi.doUnmock("@tauri-apps/api/event");
   });
 
