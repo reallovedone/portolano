@@ -123,6 +123,9 @@ fn imported_nodes_do_not_inherit_the_credential_of_the_folder_they_land_in() {
     let target = Uuid::from_u128(901);
     store
         .upsert_node(Node::Folder(Folder {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: target,
             parent_id: None,
             name: "Domain admins".into(),

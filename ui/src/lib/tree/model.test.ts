@@ -14,6 +14,8 @@ import {
   folderOptions,
   moveTargets,
   nodeKind,
+  planReorder,
+  planStep,
   subtreeIds,
 } from "./model";
 
@@ -243,5 +245,68 @@ describe("misc", () => {
     expect(defaultParentFor(nodes, "deep")).toBe("A1");
     expect(defaultParentFor(nodes, "zed")).toBeNull();
     expect(defaultParentFor(nodes, null)).toBeNull();
+  });
+});
+
+describe("manual order", () => {
+  const withIndex = (node: Node, sortIndex: number): Node => ({ ...node, sortIndex });
+  const names = (nodes: Node[], parent: string | null = null): string[] =>
+    buildTree(nodes)
+      .filter((t) => t.node.parentId === parent)
+      .map((t) => t.node.name);
+
+  it("is alphabetical, folders first, when no node has an index", () => {
+    const nodes = [conn("c1", null, "b"), folder("f1", null, "Z"), conn("c2", null, "A"), conn("c3", null, "a10"), conn("c4", null, "a9")];
+    expect(names(nodes)).toEqual(["Z", "A", "a9", "a10", "b"]);
+  });
+
+  it("follows the indices, then the unindexed nodes by name, folders still first", () => {
+    const nodes = [
+      withIndex(conn("c1", null, "alpha"), 2),
+      withIndex(conn("c2", null, "zulu"), 0),
+      conn("c3", null, "beta"),
+      conn("c4", null, "aaa"),
+      withIndex(folder("f1", null, "Zeta"), 1),
+      withIndex(folder("f2", null, "Alpha folder"), 5),
+    ];
+    expect(names(nodes)).toEqual(["Zeta", "Alpha folder", "zulu", "alpha", "aaa", "beta"]);
+  });
+
+  it("plans drops before and after, never mixing folders and connections", () => {
+    const nodes = [conn("c1", null, "a"), conn("c2", null, "b"), conn("c3", null, "c"), folder("f1", null, "F")];
+    expect(planReorder(nodes, "c1", "c3", "before")).toEqual({
+      parentId: null,
+      before: "c3",
+      visibleOrder: ["c1", "c2", "c3"],
+    });
+    expect(planReorder(nodes, "c1", "c3", "after")?.before).toBeNull();
+    expect(planReorder(nodes, "c1", "c2", "before")).toBeNull(); // nothing changes
+    expect(planReorder(nodes, "c1", "f1", "after")).toBeNull();
+    expect(planReorder(nodes, "f1", "c1", "before")).toBeNull();
+    expect(planReorder(nodes, "c1", "c1", "after")).toBeNull();
+  });
+
+  it("plans a drop into another folder's group and refuses its own subtree", () => {
+    const nodes = [
+      folder("f1", null, "F1"),
+      folder("f2", "f1", "F2"),
+      conn("c1", "f1", "x"),
+      conn("c2", "f2", "y"),
+    ];
+    expect(planReorder(nodes, "c1", "c2", "before")).toEqual({
+      parentId: "f2",
+      before: "c2",
+      visibleOrder: ["c2"],
+    });
+    expect(planReorder(nodes, "f1", "f2", "before")).toBeNull();
+  });
+
+  it("plans move up / down and stops at the edges", () => {
+    const nodes = [conn("c1", null, "a"), conn("c2", null, "b"), conn("c3", null, "c")];
+    expect(planStep(nodes, "c1", -1)).toBeNull();
+    expect(planStep(nodes, "c3", 1)).toBeNull();
+    expect(planStep(nodes, "c2", -1)?.before).toBe("c1");
+    expect(planStep(nodes, "c1", 1)?.before).toBe("c3");
+    expect(planStep(nodes, "c2", 1)?.before).toBeNull();
   });
 });

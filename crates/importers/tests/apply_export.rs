@@ -23,6 +23,9 @@ fn store_in(dir: &TempDir) -> DocumentStore {
 
 fn folder(id: u128, parent: Option<u128>, name: &str) -> Node {
     Node::Folder(Folder {
+        sort_index: None,
+        icon: None,
+        color: None,
         id: u(id),
         parent_id: parent.map(u),
         name: name.into(),
@@ -32,6 +35,9 @@ fn folder(id: u128, parent: Option<u128>, name: &str) -> Node {
 
 fn connection_node(id: u128, parent: Option<u128>, name: &str, options: ConnectionOptions) -> Node {
     Node::Connection(Connection {
+        sort_index: None,
+        icon: None,
+        color: None,
         id: u(id),
         parent_id: parent.map(u),
         name: name.into(),
@@ -339,12 +345,18 @@ fn rich_document() -> Document {
     let nodes = vec![
         folder(1, None, "Prod"),
         Node::Folder(Folder {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(2),
             parent_id: Some(u(1)),
             name: "Secret vault folder".into(),
             credential: CredentialRef::Id { id: u(500) },
         }),
         Node::Connection(Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(3),
             parent_id: Some(u(1)),
             name: "bastion".into(),
@@ -360,6 +372,9 @@ fn rich_document() -> Document {
             },
         }),
         Node::Connection(Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(4),
             parent_id: Some(u(2)),
             name: "db01".into(),
@@ -432,6 +447,134 @@ fn json_round_trip_keeps_the_tree_but_not_ids_or_credentials() {
         .nodes
         .iter()
         .all(|n| !source_ids.contains(&n.id())));
+}
+
+#[test]
+fn json_round_trip_keeps_order_icons_and_colors_and_drops_unknown_names() {
+    let dir = TempDir::new("roundtrip-appearance");
+    let mut source = store_in(&dir);
+    let mut f = folder(1, None, "Prod");
+    if let Node::Folder(f) = &mut f {
+        f.sort_index = Some(1);
+        f.icon = Some("server".into());
+        f.color = Some("teal".into());
+    }
+    source.upsert_node(f).expect("folder");
+    for (id, name, index) in [(2, "b", 0), (3, "a", 1)] {
+        let mut c = connection_node(id, Some(1), name, ssh());
+        if let Node::Connection(c) = &mut c {
+            c.sort_index = Some(index);
+            c.icon = Some("key".into());
+            c.color = Some("red".into());
+        }
+        source.upsert_node(c).expect("connection");
+    }
+    let source_doc = snapshot(&mut source);
+    let file = dir.path("export.json");
+    export(
+        ExportFormat::Json,
+        &file,
+        &select(&source_doc, None).expect("select"),
+    )
+    .expect("export");
+
+    // A value outside the fixed lists (a hand-edited or newer file) is dropped on import.
+    let text = std::fs::read_to_string(&file).expect("read");
+    std::fs::write(
+        dir.path("tampered.json"),
+        text.replacen(r#""color": "red""#, r#""color": "<b>mauve</b>""#, 1),
+    )
+    .expect("write");
+
+    for (name, expect_red) in [("export.json", 2), ("tampered.json", 1)] {
+        let parsed = preview(ImportFormat::Json, &dir.path(name)).expect("import");
+        let target_dir = TempDir::new("roundtrip-appearance-target");
+        let mut target = store_in(&target_dir);
+        apply(&mut target, None, &parsed).expect("apply");
+        let doc = snapshot(&mut target);
+        let Some(Node::Folder(f)) = doc.nodes.iter().find(|n| n.name() == "Prod") else {
+            panic!("folder missing");
+        };
+        assert_eq!(
+            (f.sort_index, f.icon.as_deref(), f.color.as_deref()),
+            (Some(1), Some("server"), Some("teal"))
+        );
+        let conns: Vec<&Connection> = doc
+            .nodes
+            .iter()
+            .filter_map(|n| match n {
+                Node::Connection(c) => Some(c),
+                Node::Folder(_) => None,
+            })
+            .collect();
+        assert_eq!(conns.len(), 2);
+        let by_name = |n: &str| conns.iter().find(|c| c.name == n).copied().expect("conn");
+        assert_eq!(by_name("b").sort_index, Some(0));
+        assert_eq!(by_name("a").sort_index, Some(1));
+        assert!(conns.iter().all(|c| c.icon.as_deref() == Some("key")));
+        assert_eq!(
+            conns
+                .iter()
+                .filter(|c| c.color.as_deref() == Some("red"))
+                .count(),
+            expect_red
+        );
+        assert!(conns
+            .iter()
+            .all(|c| c.color.as_deref() != Some("<b>mauve</b>")));
+    }
+}
+
+#[test]
+fn import_next_to_existing_siblings_drops_only_the_top_level_order() {
+    let dir = TempDir::new("import-order");
+    let mut source = store_in(&dir);
+    let mut top = folder(1, None, "Prod");
+    if let Node::Folder(f) = &mut top {
+        f.sort_index = Some(5);
+    }
+    source.upsert_node(top).expect("folder");
+    for (id, name, index) in [(2, "b", 0), (3, "a", 1)] {
+        let mut c = connection_node(id, Some(1), name, ssh());
+        if let Node::Connection(c) = &mut c {
+            c.sort_index = Some(index);
+        }
+        source.upsert_node(c).expect("connection");
+    }
+    let file = dir.path("export.json");
+    let source_doc = snapshot(&mut source);
+    export(
+        ExportFormat::Json,
+        &file,
+        &select(&source_doc, None).expect("select"),
+    )
+    .expect("export");
+    let parsed = preview(ImportFormat::Json, &file).expect("import");
+
+    // Destination with a sibling at the root: the imported folder loses its index.
+    let target_dir = TempDir::new("import-order-target");
+    let mut target = store_in(&target_dir);
+    target
+        .upsert_node(folder(50, None, "Existing"))
+        .expect("existing");
+    apply(&mut target, None, &parsed).expect("apply");
+    let doc = snapshot(&mut target);
+    let index_of = |name: &str| {
+        doc.nodes
+            .iter()
+            .find(|n| n.name() == name)
+            .and_then(Node::sort_index)
+    };
+    assert_eq!(index_of("Prod"), None);
+    assert_eq!((index_of("b"), index_of("a")), (Some(0), Some(1)));
+
+    // Empty destination: everything is kept, root included.
+    let empty_dir = TempDir::new("import-order-empty");
+    let mut empty = store_in(&empty_dir);
+    apply(&mut empty, None, &parsed).expect("apply");
+    let doc = snapshot(&mut empty);
+    let prod = doc.nodes.iter().find(|n| n.name() == "Prod").expect("Prod");
+    assert_eq!(prod.sort_index(), Some(5));
 }
 
 #[test]
@@ -607,6 +750,9 @@ fn rdp_export_refuses_what_it_cannot_write() {
     ));
 
     let injected = vec![Node::Connection(Connection {
+        sort_index: None,
+        icon: None,
+        color: None,
         id: u(12),
         parent_id: None,
         name: "x".into(),

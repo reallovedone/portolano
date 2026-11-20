@@ -60,6 +60,9 @@ export interface ConnectionDraft {
   // web
   url: string;
   isolatedProfile: boolean;
+  /** Kept as loaded and written back unchanged (no picker yet). Absent when unset. */
+  icon?: string;
+  color?: string;
 }
 
 export type ConnectionField =
@@ -134,6 +137,8 @@ export function draftFromConnection(c: Connection): ConnectionDraft {
   draft.credential = credentialToDraft(c.credential);
   draft.tags = c.tags.join(", ");
   draft.notes = c.notes;
+  if (c.icon !== undefined) draft.icon = c.icon;
+  if (c.color !== undefined) draft.color = c.color;
   const o = c.options;
   switch (o.type) {
     case "localShell":
@@ -324,7 +329,9 @@ export function draftToConnection(draft: ConnectionDraft, newId: () => Uuid): Co
     }
   }
 
+  // `sortIndex` is owned by the backend (reorder / sort by name) and never sent from here.
   return {
+    ...appearanceOf(draft),
     id: draft.id ?? newId(),
     parentId: draft.parentId,
     name: draft.name.trim(),
@@ -346,6 +353,9 @@ export interface FolderDraft {
   parentId: Uuid | null;
   name: string;
   credential: CredentialDraft;
+  /** Kept as loaded and written back unchanged (no picker yet). Absent when unset. */
+  icon?: string;
+  color?: string;
 }
 
 export function newFolderDraft(parentId: Uuid | null): FolderDraft {
@@ -353,11 +363,21 @@ export function newFolderDraft(parentId: Uuid | null): FolderDraft {
 }
 
 export function draftFromFolder(f: Folder): FolderDraft {
-  return {
+  const draft: FolderDraft = {
     id: f.id,
     parentId: f.parentId,
     name: f.name,
     credential: credentialToDraft(f.credential),
+  };
+  if (f.icon !== undefined) draft.icon = f.icon;
+  if (f.color !== undefined) draft.color = f.color;
+  return draft;
+}
+
+function appearanceOf(draft: { icon?: string; color?: string }): { icon?: string; color?: string } {
+  return {
+    ...(draft.icon === undefined ? {} : { icon: draft.icon }),
+    ...(draft.color === undefined ? {} : { color: draft.color }),
   };
 }
 
@@ -372,6 +392,7 @@ export function validateFolderDraft(draft: FolderDraft): FieldErrors<"name" | "c
 
 export function draftToFolder(draft: FolderDraft, newId: () => Uuid): Folder {
   return {
+    ...appearanceOf(draft),
     id: draft.id ?? newId(),
     parentId: draft.parentId,
     name: draft.name.trim(),

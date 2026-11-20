@@ -407,3 +407,29 @@ describe("editor help texts", () => {
     }
   });
 });
+
+describe("ConnectionEditor and manual order", () => {
+  it("saving an edit keeps the position, icon and colour of a reordered connection", async () => {
+    const ipc = createMockIpc({ vault: "unlocked" });
+    const seed = (await ipc.docGet()).nodes.find((n) => n.id === MOCK_IDS.localSshd);
+    if (!seed || seed.type !== "connection") throw new Error("seed connection missing");
+    await ipc.docUpsertNode({ ...seed, icon: "key", color: "teal" });
+    await ipc.nodeReorder(seed.id, seed.parentId, null);
+    const before = (await ipc.docGet()).nodes.find((n) => n.id === seed.id);
+    expect(before?.sortIndex).toBeDefined();
+
+    const app = createApp(ipc);
+    await app.doc.load();
+    render(EditorHarness, { props: { app, id: seed.id } });
+    const dialog = await screen.findByRole("dialog");
+    await fireEvent.input(within(dialog).getByLabelText("Name"), { target: { value: "Renamed" } });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await vi.waitFor(async () => {
+      const saved = (await ipc.docGet()).nodes.find((n) => n.id === seed.id);
+      expect(saved?.name).toBe("Renamed");
+      expect(saved?.sortIndex).toBe(before?.sortIndex);
+      expect(saved?.icon).toBe("key");
+      expect(saved?.color).toBe("teal");
+    });
+  });
+});

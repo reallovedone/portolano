@@ -46,10 +46,17 @@ pub fn apply(
         .map_err(|_| ImportError::InvalidInput("too many nodes to import".into()))?;
     store.apply_batch(|doc| {
         doc.nodes.reserve(order.len());
+        // Manual order of the imported top level only means something in an empty destination;
+        // next to existing siblings it would interleave with, or duplicate, their indices.
+        // Nodes inside imported folders keep theirs.
+        let target_is_empty = !doc.nodes.iter().any(|n| n.parent_id() == target);
         for node in order {
             let mut node = node.clone();
             if node.parent_id().is_none() {
                 node.set_parent_id(target);
+                if !target_is_empty {
+                    node.set_sort_index(None);
+                }
             }
             doc.nodes.push(node);
         }
@@ -110,6 +117,9 @@ mod tests {
         let child = Uuid::from_u128(2);
         let nodes = vec![
             Node::Connection(Connection {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: child,
                 parent_id: Some(folder),
                 name: "c".into(),
@@ -122,6 +132,9 @@ mod tests {
                 options: ConnectionOptions::Vnc { view_only: false },
             }),
             Node::Folder(Folder {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: folder,
                 parent_id: None,
                 name: "f".into(),

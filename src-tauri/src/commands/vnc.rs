@@ -282,6 +282,9 @@ mod tests {
 
     fn vnc_connection(id: u128, parent: Option<u128>, credential: CredentialRef) -> Node {
         Node::Connection(Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: u(id),
             parent_id: parent.map(u),
             name: format!("vnc{id}"),
@@ -402,6 +405,9 @@ mod tests {
         put(
             &state,
             Node::Folder(Folder {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: u(1),
                 parent_id: None,
                 name: "f".into(),
@@ -450,6 +456,9 @@ mod tests {
         put(
             &state,
             Node::Folder(Folder {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: u(1),
                 parent_id: None,
                 name: "f".into(),

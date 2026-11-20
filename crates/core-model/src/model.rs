@@ -55,6 +55,20 @@ impl Node {
         matches!(self, Self::Folder(_))
     }
 
+    pub fn sort_index(&self) -> Option<u32> {
+        match self {
+            Self::Folder(f) => f.sort_index,
+            Self::Connection(c) => c.sort_index,
+        }
+    }
+
+    pub fn set_sort_index(&mut self, sort_index: Option<u32>) {
+        match self {
+            Self::Folder(f) => f.sort_index = sort_index,
+            Self::Connection(c) => c.sort_index = sort_index,
+        }
+    }
+
     pub fn set_parent_id(&mut self, parent_id: Option<Uuid>) {
         match self {
             Self::Folder(f) => f.parent_id = parent_id,
@@ -79,6 +93,16 @@ pub struct Folder {
     pub name: String,
     /// Inherited by the children when they use `CredentialRef::Inherit`.
     pub credential: CredentialRef,
+    /// Position among the siblings of the same kind (folders or connections) under the same
+    /// parent. `None` for every sibling: alphabetical order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_index: Option<u32>,
+    /// Icon name from `appearance.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Colour name from `appearance.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +125,16 @@ pub struct Connection {
     #[serde(default)]
     pub notes: String,
     pub options: ConnectionOptions,
+    /// Position among the siblings of the same kind (folders or connections) under the same
+    /// parent. `None` for every sibling: alphabetical order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_index: Option<u32>,
+    /// Icon name from `appearance.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Colour name from `appearance.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 /// Whether `host` can be written to a line-based store (known hosts, pinned certificates)
@@ -204,6 +238,9 @@ mod tests {
     #[test]
     fn folder_json_shape() {
         let node = Node::Folder(Folder {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: id(1),
             parent_id: None,
             name: "Prod".into(),
@@ -226,6 +263,9 @@ mod tests {
     #[test]
     fn connection_json_shape() {
         let node = Node::Connection(Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: id(2),
             parent_id: Some(id(1)),
             name: "web01".into(),
@@ -287,6 +327,9 @@ mod tests {
         // With the field set it round-trips through a whole document.
         let doc = Document {
             nodes: vec![Node::Connection(Connection {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id: id(5),
                 parent_id: None,
                 name: "new".into(),

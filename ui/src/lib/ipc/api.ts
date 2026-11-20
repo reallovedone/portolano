@@ -36,6 +36,21 @@ export interface Ipc {
   docUpsertNode(node: Node): Promise<Node>;
   docDeleteNode(id: Uuid): Promise<void>;
   docMoveNode(id: Uuid, newParentId: Uuid | null): Promise<void>;
+  /**
+   * Moves a node under `newParentId` (null = root), right before its sibling `before` (same
+   * kind, same new parent), or at the end of its group when `before` is null. The group gets
+   * contiguous `sortIndex` values.
+   * `visibleOrder` lists the ids of the target group's siblings as the UI shows them; the
+   * backend uses it only while the group has no index yet, so nothing jumps on the first move.
+   */
+  nodeReorder(
+    id: Uuid,
+    newParentId: Uuid | null,
+    before: Uuid | null,
+    visibleOrder?: Uuid[],
+  ): Promise<void>;
+  /** Removes the manual order of the children of `parentId` (null = root). */
+  nodeSortByName(parentId: Uuid | null): Promise<void>;
 
   // vault
   vaultStatus(): Promise<VaultStatus>;

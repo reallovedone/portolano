@@ -549,6 +549,9 @@ mod tests {
 
     fn connection_with(credential: CredentialRef) -> Node {
         Node::Connection(Connection {
+            sort_index: None,
+            icon: None,
+            color: None,
             id: Uuid::new_v4(),
             parent_id: None,
             name: "srv".into(),

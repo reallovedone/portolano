@@ -48,6 +48,15 @@ export interface Folder {
   parentId: Uuid | null;
   name: string;
   credential: CredentialRef;
+  /**
+   * Position among the siblings of the same kind (folders or connections) under the same
+   * parent. Absent for every sibling: alphabetical order. The backend leaves it out when unset.
+   */
+  sortIndex?: number;
+  /** Icon name from `crates/core-model/src/appearance.json`. Absent when unset. */
+  icon?: string;
+  /** Colour name from `crates/core-model/src/appearance.json`. Absent when unset. */
+  color?: string;
 }
 
 export interface Connection {
@@ -62,6 +71,15 @@ export interface Connection {
   tags: string[];
   notes: string;
   options: ConnectionOptions;
+  /**
+   * Position among the siblings of the same kind (folders or connections) under the same
+   * parent. Absent for every sibling: alphabetical order. The backend leaves it out when unset.
+   */
+  sortIndex?: number;
+  /** Icon name from `crates/core-model/src/appearance.json`. Absent when unset. */
+  icon?: string;
+  /** Colour name from `crates/core-model/src/appearance.json`. Absent when unset. */
+  color?: string;
 }
 
 export type CredentialRef = { type: "inherit" } | { type: "none" } | { type: "id"; id: Uuid };

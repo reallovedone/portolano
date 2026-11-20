@@ -192,6 +192,9 @@ mod tests {
         store.ensure_loaded().expect("load");
         store
             .upsert_node(Node::Connection(Connection {
+                sort_index: None,
+                icon: None,
+                color: None,
                 id,
                 parent_id: None,
                 name: "srv".into(),

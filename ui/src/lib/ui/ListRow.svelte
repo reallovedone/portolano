@@ -14,6 +14,8 @@
     density?: "compact" | "regular" | "comfortable";
     /** A drag is hovering over this row and may drop here. */
     dropTarget?: boolean;
+    /** Insertion line above or below the row: a drag would drop before or after it. */
+    dropEdge?: "before" | "after" | null;
     /** This row is the one being dragged. */
     dragging?: boolean;
     /** Force the hover / keyboard-focus look (gallery only). */
@@ -33,6 +35,7 @@
     density = "regular",
     dropTarget = false,
     dragging = false,
+    dropEdge = null,
     forceHover = false,
     forceFocus = false,
     disabled = false,
@@ -53,6 +56,8 @@
   class:disabled
   class:drop-target={dropTarget}
   class:dragging
+  class:edge-before={dropEdge === "before"}
+  class:edge-after={dropEdge === "after"}
   style:--depth={depth}
 >
   {#if leading}<span class="leading">{@render leading()}</span>{/if}
@@ -93,6 +98,20 @@
     background: var(--accent-subtle);
     outline: var(--focus-ring-width) solid var(--accent);
     outline-offset: calc(-1 * var(--focus-ring-width));
+  }
+  .row.edge-before {
+    box-shadow: inset 0 var(--focus-ring-width) 0 var(--accent);
+  }
+  .row.edge-after {
+    box-shadow: inset 0 calc(-1 * var(--focus-ring-width)) 0 var(--accent);
+  }
+  @media (forced-colors: active) {
+    .row.edge-before {
+      border-top: var(--focus-ring-width) solid Highlight;
+    }
+    .row.edge-after {
+      border-bottom: var(--focus-ring-width) solid Highlight;
+    }
   }
   .row.dragging {
     opacity: 0.5;

@@ -29,11 +29,17 @@
     defaultParentFor,
     descendantCount,
     filterNodes,
+    groupHasIndices,
     flattenTree,
     isConnection,
     jumpHostDependents,
     nodeKind,
+    planReorder,
+    planStep,
+    siblingIds,
     subtreeIds,
+    type DropEdge,
+    type ReorderPlan,
     type TreeRow,
   } from "./model";
 
@@ -63,6 +69,7 @@
   let menu = $state<{ x: number; y: number; node: Node | null; kind?: "more" } | null>(null);
   let draggingId = $state<Uuid | null>(null);
   let dropTarget = $state<Uuid | "root" | null>(null);
+  let dropLine = $state<{ id: Uuid; edge: DropEdge } | null>(null);
 
   $effect(() => {
     if (ui.searchFocusRequest > 0) {
@@ -166,9 +173,31 @@
   async function moveNode(id: Uuid, parentId: Uuid | null): Promise<string | null> {
     const check = checkMove(doc.nodes, id, parentId);
     if (!check.ok) return check.reason === "unchanged" ? null : t("tree.moveInvalid");
-    const result = await doc.move(id, parentId);
+    // Keep today's behaviour (alphabetical placement) unless a manual order is involved: then
+    // the node goes to the end of the target group, so a stale index can't misplace it.
+    const node = doc.node(id);
+    const folders = node?.type === "folder";
+    const manual =
+      node?.sortIndex !== undefined || groupHasIndices(doc.nodes, parentId, folders === true);
+    const result = manual
+      ? await doc.reorder(id, parentId, null, siblingIds(doc.nodes, parentId, folders === true))
+      : await doc.move(id, parentId);
     if (result.ok) return null;
     return `${result.error.message} (${result.error.code})`;
+  }
+
+  async function applyReorder(id: Uuid, plan: ReorderPlan): Promise<void> {
+    const result = await doc.reorder(id, plan.parentId, plan.before, plan.visibleOrder);
+    if (!result.ok) {
+      notices.push("error", t("tree.opFailed"), `${result.error.message} (${result.error.code})`);
+    }
+  }
+
+  async function sortByName(parentId: Uuid | null): Promise<void> {
+    const result = await doc.sortByName(parentId);
+    if (!result.ok) {
+      notices.push("error", t("tree.opFailed"), `${result.error.message} (${result.error.code})`);
+    }
   }
 
   async function moveFromDialog(node: Node, parentId: Uuid | null): Promise<string | null> {
@@ -220,6 +249,34 @@
         action: () => (pending = { type: "move", node }),
         icon: "arrow-right",
       },
+      // Reordering is off while filtering: the rows shown are not the real order.
+      {
+        label: t("tree.moveUp"),
+        action: () => {
+          const plan = planStep(doc.nodes, node.id, -1);
+          if (plan) void applyReorder(node.id, plan);
+        },
+        icon: "chevron-up",
+        disabled: filter !== null || planStep(doc.nodes, node.id, -1) === null,
+      },
+      {
+        label: t("tree.moveDown"),
+        action: () => {
+          const plan = planStep(doc.nodes, node.id, 1);
+          if (plan) void applyReorder(node.id, plan);
+        },
+        icon: "chevron-down",
+        disabled: filter !== null || planStep(doc.nodes, node.id, 1) === null,
+      },
+      ...(node.type === "folder"
+        ? [
+            {
+              label: t("tree.sortByName"),
+              action: () => void sortByName(node.id),
+              disabled: filter !== null,
+            },
+          ]
+        : []),
       {
         label: t("transfer.exportNode"),
         action: () =>
@@ -270,6 +327,12 @@
       { label: t("tree.collapseAll"), action: () => doc.collapseAll(), icon: "chevrons-up-down" },
       { label: t("tree.expandAll"), action: () => doc.expandAll(), icon: "chevrons-down-up" },
       ...blankMenu().map((item, index) => ({ ...item, separatorBefore: index === 0 })),
+      {
+        label: t("tree.sortByName"),
+        action: () => void sortByName(null),
+        disabled: filter !== null,
+        separatorBefore: true,
+      },
       {
         label: t("transfer.import"),
         action: () => void startImport(app),
@@ -405,11 +468,60 @@
   function onDragEnd(): void {
     draggingId = null;
     dropTarget = null;
+    dropLine = null;
+  }
+
+  /**
+   * Where a drag over `row` would land. The top/bottom quarter of a folder row (the top/bottom
+   * half of a connection row) is "before"/"after" when the dragged node is of the same kind;
+   * the middle of a folder is "into". Reordering is off while a filter is active.
+   */
+  type Zone =
+    | { kind: "into" }
+    | { kind: DropEdge; plan: ReorderPlan }
+    | { kind: "none" }
+    | null;
+  function zoneFor(event: DragEvent, row: TreeRow): Zone {
+    const isFolder = row.node.type === "folder";
+    const dragged = draggingId === null ? undefined : doc.node(draggingId);
+    const sameKind = dragged !== undefined && dragged.type === row.node.type;
+    if (sameKind && !filter && event.currentTarget instanceof HTMLElement) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const ratio = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
+      const edgeSize = isFolder ? 0.25 : 0.5;
+      // An "after" line under an expanded folder would sit where its first child is and read
+      // as "into": there the lower part is simply "into".
+      const hasShownChildren = isFolder && rows.some((r) => r.parentId === row.node.id);
+      const edge: DropEdge | null =
+        ratio < edgeSize ? "before" : ratio >= 1 - edgeSize && !hasShownChildren ? "after" : null;
+      if (edge) {
+        const plan = planReorder(doc.nodes, dragged.id, row.node.id, edge);
+        // A drop that changes nothing must not fall through to "move to the top level".
+        return plan ? { kind: edge, plan } : { kind: "none" };
+      }
+      if (!isFolder) return { kind: "none" };
+    }
+    return isFolder ? { kind: "into" } : null;
   }
 
   function onRowDragOver(event: DragEvent, row: TreeRow): void {
-    if (row.node.type !== "folder") return; // bubbles to the root drop zone logic below
+    const zone = zoneFor(event, row);
+    if (zone === null) return; // bubbles to the root drop zone logic below
     event.stopPropagation();
+    if (zone.kind === "none") {
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
+      dropTarget = null;
+      dropLine = null;
+      return;
+    }
+    if (zone.kind !== "into") {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      dropTarget = null;
+      dropLine = { id: row.node.id, edge: zone.kind };
+      return;
+    }
+    dropLine = null;
     if (canDropOn(row.node.id)) {
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
@@ -421,6 +533,7 @@
   }
 
   function onRootDragOver(event: DragEvent): void {
+    dropLine = null;
     if (canDropOn(null)) {
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
@@ -436,6 +549,24 @@
     if (id === null) return;
     const error = await moveNode(id, target);
     if (error) notices.push("error", t("tree.opFailed"), error);
+  }
+
+  async function dropOnRow(event: DragEvent, row: TreeRow): Promise<void> {
+    const zone = zoneFor(event, row);
+    if (zone === null) return; // bubbles to the root drop handler
+    if (zone.kind === "into") {
+      await dropOn(event, row.node.id);
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (zone.kind === "none") {
+      onDragEnd();
+      return;
+    }
+    const id = draggingId;
+    onDragEnd();
+    if (id !== null) await applyReorder(id, zone.plan);
   }
 
   function describeRow(row: TreeRow): string {
@@ -524,7 +655,10 @@
         oncontextmenu={(e) => openMenuAt(e, null)}
         ondragover={onRootDragOver}
         ondrop={(e) => dropOn(e, null)}
-        ondragleave={() => (dropTarget = null)}
+        ondragleave={() => {
+          dropTarget = null;
+          dropLine = null;
+        }}
       >
         {#each rows as row (row.node.id)}
           {@const node = row.node}
@@ -535,6 +669,7 @@
             density="comfortable"
             dropTarget={dropTarget === node.id}
             dragging={draggingId === node.id}
+            dropEdge={dropLine?.id === node.id ? dropLine.edge : null}
             aria-level={row.depth + 1}
             aria-posinset={row.posInSet}
             aria-setsize={row.setSize}
@@ -552,7 +687,7 @@
             ondragstart={(e) => onDragStart(e, node)}
             ondragend={onDragEnd}
             ondragover={(e) => onRowDragOver(e, row)}
-            ondrop={(e) => (node.type === "folder" ? dropOn(e, node.id) : undefined)}
+            ondrop={(e) => dropOnRow(e, row)}
           >
             {#snippet leading()}
               <span class="lead">

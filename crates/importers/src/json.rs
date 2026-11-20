@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use portolano_core_model::appearance;
 use portolano_core_model::{Connection, ConnectionOptions, CredentialRef, Folder, Node};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -100,6 +101,9 @@ pub(crate) fn parse(text: &str) -> Result<Draft, ImportError> {
         };
         let node = match node {
             Node::Folder(folder) => Node::Folder(Folder {
+                sort_index: folder.sort_index,
+                icon: appearance::sanitize_icon(folder.icon),
+                color: appearance::sanitize_color(folder.color),
                 id: new_id,
                 parent_id: parent,
                 name: name_or(&folder.name, "folder"),
@@ -109,6 +113,8 @@ pub(crate) fn parse(text: &str) -> Result<Draft, ImportError> {
                 let credential = remap_credential(conn.credential, &mut draft);
                 let options = remap_options(conn.options, &ids, &mut draft);
                 Node::Connection(Connection {
+                    icon: appearance::sanitize_icon(conn.icon.clone()),
+                    color: appearance::sanitize_color(conn.color.clone()),
                     id: new_id,
                     parent_id: parent,
                     name: name_or(&conn.name, &conn.host),

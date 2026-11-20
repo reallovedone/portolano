@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Connection } from "../ipc";
 import {
   draftFromConnection,
+  draftFromFolder,
   draftToConnection,
   draftToFolder,
   newConnectionDraft,
@@ -321,5 +322,29 @@ describe("RDP Mac shortcuts", () => {
       const converted = draftToConnection(draftFromConnection(rdp(on)), newId);
       expect(converted.options).toMatchObject({ type: "rdp", macShortcuts: on });
     }
+  });
+});
+
+describe("icon and colour", () => {
+  it("round-trip unchanged through the connection and folder drafts, without a sort index", () => {
+    const c = draftToConnection(valid("ssh"), newId);
+    const loaded = draftFromConnection({ ...c, icon: "server", color: "teal", sortIndex: 3 });
+    const back = draftToConnection(loaded, newId);
+    expect(back.icon).toBe("server");
+    expect(back.color).toBe("teal");
+    expect("sortIndex" in back).toBe(false);
+    expect("icon" in c || "color" in c).toBe(false);
+
+    const folder = draftFromFolder({
+      id: "f",
+      parentId: null,
+      name: "F",
+      credential: { type: "inherit" },
+      icon: "cloud",
+      color: "red",
+      sortIndex: 1,
+    });
+    const out = draftToFolder(folder, newId);
+    expect([out.icon, out.color, "sortIndex" in out]).toEqual(["cloud", "red", false]);
   });
 });

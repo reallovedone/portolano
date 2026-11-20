@@ -67,6 +67,9 @@ export const tauriIpc: Ipc = {
   docUpsertNode: (node) => call("doc_upsert_node", { node }),
   docDeleteNode: (id) => call("doc_delete_node", { id }),
   docMoveNode: (id, newParentId) => call("doc_move_node", { id, newParentId }),
+  nodeReorder: (id, newParentId, before, visibleOrder) =>
+    call("node_reorder", { id, newParentId, before, visibleOrder: visibleOrder ?? null }),
+  nodeSortByName: (parentId) => call("node_sort_by_name", { parentId }),
 
   vaultStatus: () => call("vault_status"),
   vaultCreate: (masterPassword) => call("vault_create", { masterPassword }),
