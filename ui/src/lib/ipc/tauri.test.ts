@@ -71,6 +71,7 @@ const EXPECTED_COMMANDS = [
   "update_skip",
   "update_install",
   "whats_new",
+  "release_notes",
   "update_open_release_page",
   "update_open_changelog",
   "quit_reply",
@@ -151,6 +152,7 @@ describe("tauriIpc", () => {
       () => tauriIpc.updateSkip("0.2.0"),
       () => tauriIpc.updateInstall(noop),
       () => tauriIpc.whatsNew(),
+      () => tauriIpc.releaseNotes(),
       () => tauriIpc.updateOpenReleasePage("0.2.0"),
       () => tauriIpc.updateOpenChangelog(),
       () => tauriIpc.quitReply("asking"),
@@ -295,7 +297,9 @@ describe("tauriIpc", () => {
     const stopCloseTab = fresh.onCloseTabMenu(closeTab);
     const settings = vi.fn();
     const stopSettings = fresh.onSettingsMenu(settings);
-    await vi.waitFor(() => expect(listenMock).toHaveBeenCalledTimes(6));
+    const releaseNotes = vi.fn();
+    const stopReleaseNotes = fresh.onReleaseNotesMenu(releaseNotes);
+    await vi.waitFor(() => expect(listenMock).toHaveBeenCalledTimes(7));
     expect(listenMock.mock.calls.map((c) => c[0])).toEqual([
       "vault-locked",
       "credential-save-failed",
@@ -303,7 +307,10 @@ describe("tauriIpc", () => {
       "quit-requested",
       "menu-close-tab",
       "menu-settings",
+      "menu-release-notes",
     ]);
+    listenMock.mock.calls[6]?.[1]({ payload: null });
+    expect(releaseNotes).toHaveBeenCalledTimes(1);
     listenMock.mock.calls[5]?.[1]({ payload: null });
     expect(settings).toHaveBeenCalledTimes(1);
     listenMock.mock.calls[4]?.[1]({ payload: null });
@@ -325,7 +332,8 @@ describe("tauriIpc", () => {
     stopQuit();
     stopCloseTab();
     stopSettings();
-    expect(off).toHaveBeenCalledTimes(6);
+    stopReleaseNotes();
+    expect(off).toHaveBeenCalledTimes(7);
     vi.doUnmock("@tauri-apps/api/event");
   });
 

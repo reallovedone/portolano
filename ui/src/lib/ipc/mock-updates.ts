@@ -2,7 +2,14 @@
 // (or `?ipc=mock` demos) steer them through `MockOptions.updates` and the returned controller.
 
 import { IpcError } from "./errors";
-import type { UpdateCheck, UpdateEvent, UpdateInfo, UpdateSettings, WhatsNew } from "./types";
+import type {
+  ReleaseNotesList,
+  UpdateCheck,
+  UpdateEvent,
+  UpdateInfo,
+  UpdateSettings,
+  WhatsNew,
+} from "./types";
 
 export interface MockUpdateOptions {
   /** Version of the "running" application (default 0.1.0). */
@@ -17,7 +24,19 @@ export interface MockUpdateOptions {
   installError?: string;
   /** The "What's new" due at start-up (default: none). */
   whatsNew?: WhatsNew;
+  /** The list of every version for "Release notes" (default: a short canned list). */
+  releaseNotes?: ReleaseNotesList;
+  /** Make loading "Release notes" fail with this message. */
+  releaseNotesError?: string;
 }
+
+const DEFAULT_RELEASE_NOTES: ReleaseNotesList = {
+  sections: [
+    { version: "0.2.0", date: "2026-11-17", notes: "### ✨ Added\n\n- A second feature" },
+    { version: "0.1.0", date: "2026-11-16", notes: "### ✨ Added\n\n- The first feature" },
+  ],
+  truncated: false,
+};
 
 /** What tests look at, and the knobs they turn while the UI is running. */
 export interface MockUpdates {
@@ -29,6 +48,8 @@ export interface MockUpdates {
   readonly openedPages: string[];
   /** Number of times the full changelog was opened. */
   openedChangelogs: number;
+  /** Number of `releaseNotes` calls. */
+  releaseNotesCalls: number;
   /** Number of `updateInstall` calls. */
   installs: number;
   /** Current values; tests may change them while the UI runs. */
@@ -44,6 +65,7 @@ export interface MockUpdates {
     updateSkip(version: string): Promise<void>;
     updateInstall(onEvent: (event: UpdateEvent) => void): Promise<void>;
     whatsNew(): Promise<WhatsNew | null>;
+    releaseNotes(): Promise<ReleaseNotesList>;
     updateOpenReleasePage(version: string): Promise<void>;
     updateOpenChangelog(): Promise<void>;
   };
@@ -57,6 +79,7 @@ export function createMockUpdates(options: MockUpdateOptions = {}): MockUpdates 
     openedPages: [],
     openedChangelogs: 0,
     installs: 0,
+    releaseNotesCalls: 0,
     options,
     settings: {
       autoCheck: options.autoCheck ?? true,
@@ -100,6 +123,13 @@ export function createMockUpdates(options: MockUpdateOptions = {}): MockUpdates 
         onEvent({ type: "installing" });
       },
       whatsNew: async () => state.options.whatsNew ?? null,
+      releaseNotes: async () => {
+        state.releaseNotesCalls += 1;
+        if (state.options.releaseNotesError !== undefined) {
+          throw new IpcError("internal", state.options.releaseNotesError);
+        }
+        return structuredClone(state.options.releaseNotes ?? DEFAULT_RELEASE_NOTES);
+      },
       updateOpenReleasePage: async (version) => {
         state.openedPages.push(version);
       },

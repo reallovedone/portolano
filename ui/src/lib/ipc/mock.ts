@@ -521,6 +521,8 @@ export interface MockIpc extends Ipc {
     closeTabMenu(): void;
     /** "Settings…" (⌘,) chosen in the macOS menu bar. */
     settingsMenu(): void;
+    /** Help → "Release Notes…" chosen in the macOS menu bar. */
+    releaseNotesMenu(): void;
     /** The user asked to quit or to close the window (`quit-requested`). */
     quitRequested(): void;
   };
@@ -565,6 +567,7 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
   const sessionKeyCaptures: boolean[] = [];
   const menuCloseTabHandlers = new Set<() => void>();
   const menuSettingsHandlers = new Set<() => void>();
+  const menuReleaseNotesHandlers = new Set<() => void>();
   let appearance: Appearance = { ...(options.appearance ?? DEFAULT_APPEARANCE) };
   const saveFailedHandlers = new Set<(notice: CredentialSaveFailed) => void>();
   const lockVault = (): void => {
@@ -665,6 +668,9 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       },
       settingsMenu() {
         for (const handler of [...menuSettingsHandlers]) handler();
+      },
+      releaseNotesMenu() {
+        for (const handler of [...menuReleaseNotesHandlers]) handler();
       },
       quitRequested() {
         for (const handler of [...quitHandlers]) handler();
@@ -964,6 +970,10 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     onSettingsMenu(handler) {
       menuSettingsHandlers.add(handler);
       return () => menuSettingsHandlers.delete(handler);
+    },
+    onReleaseNotesMenu(handler) {
+      menuReleaseNotesHandlers.add(handler);
+      return () => menuReleaseNotesHandlers.delete(handler);
     },
     onCloseTabMenu(handler) {
       menuCloseTabHandlers.add(handler);

@@ -402,6 +402,13 @@ export interface ReleaseSection {
   notes: string;
 }
 
+/** The release notes of every released version, newest first (the "Release notes" window). */
+export interface ReleaseNotesList {
+  sections: ReleaseSection[];
+  /** Older versions were left out because the text is very long. */
+  truncated: boolean;
+}
+
 /**
  * "What's new", shown once on the first launch after an update: every version since the one
  * that ran last, newest first.

@@ -31,7 +31,7 @@
 
   let { onclose }: { onclose: () => void } = $props();
 
-  const { appearance } = getApp();
+  const { appearance, ui, updates } = getApp();
 
   const options = <T extends string>(values: readonly T[], prefix: string): { value: T; label: string }[] =>
     values.map((value) => ({ value, label: t(`${prefix}.${value}` as StringKey) }));
@@ -176,6 +176,13 @@
     </div>
   </section>
 
+  <section class="about" aria-label={t("settings.about")} data-testid="settings-about">
+    {#if updates.settings?.currentVersion}
+      <span class="version">{t("update.currentVersion", { version: updates.settings.currentVersion })}</span>
+    {/if}
+    <Button size="compact" onclick={() => ui.open({ type: "releaseNotes" })}>{t("settings.releaseNotes")}</Button>
+  </section>
+
   {#snippet footer()}
     <Button variant="primary" data-autofocus onclick={onclose}>{t("common.close")}</Button>
   {/snippet}
@@ -201,6 +208,21 @@
     font-weight: var(--font-weight-semibold);
   }
   .page-head p {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+  }
+
+  /* The app version and the way to its release notes, under the last group. */
+  .about {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-hairline);
+  }
+  .version {
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
   }

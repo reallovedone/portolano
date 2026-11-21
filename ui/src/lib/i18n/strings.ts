@@ -601,7 +601,16 @@ export const strings = {
   "whatsNew.title": "What's new in {version}",
   "whatsNew.intro": "Portolano was updated to {version}. Here is what changed since the version you used before.",
   "whatsNew.truncated": "Older versions are not shown here.",
-  "whatsNew.fullChangelog": "See the full changelog on GitHub",
+  "whatsNew.fullChangelog": "See all release notes",
+  "releaseNotes.title": "Release notes",
+  "releaseNotes.menuBusy": "Close the open dialog, then choose “Release Notes…” again.",
+  "releaseNotes.loading": "Loading the release notes…",
+  "releaseNotes.loadFailed": "The release notes could not be loaded.",
+  "releaseNotes.viewOnGitHub": "View on GitHub",
+  "releaseNotes.truncated": "Older versions are not shown here.",
+  "releaseNotes.fullChangelog": "See the full changelog on GitHub",
+  "settings.about": "About",
+  "settings.releaseNotes": "Release notes",
 } as const;
 
 export type StringKey = keyof typeof strings;

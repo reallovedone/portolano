@@ -242,6 +242,7 @@
   --dialog-width-sm: 380px;
   --dialog-width-md: 480px;
   --dialog-width-lg: 640px;
+  --dialog-width-xl: 800px;
   --spinner-width: 2px;
 
   /* ---- Window chrome -----------------------------------------------------

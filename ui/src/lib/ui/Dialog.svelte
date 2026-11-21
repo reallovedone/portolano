@@ -76,8 +76,8 @@
     hero?: Snippet;
     /** Explicit width in pixels; overrides `size`. */
     width?: number;
-    /** Preset width from the --dialog-width-* tokens: sm, md, lg. */
-    size?: "sm" | "md" | "lg";
+    /** Preset width from the --dialog-width-* tokens: sm, md, lg, xl. */
+    size?: "sm" | "md" | "lg" | "xl";
   } = $props();
 
   const app = getApp();
@@ -204,6 +204,10 @@
 
   .lg {
     width: min(var(--dialog-width-lg), calc(100vw - var(--space-8)));
+  }
+
+  .xl {
+    width: min(var(--dialog-width-xl), calc(100vw - var(--space-8)));
   }
 
   /* Full-bleed: spans the dialog edge to edge, with a hairline below. */

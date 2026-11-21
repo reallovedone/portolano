@@ -24,6 +24,7 @@ import type {
   Uuid,
   VaultStatus,
   WebNavAction,
+  ReleaseNotesList,
   WhatsNew,
 } from "./types";
 
@@ -199,6 +200,8 @@ export interface Ipc {
   updateInstall(onEvent: (event: UpdateEvent) => void): Promise<void>;
   /** The "What's new" due at this start-up (`null`: nothing to show). */
   whatsNew(): Promise<WhatsNew | null>;
+  /** The release notes of every version of the changelog built into the application. */
+  releaseNotes(): Promise<ReleaseNotesList>;
   /** Opens the GitHub release page of `version` in the browser. */
   updateOpenReleasePage(version: string): Promise<void>;
   /** Opens the full changelog on GitHub in the browser. */
@@ -221,6 +224,8 @@ export interface Ipc {
   onQuitRequested(handler: () => void): () => void;
   /** macOS menu bar: "Settings…" (⌘,) was chosen (the event never fires elsewhere). */
   onSettingsMenu(handler: () => void): () => void;
+  /** macOS menu bar: Help → "Release Notes…" was chosen (the event never fires elsewhere). */
+  onReleaseNotesMenu(handler: () => void): () => void;
   /** macOS menu bar: "Close Tab" (⌘W) was chosen; the active tab is to be closed. */
   onCloseTabMenu(handler: () => void): () => void;
   /** "Save to the vault" failed at connect time; the session stays connected. */

@@ -154,12 +154,14 @@ export const tauriIpc: Ipc = {
     return call("update_install", { onEvent: channel });
   },
   whatsNew: () => call("whats_new"),
+  releaseNotes: () => call("release_notes"),
   updateOpenReleasePage: (version) => call("update_open_release_page", { version }),
   updateOpenChangelog: () => call("update_open_changelog"),
 
   onVaultLocked: (handler) => subscribe<null>("vault-locked", () => handler()),
   onCheckForUpdatesMenu: (handler) => subscribe<null>("menu-check-for-updates", () => handler()),
   onSettingsMenu: (handler) => subscribe<null>("menu-settings", () => handler()),
+  onReleaseNotesMenu: (handler) => subscribe<null>("menu-release-notes", () => handler()),
   onCloseTabMenu: (handler) => subscribe<null>("menu-close-tab", () => handler()),
   onQuitRequested: (handler) => subscribe<null>("quit-requested", () => handler()),
   onCredentialSaveFailed: (handler) =>

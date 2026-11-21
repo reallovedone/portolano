@@ -17,6 +17,8 @@ attention when you upgrade.
 - A slim toolbar above every session with Reconnect, Duplicate and Close, a *Send Ctrl+Alt+Del* button for remote desktops (RDP and VNC), and on the right the host, the remote screen size and a lock that tells how the connection is protected. Web pages keep their back, forward, reload and address controls in the same row.
 - The session toolbar can be slid away and back with the small tab under its middle (web pages keep their navigation and address visible), or from *Show session toolbar* in the sidebar's more-actions menu.
 
+- A new *Release notes* window, from *Help → Release Notes…* on macOS or from Settings, lists what changed in every version; release notes show screenshots of the new features in the look you use, and after an update the *What's new* window links to it when older versions do not fit.
+
 ### 🔄 Changed
 
 - A connections file saved by 0.4.0 still opens in 0.3.x, but if you go back to 0.3.x and save there, your custom order, icons, colours and appearance settings are lost.

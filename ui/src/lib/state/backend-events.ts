@@ -72,6 +72,17 @@ export function connectBackendEvents(app: App): () => void {
       }
       ui.open({ type: "settings" });
     }),
+    // macOS menu bar Help → "Release Notes…": the window with every version.
+    app.ipc.onReleaseNotesMenu(() => {
+      const { ui, updates, notices } = app;
+      if (ui.dialog?.type === "releaseNotes") return;
+      // Another dialog may hold unsaved input, and "What's new" is already showing notes.
+      if (ui.dialog || updates.whatsNew) {
+        notices.push("info", t("releaseNotes.menuBusy"));
+        return;
+      }
+      ui.open({ type: "releaseNotes" });
+    }),
     // macOS menu bar "Close Tab" (⌘W): closes the active tab, asking first if it is connected.
     app.ipc.onCloseTabMenu(() => {
       const id = app.tabs.state.activeId;

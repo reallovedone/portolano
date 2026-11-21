@@ -90,6 +90,33 @@ pub struct WhatsNew {
     pub truncated: bool,
 }
 
+/// Every released version of the changelog built into this binary, for the "Release notes"
+/// window.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseNotesList {
+    /// Newest first.
+    pub sections: Vec<changelog::Section>,
+    /// Older versions were left out because the text passed `MAX_ALL_NOTES_BYTES`.
+    pub truncated: bool,
+}
+
+/// The release notes of every version, newest first, from the embedded changelog.
+pub fn release_notes() -> ReleaseNotesList {
+    release_notes_from(changelog::EMBEDDED)
+}
+
+fn release_notes_from(changelog_text: &str) -> ReleaseNotesList {
+    let (sections, truncated) = changelog::bound_to(
+        changelog::all_sections(changelog_text),
+        changelog::MAX_ALL_NOTES_BYTES,
+    );
+    ReleaseNotesList {
+        sections,
+        truncated,
+    }
+}
+
 struct PendingUpdate {
     update: Update,
 }
@@ -436,6 +463,34 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    #[test]
+    fn release_notes_list_every_version_and_serialise_for_the_ui() {
+        let text = "## [Unreleased]\n\n- wip\n\n## [0.2.0] - 2026-11-17\n\n- b\n\n## [0.1.0] - 2026-11-16\n\n- a\n";
+        let list = release_notes_from(text);
+        assert!(!list.truncated);
+        let versions: Vec<&str> = list.sections.iter().map(|s| s.version.as_str()).collect();
+        assert_eq!(versions, ["0.2.0", "0.1.0"]);
+        let json = serde_json::to_value(&list).expect("serialises");
+        assert_eq!(json["truncated"], false);
+        assert_eq!(json["sections"][0]["version"], "0.2.0");
+        assert_eq!(json["sections"][0]["date"], "2026-11-17");
+        // The real file, as the command returns it.
+        let real = release_notes();
+        assert!(real.sections.iter().any(|s| s.version == "0.1.0"));
+    }
+
+    #[test]
+    fn release_notes_over_the_cap_drop_the_oldest() {
+        let part = "x".repeat(changelog::MAX_ALL_NOTES_BYTES / 2 + 1);
+        let text = format!(
+            "## [0.3.0] - 2026-11-19\n\n{part}\n\n## [0.2.0] - 2026-11-18\n\n{part}\n\n## [0.1.0] - 2026-11-17\n\nold\n"
+        );
+        let list = release_notes_from(&text);
+        assert!(list.truncated);
+        assert_eq!(list.sections.len(), 1);
+        assert_eq!(list.sections[0].version, "0.3.0");
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

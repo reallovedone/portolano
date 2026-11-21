@@ -4,7 +4,9 @@
 //! any jump between versions. The sections are read with the same rules as
 //! `.github/scripts/changelog-notes.py` (which still writes the body of the GitHub release): a
 //! section starts at `## [X.Y.Z] - <date>` and ends at the next `## [` heading or at the link
-//! references at the bottom. `[Unreleased]` is never a version, so it is never shown.
+//! references at the bottom. `[Unreleased]` is never a version, so it is never shown, neither in
+//! "What's new" nor in the list of all release notes (it is work in progress, not a release; a
+//! release candidate's `## [X.Y.Z] - Unreleased` section is a version and is listed).
 
 use semver::Version;
 use serde::Serialize;
@@ -14,6 +16,12 @@ use crate::settings::MAX_NOTES_BYTES;
 
 /// The repository changelog, as it was when this binary was built.
 pub const EMBEDDED: &str = include_str!("../../../CHANGELOG.md");
+
+/// Largest total of notes the "Release notes" window gets in one answer, in bytes. The changelog
+/// is a few kilobytes per release, so 512 KiB holds well over a hundred releases; the cap only
+/// keeps a mistake (a pasted log, a runaway file) from becoming a huge IPC payload.
+pub const MAX_ALL_NOTES_BYTES: usize = 512 * 1024;
+const _: () = assert!(MAX_ALL_NOTES_BYTES > MAX_NOTES_BYTES);
 
 /// One released version of the changelog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -162,24 +170,36 @@ pub fn skipped_sections(changelog: &str, last_run: &Version, current: &Version) 
     found.into_iter().map(|p| p.section).collect()
 }
 
+/// Every version of `changelog`, newest first (by version, whatever the order of the file).
+pub fn all_sections(changelog: &str) -> Vec<Section> {
+    let mut found = parse(changelog);
+    found.sort_by(|a, b| b.version.cmp_precedence(&a.version));
+    found.into_iter().map(|p| p.section).collect()
+}
+
 /// Keeps the newest sections that fit in `MAX_NOTES_BYTES`. The newest one is always kept, even
 /// alone over the cap (it is the running version: it is always shown), but then it is cut on a
 /// character boundary. The flag tells that older ones were left out, so the UI links to the full
 /// changelog.
 pub fn bound(sections: Vec<Section>) -> (Vec<Section>, bool) {
+    bound_to(sections, MAX_NOTES_BYTES)
+}
+
+/// `bound` with an explicit cap on the total size of the notes.
+pub fn bound_to(sections: Vec<Section>, limit: usize) -> (Vec<Section>, bool) {
     let mut kept: Vec<Section> = Vec::new();
     let mut total = 0usize;
     let all = sections.len();
     for section in sections {
         total += section.notes.len();
-        if !kept.is_empty() && total > MAX_NOTES_BYTES {
+        if !kept.is_empty() && total > limit {
             break;
         }
         kept.push(section);
     }
     if let Some(first) = kept.first_mut() {
-        if first.notes.len() > MAX_NOTES_BYTES {
-            let mut end = MAX_NOTES_BYTES;
+        if first.notes.len() > limit {
+            let mut end = limit;
             while !first.notes.is_char_boundary(end) {
                 end -= 1;
             }
@@ -342,6 +362,41 @@ mod tests {
         assert!(cut);
         let (kept, cut) = bound(vec![big("0.3.0", 10)]);
         assert_eq!((kept.len(), cut), (1, false));
+    }
+
+    #[test]
+    fn all_sections_lists_every_version_newest_first_without_unreleased() {
+        let text = "## [Unreleased]\n\n- wip\n\n## [0.1.0] - 2026-11-16\n\n- a\n\n## [0.3.0] - Unreleased\n\n- c\n\n## [0.2.0] - 2026-11-17\n\n- b\n";
+        let versions: Vec<String> = all_sections(text).into_iter().map(|s| s.version).collect();
+        assert_eq!(versions, ["0.3.0", "0.2.0", "0.1.0"]);
+        let real = all_sections(EMBEDDED);
+        assert!(real.iter().any(|s| s.version == "0.1.0"));
+        assert!(real.iter().all(|s| s.version != "Unreleased"));
+    }
+
+    #[test]
+    fn the_all_versions_cap_keeps_the_newest_and_flags_the_rest() {
+        let big = |version: &str, size: usize| Section {
+            version: version.into(),
+            date: None,
+            notes: "x".repeat(size),
+        };
+        // 3 sections of a third of the cap each plus a little: the third no longer fits.
+        let third = MAX_ALL_NOTES_BYTES / 3 + 1;
+        let (kept, cut) = bound_to(
+            vec![
+                big("0.3.0", third),
+                big("0.2.0", third),
+                big("0.1.0", third),
+            ],
+            MAX_ALL_NOTES_BYTES,
+        );
+        assert_eq!(kept.len(), 2);
+        assert!(cut);
+        // The real changelog is nowhere near the cap.
+        let (kept, cut) = bound_to(all_sections(EMBEDDED), MAX_ALL_NOTES_BYTES);
+        assert_eq!(kept.len(), all_sections(EMBEDDED).len());
+        assert!(!cut);
     }
 
     #[test]
