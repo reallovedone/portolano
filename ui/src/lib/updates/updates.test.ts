@@ -253,7 +253,7 @@ describe("What's new", () => {
   it("shows every version with its title and notes, and closes", async () => {
     await mountApp({ updates: { whatsNew } });
     const dialog = await screen.findByRole("dialog", { name: "What's new in 0.3.2" });
-    const sections = within(dialog).getAllByTestId("whats-new-section");
+    const sections = within(dialog).getAllByTestId("release-section");
     expect(sections.map((x) => x.getAttribute("data-version"))).toEqual([
       "0.3.2",
       "0.3.1",
@@ -296,14 +296,15 @@ describe("What's new", () => {
     );
   });
 
-  it("links to the full changelog when older versions were left out", async () => {
-    const { mock } = await mountApp({ updates: { whatsNew: { ...whatsNew, truncated: true } } });
+  it("links to the Release notes window when older versions were left out", async () => {
+    await mountApp({ updates: { whatsNew: { ...whatsNew, truncated: true } } });
     const dialog = await screen.findByRole("dialog", { name: "What's new in 0.3.2" });
     expect(within(dialog).getByText(/Older versions are not shown here/)).toBeTruthy();
     await fireEvent.click(
-      within(dialog).getByRole("button", { name: "See the full changelog on GitHub" }),
+      within(dialog).getByRole("button", { name: "See all release notes" }),
     );
-    await waitFor(() => expect(mock.updates.openedChangelogs).toBe(1));
+    await screen.findByRole("dialog", { name: "Release notes" });
+    expect(screen.queryByRole("dialog", { name: "What's new in 0.3.2" })).toBeNull();
   });
 
   it("comes before the update dialog, which follows once it is closed", async () => {

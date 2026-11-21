@@ -363,4 +363,26 @@ describe("mock appearance", () => {
     ipc.simulate.settingsMenu();
     expect(handler).toHaveBeenCalledTimes(1);
   });
+
+  it("tells subscribers when the Release Notes menu item is chosen", () => {
+    const ipc = createMockIpc();
+    const handler = vi.fn();
+    const off = ipc.onReleaseNotesMenu(handler);
+    ipc.simulate.releaseNotesMenu();
+    expect(handler).toHaveBeenCalledTimes(1);
+    off();
+    ipc.simulate.releaseNotesMenu();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the release notes of every version, or the failure it was told to", async () => {
+    const ipc = createMockIpc();
+    const list = await ipc.releaseNotes();
+    expect(list.sections.map((s) => s.version)).toEqual(["0.2.0", "0.1.0"]);
+    expect(list.truncated).toBe(false);
+    expect(ipc.updates.releaseNotesCalls).toBe(1);
+    const custom = { sections: [{ version: "1.0.0", date: null, notes: "- x" }], truncated: true };
+    expect(await createMockIpc({ updates: { releaseNotes: custom } }).releaseNotes()).toEqual(custom);
+    await expect(createMockIpc({ updates: { releaseNotesError: "boom" } }).releaseNotes()).rejects.toThrow("boom");
+  });
 });

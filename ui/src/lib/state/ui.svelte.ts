@@ -13,7 +13,9 @@ export type Dialog =
   // "Check for updates…": version, the automatic-check setting, and the result of a check.
   | { type: "updates" }
   // Settings window (for now only the Appearance section).
-  | { type: "settings" };
+  | { type: "settings" }
+  // "Release notes": every version of the changelog, with screenshots.
+  | { type: "releaseNotes" };
 
 export class UiStore {
   dialog = $state<Dialog | null>(null);

@@ -1,11 +1,13 @@
 //! Native macOS menu bar (WP13c). Tauri's default menu stays as it is (app, Edit, View, Window,
 //! Help, with their predefined items and shortcuts); the only addition is "Check for Updates…"
-//! right below "About Portolano" in the application menu. Windows and Linux have no menu bar and
-//! this module is not compiled there.
+//! right below "About Portolano" in the application menu, plus "Release Notes…" in Help. Windows
+//! and Linux have no menu bar and this module is not compiled there.
 
 use std::sync::Mutex;
 
-use tauri::menu::{Menu, MenuEvent, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
+use tauri::menu::{
+    Menu, MenuEvent, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID,
+};
 use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Emitter, WindowEvent, Wry};
 
@@ -22,6 +24,13 @@ const SETTINGS_ID: &str = "portolano.settings";
 /// Event (to the main webview, no payload) emitted when "Settings…" is chosen. The UI opens the
 /// Settings window.
 pub const SETTINGS_EVENT: &str = "menu-settings";
+
+/// Id of the "Release Notes…" menu item (Help menu).
+const RELEASE_NOTES_ID: &str = "portolano.release-notes";
+
+/// Event (to the main webview, no payload) emitted when "Release Notes…" is chosen. The UI opens
+/// the Release notes window.
+pub const RELEASE_NOTES_EVENT: &str = "menu-release-notes";
 
 /// Id of the "Close Tab" menu item (⌘W), which replaces the predefined "Close Window".
 const CLOSE_TAB_ID: &str = "portolano.close-tab";
@@ -49,6 +58,7 @@ fn event_for_menu_id(id: &str) -> Option<&'static str> {
         CHECK_FOR_UPDATES_ID => Some(CHECK_FOR_UPDATES_EVENT),
         CLOSE_TAB_ID => Some(CLOSE_TAB_EVENT),
         SETTINGS_ID => Some(SETTINGS_EVENT),
+        RELEASE_NOTES_ID => Some(RELEASE_NOTES_EVENT),
         _ => None,
     }
 }
@@ -68,6 +78,9 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<Menu<Wry>> {
     }
     if let Err(e) = add_settings(app, &menu) {
         tracing::warn!(error = %e, "could not add \"Settings…\" to the menu");
+    }
+    if let Err(e) = add_release_notes(app, &menu) {
+        tracing::warn!(error = %e, "could not add \"Release Notes…\" to the Help menu");
     }
     if let Err(e) = replace_close_window(app, &menu) {
         tracing::warn!(error = %e, "could not replace \"Close Window\" with \"Close Tab\"");
@@ -108,6 +121,16 @@ fn add_settings(app: &AppHandle<Wry>, menu: &Menu<Wry>) -> tauri::Result<()> {
     app_menu.insert(&item, SETTINGS_POSITION)?;
     app_menu.insert(&PredefinedMenuItem::separator(app)?, SETTINGS_POSITION + 1)?;
     Ok(())
+}
+
+/// Adds "Release Notes…" to the Help menu (empty by default on macOS), found by its id.
+fn add_release_notes(app: &AppHandle<Wry>, menu: &Menu<Wry>) -> tauri::Result<()> {
+    let Some(MenuItemKind::Submenu(help)) = menu.get(HELP_SUBMENU_ID) else {
+        tracing::warn!("no Help menu found; \"Release Notes…\" not added");
+        return Ok(());
+    };
+    let item = MenuItem::with_id(app, RELEASE_NOTES_ID, "Release Notes…", true, None::<&str>)?;
+    help.append(&item)
 }
 
 /// Replaces every predefined "Close Window" (the File and Window menus both have one, with ⌘W)
@@ -318,6 +341,10 @@ mod tests {
         );
         assert_eq!(event_for_menu_id(CLOSE_TAB_ID), Some(CLOSE_TAB_EVENT));
         assert_eq!(event_for_menu_id(SETTINGS_ID), Some(SETTINGS_EVENT));
+        assert_eq!(
+            event_for_menu_id(RELEASE_NOTES_ID),
+            Some(RELEASE_NOTES_EVENT)
+        );
         assert_eq!(event_for_menu_id("quit"), None);
         assert_eq!(event_for_menu_id("close_window"), None);
         assert_eq!(event_for_menu_id(""), None);
@@ -329,6 +356,7 @@ mod tests {
         assert!(ui.contains(&format!("\"{CHECK_FOR_UPDATES_EVENT}\"")));
         assert!(ui.contains(&format!("\"{CLOSE_TAB_EVENT}\"")));
         assert!(ui.contains(&format!("\"{SETTINGS_EVENT}\"")));
+        assert!(ui.contains(&format!("\"{RELEASE_NOTES_EVENT}\"")));
     }
 
     #[test]

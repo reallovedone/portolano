@@ -5,7 +5,10 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 
 use crate::error::AppError;
-use crate::update::{UpdateCheck, UpdateEvent, UpdateService, UpdateSettings, WhatsNew};
+use crate::update::{
+    release_notes as all_release_notes, ReleaseNotesList, UpdateCheck, UpdateEvent, UpdateService,
+    UpdateSettings, WhatsNew,
+};
 
 #[tauri::command]
 pub async fn update_settings(
@@ -63,6 +66,12 @@ pub async fn update_install(
 #[tauri::command]
 pub async fn whats_new(service: State<'_, UpdateService>) -> Result<Option<WhatsNew>, AppError> {
     service.whats_new().await
+}
+
+/// The release notes of every version, newest first (the "Release notes" window).
+#[tauri::command]
+pub fn release_notes() -> ReleaseNotesList {
+    all_release_notes()
 }
 
 /// Opens the GitHub release page of a version in the browser.

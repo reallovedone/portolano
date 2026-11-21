@@ -19,7 +19,12 @@ hand.
    builds with `--locked` and would fail otherwise).
 2. Run `bash dev/check.sh` and `python3 .github/scripts/changelog-notes.py X.Y.Z` (it must
    print the notes you expect), commit, and merge to `main` through the usual pull request.
-3. Tag the merged commit and push the tag:
+3. If the release has screenshots for the release notes, publish them on the website under
+   `public/whats-new/<version>/` (one light and one dark image per name, `<name>-light.webp` and
+   `<name>-dark.webp`, WebP, 1600×1000) and add the version, with each name and its description, to
+   `ui/src/lib/updates/screenshots.ts`. The files of a released version are never changed. An
+   image that cannot be loaded is simply not shown, so a late upload does no harm.
+4. Tag the merged commit and push the tag:
 
    ```bash
    git switch main && git pull
@@ -27,14 +32,14 @@ hand.
    git push origin vX.Y.Z
    ```
 
-4. Open the **Actions** tab and watch the *Release* run. It checks the tag against the four
+5. Open the **Actions** tab and watch the *Release* run. It checks the tag against the four
    versions, extracts the release notes from `CHANGELOG.md` (the run stops here if the
    section is missing, empty, or a final version still says *Unreleased*), builds three installers in parallel (macOS Apple Silicon, macOS Intel,
    Windows x64) together with their signed update packages, writes `latest.json` and the
    checksums, and creates the draft release.
-5. Open **Releases**, review the draft (the files listed below and the notes, which are the
+6. Open **Releases**, review the draft (the files listed below and the notes, which are the
    changelog section) and press **Publish release**.
-6. After a final release, start the next cycle: keep `## [Unreleased]` at the top of
+7. After a final release, start the next cycle: keep `## [Unreleased]` at the top of
    `CHANGELOG.md` and update the link references at the bottom.
 
 If the run fails, fix the cause and either re-run the failed jobs (same tag), or delete the

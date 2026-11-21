@@ -18,6 +18,7 @@
   import StatusBar from "./lib/ui/StatusBar.svelte";
   import Toasts from "./lib/ui/Toasts.svelte";
   import SettingsDialog from "./lib/settings/SettingsDialog.svelte";
+  import ReleaseNotesDialog from "./lib/updates/ReleaseNotesDialog.svelte";
   import UpdateCheckDialog from "./lib/updates/UpdateCheckDialog.svelte";
   import UpdateOfferDialog from "./lib/updates/UpdateOfferDialog.svelte";
   import WhatsNewDialog from "./lib/updates/WhatsNewDialog.svelte";
@@ -89,6 +90,18 @@
       offerVisible = true;
     }
   });
+
+  // The link of "What's new" when it left older versions out: the Release notes window takes its
+  // place (one dialog at a time). Another open dialog may hold unsaved input and is never
+  // replaced; the page on GitHub is opened then, as before.
+  function openFullChangelog(): void {
+    if (ui.dialog) {
+      void updates.openChangelog();
+      return;
+    }
+    updates.dismissWhatsNew();
+    ui.open({ type: "releaseNotes" });
+  }
 
   function onKeydown(event: KeyboardEvent): void {
     if (event.defaultPrevented || overlay.open) return;
@@ -186,10 +199,12 @@
   <UpdateCheckDialog onclose={() => ui.closeDialog()} />
 {:else if ui.dialog?.type === "settings"}
   <SettingsDialog onclose={() => ui.closeDialog()} />
+{:else if ui.dialog?.type === "releaseNotes"}
+  <ReleaseNotesDialog onclose={() => ui.closeDialog()} />
 {/if}
 
 {#if updates.whatsNew}
-  <WhatsNewDialog info={updates.whatsNew} onclose={() => updates.dismissWhatsNew()} />
+  <WhatsNewDialog info={updates.whatsNew} onclose={() => updates.dismissWhatsNew()} onfullchangelog={openFullChangelog} />
 {:else if offerVisible}
   <UpdateOfferDialog />
 {/if}
