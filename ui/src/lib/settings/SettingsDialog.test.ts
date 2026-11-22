@@ -111,4 +111,47 @@ describe("SettingsDialog", () => {
     await fireEvent.click(await screen.findByRole("menuitem", { name: /Settings…/ }));
     expect(await screen.findByRole("dialog", { name: "Settings" })).toBeTruthy();
   });
+
+  describe("Updates section", () => {
+    it("shows the switches, the version and the buttons", async () => {
+      await openSettings(createMockIpc({ vault: "unlocked", updates: { currentVersion: "0.4.0", autoCheck: true } }));
+      const section = await screen.findByTestId("settings-updates");
+      await waitFor(() => expect(within(section).getByText("Portolano 0.4.0")).toBeTruthy());
+      expect((within(section).getByRole("switch", { name: /Automatically check for updates/ }) as HTMLInputElement).checked).toBe(true);
+      expect((within(section).getByRole("switch", { name: /Include pre-releases/ }) as HTMLInputElement).checked).toBe(false);
+      expect(within(section).getByRole("button", { name: "Release notes" })).toBeTruthy();
+      expect(within(section).getByRole("button", { name: "Check for updates…" })).toBeTruthy();
+    });
+
+    it("saves the automatic check and the pre-release switches", async () => {
+      const ipc = createMockIpc({ vault: "unlocked" });
+      await openSettings(ipc);
+      const section = await screen.findByTestId("settings-updates");
+      await fireEvent.click(within(section).getByRole("switch", { name: /Include pre-releases/ }));
+      await waitFor(() => expect(ipc.updates.settings.includePrereleases).toBe(true));
+      await fireEvent.click(within(section).getByRole("switch", { name: /Automatically check for updates/ }));
+      await waitFor(() => expect(ipc.updates.settings.autoCheck).toBe(false));
+      expect(ipc.updates.settings.includePrereleases).toBe(true);
+    });
+
+    it("puts a switch back when saving fails", async () => {
+      const ipc = createMockIpc({ vault: "unlocked" });
+      ipc.updateSetIncludePrereleases = async () => {
+        throw new Error("disk full");
+      };
+      await openSettings(ipc);
+      const section = await screen.findByTestId("settings-updates");
+      const toggle = within(section).getByRole("switch", { name: /Include pre-releases/ }) as HTMLInputElement;
+      await fireEvent.click(toggle);
+      await waitFor(() => expect(toggle.checked).toBe(false));
+    });
+
+    it("opens the update check and the release notes", async () => {
+      const { app, ipc } = await openSettings();
+      const section = await screen.findByTestId("settings-updates");
+      await fireEvent.click(within(section).getByRole("button", { name: "Check for updates…" }));
+      expect(app.ui.dialog).toEqual({ type: "updates" });
+      await waitFor(() => expect(ipc.updates.checks).toEqual([true]));
+    });
+  });
 });

@@ -16,6 +16,8 @@ export interface MockUpdateOptions {
   currentVersion?: string;
   /** Initial "Automatically check for updates" (default true). */
   autoCheck?: boolean;
+  /** Initial "Include pre-releases" (default false). */
+  includePrereleases?: boolean;
   /** An update the server "offers" (default: none, the application is up to date). */
   available?: Pick<UpdateInfo, "version">;
   /** Make the check fail with this message (a network error). */
@@ -61,6 +63,7 @@ export interface MockUpdates {
   readonly api: {
     updateSettings(): Promise<UpdateSettings>;
     updateSetAutoCheck(enabled: boolean): Promise<void>;
+    updateSetIncludePrereleases(enabled: boolean): Promise<void>;
     updateCheck(manual: boolean): Promise<UpdateCheck>;
     updateSkip(version: string): Promise<void>;
     updateInstall(onEvent: (event: UpdateEvent) => void): Promise<void>;
@@ -83,6 +86,7 @@ export function createMockUpdates(options: MockUpdateOptions = {}): MockUpdates 
     options,
     settings: {
       autoCheck: options.autoCheck ?? true,
+      includePrereleases: options.includePrereleases ?? false,
       currentVersion: options.currentVersion ?? "0.1.0",
     },
     holdInstall: false,
@@ -91,6 +95,9 @@ export function createMockUpdates(options: MockUpdateOptions = {}): MockUpdates 
       updateSettings: async () => ({ ...state.settings }),
       updateSetAutoCheck: async (enabled) => {
         state.settings = { ...state.settings, autoCheck: enabled };
+      },
+      updateSetIncludePrereleases: async (enabled) => {
+        state.settings = { ...state.settings, includePrereleases: enabled };
       },
       updateCheck: async (manual) => {
         state.checks.push(manual);

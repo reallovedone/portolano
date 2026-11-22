@@ -19,6 +19,7 @@ attention when you upgrade.
 
 - A new *Release notes* window, from *Help → Release Notes…* on macOS or from Settings, lists what changed in every version; release notes show screenshots of the new features in the look you use, and after an update the *What's new* window links to it when older versions do not fit.
 - Shared folders: publish a folder as a signed file on a network drive, OneDrive, Nextcloud or an internal web server, and subscribe to folders shared by colleagues. Shared folders are read-only; you choose the credentials.
+- A new *Updates* section in Settings groups the automatic check, the version, *Check for updates…* and the release notes, and adds *Include pre-releases*: turn it on to also be offered test versions (release candidates) before they are final.
 
 ### 🔄 Changed
 
@@ -26,6 +27,7 @@ attention when you upgrade.
 - With shared folders, the connections file moves to a newer format: once this version has opened it, earlier versions of Portolano can no longer open it, so keep a copy first if you may go back.
 - After an update, the release notes of every version you skipped are shown; they are no longer shown before installing.
 - The RDP connection editor is shorter: options are grouped into Display, Sign-in, Clipboard & keyboard and Security sections, and long explanations open with "Learn more".
+- Tabs are wider, so more of the connection name is visible.
 
 ### 🐛 Fixed
 

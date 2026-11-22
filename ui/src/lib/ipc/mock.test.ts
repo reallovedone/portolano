@@ -388,6 +388,16 @@ describe("mock appearance", () => {
   });
 });
 
+describe("mock update settings", () => {
+  it("keeps pre-releases off by default and remembers the choice", async () => {
+    const ipc = createMockIpc();
+    expect((await ipc.updateSettings()).includePrereleases).toBe(false);
+    await ipc.updateSetIncludePrereleases(true);
+    expect(await ipc.updateSettings()).toMatchObject({ includePrereleases: true, autoCheck: true });
+    expect((await createMockIpc({ updates: { includePrereleases: true } }).updateSettings()).includePrereleases).toBe(true);
+  });
+});
+
 describe("mock shared folders", () => {
   it("mock_share_set_credential_updates_view", async () => {
     const ipc = createMockIpc({ shares: true });

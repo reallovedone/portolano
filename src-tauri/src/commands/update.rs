@@ -25,6 +25,14 @@ pub async fn update_set_auto_check(
     service.set_auto_check(enabled)
 }
 
+#[tauri::command]
+pub async fn update_set_include_prereleases(
+    service: State<'_, UpdateService>,
+    enabled: bool,
+) -> Result<(), AppError> {
+    service.set_include_prereleases(enabled)
+}
+
 /// Looks for a newer version. `manual` is true for "Check for updates…": it ignores the
 /// automatic-check setting and the skipped version and always answers.
 #[tauri::command]

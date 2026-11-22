@@ -199,7 +199,7 @@ describe("Release notes entry points", () => {
     await waitFor(() => expect(app.updates.settings?.currentVersion).toBe("0.4.0"));
     app.ui.open({ type: "settings" });
     const settings = await screen.findByRole("dialog", { name: "Settings" });
-    expect(within(settings).getByTestId("settings-about").textContent).toContain("Portolano 0.4.0");
+    expect(within(settings).getByTestId("settings-updates").textContent).toContain("Portolano 0.4.0");
     await fireEvent.click(within(settings).getByRole("button", { name: "Release notes" }));
     const notes = await screen.findByRole("dialog", { name: "Release notes" });
     expect(screen.getAllByRole("dialog")).toHaveLength(1);

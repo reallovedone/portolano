@@ -216,6 +216,8 @@ export interface Ipc {
   // updates (the backend does all the networking; the webview needs no network permission)
   updateSettings(): Promise<UpdateSettings>;
   updateSetAutoCheck(enabled: boolean): Promise<void>;
+  /** Turns "Include pre-releases" on or off (opt-in; off by default). */
+  updateSetIncludePrereleases(enabled: boolean): Promise<void>;
   /**
    * Looks for a newer version. `manual` (the "Check for updates…" action) ignores the automatic
    * setting and the skipped version and always answers; network errors reject.

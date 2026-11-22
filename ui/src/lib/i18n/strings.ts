@@ -701,6 +701,9 @@ export const strings = {
   "update.auto": "Automatically check for updates",
   "update.autoHint": "Once a day, Portolano asks GitHub whether a newer version exists. Nothing about you is sent.",
   "update.autoFailed": "The setting could not be saved",
+  "update.prereleases": "Include pre-releases",
+  "update.prereleasesHint": "Also offer test versions (release candidates) before they are final. They may be less stable.",
+  "update.prereleasesFailed": "The setting could not be saved",
   "update.checkNow": "Check for updates",
   "update.checking": "Checking for updates…",
   "update.upToDate": "You're up to date.",
@@ -734,7 +737,8 @@ export const strings = {
   "releaseNotes.viewOnGitHub": "View on GitHub",
   "releaseNotes.truncated": "Older versions are not shown here.",
   "releaseNotes.fullChangelog": "See the full changelog on GitHub",
-  "settings.about": "About",
+  "settings.updates": "Updates",
+  "settings.updatesHint": "How Portolano finds new versions.",
   "settings.releaseNotes": "Release notes",
 } as const;
 

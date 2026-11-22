@@ -8,6 +8,7 @@
 pub mod changelog;
 pub mod logic;
 pub mod notes;
+pub mod prerelease;
 
 use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
@@ -74,6 +75,7 @@ pub enum UpdateEvent {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSettings {
     pub auto_check: bool,
+    pub include_prereleases: bool,
     pub current_version: String,
 }
 
@@ -187,14 +189,21 @@ impl UpdateService {
     }
 
     pub fn settings(&self) -> Result<UpdateSettings, AppError> {
+        let settings = self.store.get()?;
         Ok(UpdateSettings {
-            auto_check: self.store.get()?.auto_check_updates,
+            auto_check: settings.auto_check_updates,
+            include_prereleases: settings.include_prereleases,
             current_version: self.current.to_string(),
         })
     }
 
     pub fn set_auto_check(&self, enabled: bool) -> Result<(), AppError> {
         self.store.update(|s| s.auto_check_updates = enabled)?;
+        Ok(())
+    }
+
+    pub fn set_include_prereleases(&self, enabled: bool) -> Result<(), AppError> {
+        self.store.update(|s| s.include_prereleases = enabled)?;
         Ok(())
     }
 
@@ -216,16 +225,22 @@ impl UpdateService {
         }
         let _busy = self.busy.try_lock().map_err(|_| busy_error())?;
 
-        // Pre-releases are offered to stable users only when the endpoint was overridden for
-        // testing; `releases/latest` never lists them anyway.
-        let allow_prerelease = self.endpoint_override.is_some();
+        // The endpoint override (testing) has priority. Otherwise, with "Include pre-releases",
+        // the newest published release is looked up and its own manifest is used; if the lookup
+        // fails the default endpoint answers, which never lists pre-releases.
+        let mut endpoint = self.endpoint_override.clone();
+        if endpoint.is_none() && settings.include_prereleases {
+            endpoint = prerelease_endpoint().await;
+        }
+        // Pre-releases are offered to stable users only when asked for (setting or override).
+        let allow_prerelease = endpoint.is_some();
         let mut builder = app
             .updater_builder()
             .timeout(CHECK_TIMEOUT)
             .version_comparator(move |current, release| {
                 should_offer(&current, &release.version, allow_prerelease)
             });
-        if let Some(url) = &self.endpoint_override {
+        if let Some(url) = &endpoint {
             builder = builder
                 .endpoints(vec![url.clone()])
                 .map_err(|e| map_updater_error(e, "check"))?;
@@ -383,6 +398,24 @@ impl UpdateService {
         let parsed = parse_version(version)
             .ok_or_else(|| AppError::invalid_input("not a valid version number"))?;
         open_in_browser(notes::release_page_url(&parsed))
+    }
+}
+
+/// The manifest of the newest published release, pre-releases included; `None` (after a warning)
+/// when the lookup fails, so the default endpoint is used.
+async fn prerelease_endpoint() -> Option<Url> {
+    match prerelease::fetch_newest().await {
+        Ok(version) => match Url::parse(&prerelease::manifest_url(&version)) {
+            Ok(url) => Some(url),
+            Err(e) => {
+                tracing::warn!(error = %e, "pre-release manifest address rejected, using the default endpoint");
+                None
+            }
+        },
+        Err(reason) => {
+            tracing::warn!(%reason, "could not look up pre-releases, using the default endpoint");
+            None
+        }
     }
 }
 
