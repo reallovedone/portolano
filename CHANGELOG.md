@@ -7,6 +7,12 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-22
+
+### ⚠️ Breaking changes
+
+- The connections file moves to a newer format: once 0.4.0 has opened it, earlier versions of Portolano can no longer open it. If you may go back to 0.3.x, keep a copy of the file first.
+
 ### ✨ Added
 
 - Connections and folders can have their own icon (40 to choose from, with search) and colour, picked in the editor under *General*: the icon replaces the default one in the list, and the colour shows as a dot after the name and as a thin bar on the tab of an open connection.
@@ -16,15 +22,12 @@ attention when you upgrade.
 - A *Home* tab, from the house button in the tab strip or ⌘⇧H (Ctrl+Shift+H on Windows), keeps the welcome screen with its connection tiles one click away next to your sessions.
 - A slim toolbar above every session with Reconnect, Duplicate and Close, a *Send Ctrl+Alt+Del* button for remote desktops (RDP and VNC), and on the right the host, the remote screen size and a lock that tells how the connection is protected. Web pages keep their back, forward, reload and address controls in the same row.
 - The session toolbar can be slid away and back with the small tab under its middle (web pages keep their navigation and address visible), or from *Show session toolbar* in the sidebar's more-actions menu.
-
 - A new *Release notes* window, from *Help → Release Notes…* on macOS or from Settings, lists what changed in every version; release notes show screenshots of the new features in the look you use, and after an update the *What's new* window links to it when older versions do not fit.
 - Shared folders: publish a folder as a signed file on a network drive, OneDrive, Nextcloud or an internal web server, and subscribe to folders shared by colleagues. Shared folders are read-only; you choose the credentials.
 - A new *Updates* section in Settings groups the automatic check, the version, *Check for updates…* and the release notes, and adds *Include pre-releases*: turn it on to also be offered test versions (release candidates) before they are final.
 
 ### 🔄 Changed
 
-- A connections file saved by 0.4.0 still opens in 0.3.x, but if you go back to 0.3.x and save there, your custom order, icons, colours and appearance settings are lost.
-- With shared folders, the connections file moves to a newer format: once this version has opened it, earlier versions of Portolano can no longer open it, so keep a copy first if you may go back.
 - After an update, the release notes of every version you skipped are shown; they are no longer shown before installing.
 - The RDP connection editor is shorter: options are grouped into Display, Sign-in, Clipboard & keyboard and Security sections, and long explanations open with "Learn more".
 - Tabs are wider, so more of the connection name is visible.
@@ -101,7 +104,8 @@ First public release.
 - Light and dark themes that follow the system.
 - Apple silicon and Intel Macs, and Windows 10/11 (64-bit).
 
-[Unreleased]: https://github.com/reallovedone/portolano/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/reallovedone/portolano/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/reallovedone/portolano/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/reallovedone/portolano/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/reallovedone/portolano/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/reallovedone/portolano/compare/v0.1.0...v0.2.0
