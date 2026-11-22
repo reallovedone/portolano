@@ -5,26 +5,29 @@
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
   import TreeSelect, { type TreeSelectOption } from "../ui/TreeSelect.svelte";
-  import { folderOptions, moveTargets } from "./model";
+  import { folderOptions, moveTargets, type RemoteMap } from "./model";
 
   let {
     node,
     nodes,
+    remote,
     onmove,
     oncancel,
   }: {
     node: Node;
     nodes: readonly Node[];
+    /** Remote (shared) nodes: they are never offered as a destination. */
+    remote?: RemoteMap;
     /** Returns an error message to keep the dialog open, or null when done. */
     onmove: (parentId: string | null) => Promise<string | null>;
     oncancel: () => void;
   } = $props();
 
-  const targets = $derived(moveTargets(nodes, node.id));
+  const targets = $derived(moveTargets(nodes, node.id, remote));
 
   function initialChoice(): string {
     if (node.parentId !== null) return "";
-    return moveTargets(nodes, node.id)[0]?.id ?? "";
+    return moveTargets(nodes, node.id, remote)[0]?.id ?? "";
   }
   let choice = $state(initialChoice());
   let busy = $state(false);

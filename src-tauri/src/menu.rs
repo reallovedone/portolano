@@ -25,6 +25,16 @@ const SETTINGS_ID: &str = "portolano.settings";
 /// Settings window.
 pub const SETTINGS_EVENT: &str = "menu-settings";
 
+/// Id of the "Add Remote Folder…" menu item (File menu).
+const ADD_REMOTE_FOLDER_ID: &str = "portolano.add-remote-folder";
+
+/// Event (to the main webview, no payload) emitted when "Add Remote Folder…" is chosen. The UI
+/// opens the dialog that subscribes to a shared folder.
+pub const ADD_REMOTE_FOLDER_EVENT: &str = "menu-add-remote-folder";
+
+/// Title of the File menu.
+const FILE_MENU_TEXT: &str = "File";
+
 /// Id of the "Release Notes…" menu item (Help menu).
 const RELEASE_NOTES_ID: &str = "portolano.release-notes";
 
@@ -58,6 +68,7 @@ fn event_for_menu_id(id: &str) -> Option<&'static str> {
         CHECK_FOR_UPDATES_ID => Some(CHECK_FOR_UPDATES_EVENT),
         CLOSE_TAB_ID => Some(CLOSE_TAB_EVENT),
         SETTINGS_ID => Some(SETTINGS_EVENT),
+        ADD_REMOTE_FOLDER_ID => Some(ADD_REMOTE_FOLDER_EVENT),
         RELEASE_NOTES_ID => Some(RELEASE_NOTES_EVENT),
         _ => None,
     }
@@ -78,6 +89,9 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<Menu<Wry>> {
     }
     if let Err(e) = add_settings(app, &menu) {
         tracing::warn!(error = %e, "could not add \"Settings…\" to the menu");
+    }
+    if let Err(e) = add_remote_folder(app, &menu) {
+        tracing::warn!(error = %e, "could not add \"Add Remote Folder…\" to the File menu");
     }
     if let Err(e) = add_release_notes(app, &menu) {
         tracing::warn!(error = %e, "could not add \"Release Notes…\" to the Help menu");
@@ -120,6 +134,30 @@ fn add_settings(app: &AppHandle<Wry>, menu: &Menu<Wry>) -> tauri::Result<()> {
     // [About, Check for Updates…, separator, <here>, Services, ...]
     app_menu.insert(&item, SETTINGS_POSITION)?;
     app_menu.insert(&PredefinedMenuItem::separator(app)?, SETTINGS_POSITION + 1)?;
+    Ok(())
+}
+
+/// Adds "Add Remote Folder…" at the top of the File menu (found by its title), before "Close Tab".
+fn add_remote_folder(app: &AppHandle<Wry>, menu: &Menu<Wry>) -> tauri::Result<()> {
+    for item in menu.items()? {
+        let MenuItemKind::Submenu(submenu) = item else {
+            continue;
+        };
+        if submenu.text()? != FILE_MENU_TEXT {
+            continue;
+        }
+        let entry = MenuItem::with_id(
+            app,
+            ADD_REMOTE_FOLDER_ID,
+            "Add Remote Folder…",
+            true,
+            None::<&str>,
+        )?;
+        submenu.insert(&entry, 0)?;
+        submenu.insert(&PredefinedMenuItem::separator(app)?, 1)?;
+        return Ok(());
+    }
+    tracing::warn!("no File menu found; \"Add Remote Folder…\" not added");
     Ok(())
 }
 
@@ -345,6 +383,10 @@ mod tests {
             event_for_menu_id(RELEASE_NOTES_ID),
             Some(RELEASE_NOTES_EVENT)
         );
+        assert_eq!(
+            event_for_menu_id(ADD_REMOTE_FOLDER_ID),
+            Some(ADD_REMOTE_FOLDER_EVENT)
+        );
         assert_eq!(event_for_menu_id("quit"), None);
         assert_eq!(event_for_menu_id("close_window"), None);
         assert_eq!(event_for_menu_id(""), None);
@@ -357,6 +399,7 @@ mod tests {
         assert!(ui.contains(&format!("\"{CLOSE_TAB_EVENT}\"")));
         assert!(ui.contains(&format!("\"{SETTINGS_EVENT}\"")));
         assert!(ui.contains(&format!("\"{RELEASE_NOTES_EVENT}\"")));
+        assert!(ui.contains(&format!("\"{ADD_REMOTE_FOLDER_EVENT}\"")));
     }
 
     #[test]

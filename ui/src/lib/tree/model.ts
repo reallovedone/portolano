@@ -1,7 +1,16 @@
 // Pure logic over the flat node list from `doc_get`: tree building, filtering, move
 // validation and credential inheritance display. No IPC, no Svelte.
 
-import type { Connection, ConnectionOptions, CredentialRef, Folder, Node, Uuid } from "../ipc";
+import type {
+  Connection,
+  ConnectionOptions,
+  CredentialRef,
+  Folder,
+  Node,
+  RemoteNodeInfo,
+  ShareSummary,
+  Uuid,
+} from "../ipc";
 
 export type ConnectionKind = ConnectionOptions["type"];
 export type NodeKind = ConnectionKind | "folder";
@@ -26,6 +35,41 @@ export function isConnection(node: Node): node is { type: "connection" } & Conne
   return node.type === "connection";
 }
 
+// ---- shared folders ----
+
+/** Nodes that belong to a shared folder, by id (`remoteNodes` of the document view). */
+export type RemoteMap = Readonly<Record<Uuid, RemoteNodeInfo>>;
+
+/** The part of the document view the tree logic needs (the document store has both). */
+export interface ShareContext {
+  readonly shares: readonly ShareSummary[];
+  readonly remoteNodes: RemoteMap;
+}
+
+/** The node belongs to a shared folder: it is read-only here. */
+export function isRemote(doc: Pick<ShareContext, "remoteNodes">, id: Uuid): boolean {
+  return Object.hasOwn(doc.remoteNodes, id);
+}
+
+/** The node is the mount root of a shared folder. */
+export function isShareRoot(doc: Pick<ShareContext, "remoteNodes">, id: Uuid): boolean {
+  return Object.hasOwn(doc.remoteNodes, id) && doc.remoteNodes[id]?.isRoot === true;
+}
+
+/** The share a node belongs to (as subscriber), or the share an owned folder is published as. */
+export function shareOf(doc: ShareContext, id: Uuid): ShareSummary | undefined {
+  if (Object.hasOwn(doc.remoteNodes, id)) {
+    const linkId = doc.remoteNodes[id]?.linkId;
+    return doc.shares.find((s) => s.id === linkId);
+  }
+  return doc.shares.find((s) => s.role === "owner" && s.rootNodeId === id);
+}
+
+const isMountRoot = (remote: RemoteMap | undefined, id: Uuid): boolean =>
+  remote !== undefined && Object.hasOwn(remote, id) && remote[id]?.isRoot === true;
+const isRemoteId = (remote: RemoteMap | undefined, id: Uuid): boolean =>
+  remote !== undefined && Object.hasOwn(remote, id);
+
 export interface TreeNode {
   node: Node;
   children: TreeNode[];
@@ -46,12 +90,22 @@ export function compareNodes(a: Node, b: Node): number {
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 }
 
+/** `compareNodes`, with the mount roots of shared folders after every local sibling. */
+function compareShown(a: Node, b: Node, remote: RemoteMap | undefined): number {
+  const aRoot = isMountRoot(remote, a.id);
+  const bRoot = isMountRoot(remote, b.id);
+  if (aRoot !== bRoot) return aRoot ? 1 : -1;
+  if (aRoot) return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
+  return compareNodes(a, b);
+}
+
 /**
  * Builds the forest. Folders sort before connections, then by manual order and name (see `compareNodes`). A node whose parent is
  * missing (or is not a folder) is shown at the top level instead of being lost; a node in a
- * parent cycle is also promoted to the top level.
+ * parent cycle is also promoted to the top level. The mount roots of shared folders (`remote`)
+ * come after the local siblings, by name.
  */
-export function buildTree(nodes: readonly Node[]): TreeNode[] {
+export function buildTree(nodes: readonly Node[], remote?: RemoteMap): TreeNode[] {
   const byId = new Map<Uuid, Node>(nodes.map((n) => [n.id, n]));
   const childrenOf = new Map<Uuid | null, Node[]>();
 
@@ -77,7 +131,7 @@ export function buildTree(nodes: readonly Node[]): TreeNode[] {
   const build = (parentKey: Uuid | null): TreeNode[] =>
     (childrenOf.get(parentKey) ?? [])
       .slice()
-      .sort(compareNodes)
+      .sort((a, b) => compareShown(a, b, remote))
       .map((node) => ({ node, children: node.type === "folder" ? build(node.id) : [] }));
 
   return build(null);
@@ -216,12 +270,20 @@ export function flattenTree(
 
 export type MoveCheck =
   | { ok: true }
-  | { ok: false; reason: "missing" | "notFolder" | "intoSelf" | "unchanged" };
+  | { ok: false; reason: "missing" | "notFolder" | "intoSelf" | "unchanged" | "readOnly" };
 
 /** Validates a move before sending it to the backend (which re-validates). */
-export function checkMove(nodes: readonly Node[], id: Uuid, newParentId: Uuid | null): MoveCheck {
+export function checkMove(
+  nodes: readonly Node[],
+  id: Uuid,
+  newParentId: Uuid | null,
+  remote?: RemoteMap,
+): MoveCheck {
   const node = nodes.find((n) => n.id === id);
   if (!node) return { ok: false, reason: "missing" };
+  // A shared folder is read-only: nothing goes into it, and only its mount root can be moved.
+  if (isRemoteId(remote, id) && !isMountRoot(remote, id)) return { ok: false, reason: "readOnly" };
+  if (newParentId !== null && isRemoteId(remote, newParentId)) return { ok: false, reason: "readOnly" };
   if (newParentId !== null) {
     const parent = nodes.find((n) => n.id === newParentId);
     if (!parent) return { ok: false, reason: "missing" };
@@ -236,39 +298,48 @@ export function checkMove(nodes: readonly Node[], id: Uuid, newParentId: Uuid | 
 export function moveTargets(
   nodes: readonly Node[],
   id: Uuid,
+  remote?: RemoteMap,
 ): { id: Uuid | null; name: string; depth: number }[] {
   const targets: { id: Uuid | null; name: string; depth: number }[] = [];
   const walk = (level: readonly TreeNode[], depth: number): void => {
     for (const entry of level) {
       if (entry.node.type !== "folder") continue;
-      if (checkMove(nodes, id, entry.node.id).ok) {
+      if (checkMove(nodes, id, entry.node.id, remote).ok) {
         targets.push({ id: entry.node.id, name: entry.node.name, depth });
       }
       walk(entry.children, depth + 1);
     }
   };
-  walk(buildTree(nodes), 0);
+  walk(buildTree(nodes, remote), 0);
   return targets;
 }
 
 // ---- manual ordering ----
 
 /** Parent as shown: nodes `buildTree` promotes to the top level (orphans, cycles) count as roots. */
-function shownParentId(nodes: readonly Node[], node: Node): Uuid | null {
+function shownParentId(nodes: readonly Node[], node: Node, remote?: RemoteMap): Uuid | null {
   if (node.parentId === null) return null;
-  return buildTree(nodes).some((t) => t.node.id === node.id) ? null : node.parentId;
+  return buildTree(nodes, remote).some((t) => t.node.id === node.id) ? null : node.parentId;
 }
 
 /** Ids of the folders (or connections) under `parentId`, in display order. */
-export function siblingIds(nodes: readonly Node[], parentId: Uuid | null, folders: boolean): Uuid[] {
+export function siblingIds(
+  nodes: readonly Node[],
+  parentId: Uuid | null,
+  folders: boolean,
+  remote?: RemoteMap,
+): Uuid[] {
   if (parentId === null) {
     // The root group is what is actually shown at the top level.
-    return buildTree(nodes)
-      .filter((t) => (t.node.type === "folder") === folders)
+    return buildTree(nodes, remote)
+      .filter((t) => (t.node.type === "folder") === folders && !isMountRoot(remote, t.node.id))
       .map((t) => t.node.id);
   }
   return nodes
-    .filter((n) => n.parentId === parentId && (n.type === "folder") === folders)
+    .filter(
+      (n) =>
+        n.parentId === parentId && (n.type === "folder") === folders && !isMountRoot(remote, n.id),
+    )
     .sort(compareNodes)
     .map((n) => n.id);
 }
@@ -304,18 +375,21 @@ export function planReorder(
   id: Uuid,
   targetId: Uuid,
   edge: DropEdge,
+  remote?: RemoteMap,
 ): ReorderPlan | null {
   const node = nodes.find((n) => n.id === id);
   const target = nodes.find((n) => n.id === targetId);
   if (!node || !target || id === targetId || node.type !== target.type) return null;
-  const parentId = shownParentId(nodes, target);
+  // Shared folders keep their own order and cannot be reordered or dropped between.
+  if (isRemoteId(remote, id) || isRemoteId(remote, targetId)) return null;
+  const parentId = shownParentId(nodes, target, remote);
   if (parentId !== null && subtreeIds(nodes, id).has(parentId)) return null;
   const folders = node.type === "folder";
-  const current = siblingIds(nodes, parentId, folders);
+  const current = siblingIds(nodes, parentId, folders, remote);
   const others = current.filter((other) => other !== id);
   const position = others.indexOf(targetId) + (edge === "after" ? 1 : 0);
   const before = others[position] ?? null;
-  if (shownParentId(nodes, node) === parentId) {
+  if (shownParentId(nodes, node, remote) === parentId) {
     const next = [...others.slice(0, position), id, ...others.slice(position)];
     if (next.every((other, index) => other === current[index])) return null;
   }
@@ -323,13 +397,18 @@ export function planReorder(
 }
 
 /** Plan for "Move up" (`-1`) or "Move down" (`1`) within the node's group; `null` at the edge. */
-export function planStep(nodes: readonly Node[], id: Uuid, delta: -1 | 1): ReorderPlan | null {
+export function planStep(
+  nodes: readonly Node[],
+  id: Uuid,
+  delta: -1 | 1,
+  remote?: RemoteMap,
+): ReorderPlan | null {
   const node = nodes.find((n) => n.id === id);
-  if (!node) return null;
-  const group = siblingIds(nodes, shownParentId(nodes, node), node.type === "folder");
+  if (!node || isRemoteId(remote, id)) return null;
+  const group = siblingIds(nodes, shownParentId(nodes, node, remote), node.type === "folder", remote);
   const target = group[group.indexOf(id) + delta];
   if (target === undefined) return null;
-  return planReorder(nodes, id, target, delta < 0 ? "before" : "after");
+  return planReorder(nodes, id, target, delta < 0 ? "before" : "after", remote);
 }
 
 // ---- credential inheritance ----
@@ -379,18 +458,66 @@ export function effectiveCredentialOf(nodes: readonly Node[], nodeId: Uuid): Eff
 }
 
 /** Where "new connection / folder" should go: the selected folder, or the selection's parent. */
-export function defaultParentFor(nodes: readonly Node[], selectedId: Uuid | null): Uuid | null {
+export function defaultParentFor(
+  nodes: readonly Node[],
+  selectedId: Uuid | null,
+  remote?: RemoteMap,
+): Uuid | null {
   const selected = selectedId === null ? undefined : nodes.find((n) => n.id === selectedId);
   if (!selected) return null;
-  return selected.type === "folder" ? selected.id : selected.parentId;
+  const parentId = selected.type === "folder" ? selected.id : selected.parentId;
+  if (parentId === null || !isRemoteId(remote, parentId)) return parentId;
+  // Nothing can be added to a shared folder: use the local folder it is mounted under.
+  const rootId = ancestorIds(nodes, parentId).find((id) => isMountRoot(remote, id)) ??
+    (isMountRoot(remote, parentId) ? parentId : null);
+  return nodes.find((n) => n.id === rootId)?.parentId ?? null;
+}
+
+/**
+ * Unsubscribes from every share mounted under `folderIds`, one by one, stopping at the first
+ * failure. The links are looked up again on each call (`getDoc` returns the current view), so a
+ * retry after a partial failure only handles what is left. `onRemoved` receives the ids of the
+ * nodes each unsubscribe removed, computed before it ran. Returns the failure, or null.
+ */
+export async function unsubscribeSharesUnder<E extends { code: string }>(
+  getDoc: () => ShareContext & { nodes: readonly Node[] },
+  folderIds: ReadonlySet<Uuid>,
+  unsubscribe: (linkId: Uuid) => Promise<{ ok: true } | { ok: false; error: E }>,
+  onRemoved: (ids: ReadonlySet<Uuid>) => void | Promise<void>,
+): Promise<E | null> {
+  const start = getDoc();
+  for (const link of sharesUnder(start, start.nodes, folderIds)) {
+    const doc = getDoc();
+    const removed = link.rootNodeId === null ? new Set<Uuid>() : subtreeIds(doc.nodes, link.rootNodeId);
+    const result = await unsubscribe(link.id);
+    if (!result.ok && result.error.code !== "not_found") return result.error;
+    await onRemoved(removed);
+  }
+  return null;
+}
+
+/** Links of the shares mounted anywhere under the folders in `folderIds` (a deletion would drop them). */
+export function sharesUnder(
+  doc: ShareContext,
+  nodes: readonly Node[],
+  folderIds: ReadonlySet<Uuid>,
+): ShareSummary[] {
+  return doc.shares.filter((share) => {
+    if (share.role !== "subscriber" || share.rootNodeId === null) return false;
+    const root = nodes.find((n) => n.id === share.rootNodeId);
+    return root?.parentId != null && folderIds.has(root.parentId);
+  });
 }
 
 /** All folders in tree order with their depth, optionally leaving out a subtree. */
 export function folderOptions(
   nodes: readonly Node[],
   excludeSubtreeOf: Uuid | null = null,
+  remote?: RemoteMap,
 ): { id: Uuid; name: string; depth: number }[] {
   const excluded = excludeSubtreeOf === null ? new Set<Uuid>() : subtreeIds(nodes, excludeSubtreeOf);
+  // Nothing can be put inside a shared folder: leave those out of the pickers.
+  if (remote) for (const id of Object.keys(remote)) excluded.add(id);
   const options: { id: Uuid; name: string; depth: number }[] = [];
   const walk = (level: readonly TreeNode[], depth: number): void => {
     for (const entry of level) {

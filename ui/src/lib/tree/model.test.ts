@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Connection, CredentialRef, Folder, Node } from "../ipc";
+import type { Connection, CredentialRef, Folder, Node, ShareSummary } from "../ipc";
 import {
   ancestorIds,
   buildTree,
@@ -12,11 +12,17 @@ import {
   filterNodes,
   flattenTree,
   folderOptions,
+  isRemote,
+  isShareRoot,
   moveTargets,
   nodeKind,
   planReorder,
   planStep,
+  shareOf,
+  sharesUnder,
+  siblingIds,
   subtreeIds,
+  unsubscribeSharesUnder,
 } from "./model";
 
 const folder = (
@@ -308,5 +314,171 @@ describe("manual order", () => {
     expect(planStep(nodes, "c2", -1)?.before).toBe("c1");
     expect(planStep(nodes, "c1", 1)?.before).toBe("c3");
     expect(planStep(nodes, "c2", 1)?.before).toBeNull();
+  });
+});
+
+describe("shared folders", () => {
+  const share = (id: string, rootNodeId: string | null, extra: Partial<ShareSummary> = {}): ShareSummary => ({
+    id,
+    name: "Team",
+    role: "subscriber",
+    rootNodeId,
+    ownerName: "Ada",
+    fingerprint: "fp",
+    revision: 1,
+    signerName: "Ada",
+    publishedAt: null,
+    lastSync: null,
+    lastError: null,
+    pendingTargets: 0,
+    pendingHosts: [],
+    location: null,
+    publishPath: null,
+    ...extra,
+  });
+  // Top level: folder B, folder Z, connection C; mount roots "Alpha" and "Beta" (the names sort
+  // before the local ones on purpose); Alpha holds a folder and a connection.
+  const nodes: Node[] = [
+    folder("z", null, "Zeta"),
+    folder("b", null, "Bravo"),
+    conn("c", null, "Charlie"),
+    folder("r1", null, "Beta shared"),
+    folder("r0", null, "Alpha shared"),
+    folder("rf", "r0", "Inner"),
+    conn("rc", "r0", "Remote conn"),
+  ];
+  const view = {
+    shares: [share("l1", "r0"), share("l2", "r1", { pendingTargets: 2 })],
+    remoteNodes: {
+      r0: { linkId: "l1", isRoot: true },
+      r1: { linkId: "l2", isRoot: true },
+      rf: { linkId: "l1", isRoot: false },
+      rc: { linkId: "l1", isRoot: false },
+    },
+  };
+
+  it("remote_nodes_are_flagged_from_doc_view", () => {
+    expect(isRemote(view, "rc")).toBe(true);
+    expect(isRemote(view, "r0")).toBe(true);
+    expect(isRemote(view, "z")).toBe(false);
+    expect(isShareRoot(view, "r0")).toBe(true);
+    expect(isShareRoot(view, "rf")).toBe(false);
+    expect(isShareRoot(view, "z")).toBe(false);
+    expect(shareOf(view, "rc")?.id).toBe("l1");
+    expect(shareOf(view, "r1")?.pendingTargets).toBe(2);
+    expect(shareOf(view, "z")).toBeUndefined();
+    expect(isRemote({ remoteNodes: {} }, "rc")).toBe(false);
+  });
+
+  it("mount_roots_sort_after_local_siblings", () => {
+    const top = buildTree(nodes, view.remoteNodes).map((t) => t.node.id);
+    // Local folders, then local connections, then the mount roots by name.
+    expect(top).toEqual(["b", "z", "c", "r0", "r1"]);
+    expect(siblingIds(nodes, null, true, view.remoteNodes)).toEqual(["b", "z"]);
+    // Without the remote map nothing changes for a plain document.
+    expect(buildTree(nodes.slice(0, 3)).map((t) => t.node.id)).toEqual(["b", "z", "c"]);
+  });
+
+  it("adds_go_to_the_local_parent_of_a_shared_folder_and_deletions_find_their_shares", () => {
+    // Selecting something inside a share: new items go where the share is mounted (top level).
+    expect(defaultParentFor(nodes, "rc", view.remoteNodes)).toBeNull();
+    expect(defaultParentFor(nodes, "rf", view.remoteNodes)).toBeNull();
+    expect(defaultParentFor(nodes, "z", view.remoteNodes)).toBe("z");
+    const mounted = nodes.map((n) => (n.id === "r0" ? { ...n, parentId: "b" } : n));
+    expect(defaultParentFor(mounted, "rf", view.remoteNodes)).toBe("b");
+    expect(sharesUnder(view, mounted, new Set(["b"])).map((s) => s.id)).toEqual(["l1"]);
+    expect(sharesUnder(view, mounted, new Set(["z"]))).toEqual([]);
+  });
+
+  it("drop_into_remote_folder_is_refused", () => {
+    expect(checkMove(nodes, "z", "rf", view.remoteNodes)).toEqual({ ok: false, reason: "readOnly" });
+    expect(checkMove(nodes, "z", "r0", view.remoteNodes)).toEqual({ ok: false, reason: "readOnly" });
+    // A non-root remote node cannot be dragged out; a mount root can go to a local folder.
+    expect(checkMove(nodes, "rc", null, view.remoteNodes)).toEqual({ ok: false, reason: "readOnly" });
+    expect(checkMove(nodes, "r0", "b", view.remoteNodes)).toEqual({ ok: true });
+    expect(checkMove(nodes, "z", "b", view.remoteNodes)).toEqual({ ok: true });
+    // Reordering never involves remote nodes.
+    expect(planReorder(nodes, "z", "rf", "before", view.remoteNodes)).toBeNull();
+    expect(planReorder(nodes, "rf", "z", "before", view.remoteNodes)).toBeNull();
+    expect(planReorder(nodes, "z", "b", "before", view.remoteNodes)).not.toBeNull();
+    // Mount roots are not valid destinations in the "move to" list.
+    expect(moveTargets(nodes, "z", view.remoteNodes).map((t) => t.id)).toEqual(["b"]);
+  });
+
+  it("keeps_remote_folders_out_of_pickers_and_default_parents", () => {
+    const ids = (list: { id: string }[]): string[] => list.map((f) => f.id);
+    expect(ids(folderOptions(nodes, null, view.remoteNodes))).toEqual(["b", "z"]);
+    expect(ids(folderOptions(nodes))).toContain("rf");
+    for (const selected of ["r0", "r1", "rf", "rc"]) {
+      const parent = defaultParentFor(nodes, selected, view.remoteNodes);
+      expect(parent === null || !isRemote(view, parent)).toBe(true);
+    }
+  });
+
+  it("sorts_a_mount_root_after_local_folders_and_connections_of_a_non_root_parent", () => {
+    const deep: Node[] = [
+      folder("p", null, "Parent"),
+      conn("pc", "p", "Aardvark"),
+      folder("pf", "p", "Zulu"),
+      folder("m", "p", "Aaa mounted"),
+      folder("mf", "m", "Inner"),
+    ];
+    const remote = { m: { linkId: "l", isRoot: true }, mf: { linkId: "l", isRoot: false } };
+    const parent = buildTree(deep, remote)[0];
+    expect(parent?.children.map((c) => c.node.id)).toEqual(["pf", "pc", "m"]);
+    expect(siblingIds(deep, "p", false, remote)).toEqual(["pc"]);
+    expect(siblingIds(deep, "p", true, remote)).toEqual(["pf"]);
+  });
+
+  it("unsubscribe_retry_after_a_partial_failure_handles_only_what_is_left", async () => {
+    const mounted: Node[] = [folder("b", null, "B"), folder("x1", "b", "X1"), folder("x2", "b", "X2")];
+    let current = {
+      nodes: mounted,
+      shares: [share("l1", "x1"), share("l2", "x2")],
+      remoteNodes: { x1: { linkId: "l1", isRoot: true }, x2: { linkId: "l2", isRoot: true } } as Record<
+        string,
+        { linkId: string; isRoot: boolean }
+      >,
+    };
+    const calls: string[] = [];
+    let failSecond = true;
+    const unsubscribe = async (linkId: string) => {
+      calls.push(linkId);
+      if (linkId === "l2" && failSecond) {
+        return { ok: false as const, error: { code: "io" } };
+      }
+      const root = current.shares.find((x) => x.id === linkId)?.rootNodeId;
+      current = {
+        nodes: current.nodes.filter((n) => n.id !== root),
+        shares: current.shares.filter((x) => x.id !== linkId),
+        remoteNodes: Object.fromEntries(Object.entries(current.remoteNodes).filter(([id]) => id !== root)),
+      };
+      return { ok: true as const };
+    };
+    const removed: string[][] = [];
+    const run = () =>
+      unsubscribeSharesUnder(
+        () => current,
+        new Set(["b"]),
+        unsubscribe,
+        (ids) => void removed.push([...ids]),
+      );
+    expect(await run()).toEqual({ code: "io" });
+    expect(removed).toEqual([["x1"]]);
+    failSecond = false;
+    expect(await run()).toBeNull();
+    // The first link is not tried again; the second one succeeds.
+    expect(calls).toEqual(["l1", "l2", "l2"]);
+    expect(removed).toEqual([["x1"], ["x2"]]);
+    // A link that is already gone counts as done.
+    current = { nodes: mounted, shares: [share("l9", "x1")], remoteNodes: {} };
+    expect(
+      await unsubscribeSharesUnder(
+        () => current,
+        new Set(["b"]),
+        async () => ({ ok: false as const, error: { code: "not_found" } }),
+        () => undefined,
+      ),
+    ).toBeNull();
   });
 });

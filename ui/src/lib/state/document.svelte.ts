@@ -1,4 +1,13 @@
-import { toIpcError, type Ipc, type IpcError, type Node, type Uuid } from "../ipc";
+import {
+  toIpcError,
+  type CredentialRef,
+  type Ipc,
+  type IpcError,
+  type Node,
+  type RemoteNodeInfo,
+  type ShareSummary,
+  type Uuid,
+} from "../ipc";
 import { isStringArray, loadJson, saveJson } from "./storage";
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: IpcError };
@@ -16,6 +25,10 @@ async function attempt<T>(run: () => Promise<T>): Promise<Result<T>> {
 /** The connection document (flat node list) plus the tree expansion state. */
 export class DocumentStore {
   nodes = $state<Node[]>([]);
+  /** The shared folders (subscribed and owned), from the last load. */
+  shares = $state<ShareSummary[]>([]);
+  /** Nodes that belong to a shared folder (read-only), by id. */
+  remoteNodes = $state<Record<Uuid, RemoteNodeInfo>>({});
   status = $state<"loading" | "ready" | "error">("loading");
   loadError = $state<IpcError | null>(null);
   expanded = $state<Set<Uuid>>(new Set(loadJson(EXPANDED_KEY, [], isStringArray)));
@@ -43,6 +56,8 @@ export class DocumentStore {
     const result = await attempt(() => this.#ipc.docGet());
     if (result.ok) {
       this.nodes = result.value.nodes;
+      this.shares = result.value.shares;
+      this.remoteNodes = result.value.remoteNodes;
       this.loadError = null;
       this.status = "ready";
       return true;
@@ -107,6 +122,34 @@ export class DocumentStore {
   /** Drops the custom order of a folder's children (null = top level): alphabetical again. */
   async sortByName(parentId: Uuid | null): Promise<Result<void>> {
     const result = await attempt(() => this.#ipc.nodeSortByName(parentId));
+    if (result.ok) await this.#refresh();
+    return result;
+  }
+
+  /** Syncs one share now and reloads. */
+  async syncShare(linkId: Uuid): Promise<Result<void>> {
+    const result = await attempt(() => this.#ipc.shareSync(linkId));
+    await this.#refresh();
+    return result.ok ? { ok: true, value: undefined } : result;
+  }
+
+  /** Removes the mounted copy of a share (the share file stays) and reloads. */
+  async unsubscribe(linkId: Uuid): Promise<Result<void>> {
+    const result = await attempt(() => this.#ipc.shareUnsubscribe(linkId));
+    if (result.ok) await this.#refresh();
+    return result;
+  }
+
+  /** Writes a new revision of an owned share and reloads. */
+  async republish(linkId: Uuid): Promise<Result<void>> {
+    const result = await attempt(() => this.#ipc.shareRepublish(linkId));
+    if (result.ok) await this.#refresh();
+    return result.ok ? { ok: true, value: undefined } : result;
+  }
+
+  /** Sets the credential of a node of a shared folder (kept on this machine) and reloads. */
+  async setRemoteCredential(nodeId: Uuid, credential: CredentialRef): Promise<Result<void>> {
+    const result = await attempt(() => this.#ipc.shareSetCredential(nodeId, credential));
     if (result.ok) await this.#refresh();
     return result;
   }

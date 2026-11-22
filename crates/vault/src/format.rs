@@ -146,7 +146,7 @@ pub fn generate_dek() -> Result<Dek, VaultError> {
     Ok(dek)
 }
 
-fn cipher(key: &[u8; 32]) -> Result<XChaCha20Poly1305, VaultError> {
+pub(crate) fn cipher(key: &[u8; 32]) -> Result<XChaCha20Poly1305, VaultError> {
     XChaCha20Poly1305::new_from_slice(key)
         .map_err(|_| VaultError::Internal("invalid cipher key length".into()))
 }

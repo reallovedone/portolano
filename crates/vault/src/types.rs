@@ -3,6 +3,7 @@ use std::fmt;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 /// A stored credential. Never serialized: it only exists in memory while the vault is unlocked.
 #[derive(Debug, Clone)]
@@ -168,6 +169,46 @@ pub enum VaultStatus {
     NotCreated,
     Locked,
     Unlocked,
+}
+
+/// A signing identity as the UI sees it: everything except the secret key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityRecord {
+    pub id: Uuid,
+    pub name: String,
+    /// Ed25519 public key.
+    pub public_key: [u8; 32],
+    /// RFC 3339 UTC time of creation.
+    pub created_at: String,
+}
+
+/// Longest identity name, in bytes.
+pub(crate) const MAX_IDENTITY_NAME_LEN: usize = 4 * 1024;
+
+/// Trims an identity name and checks it is 1 to 4096 bytes. Shared by the vault and the backup.
+pub(crate) fn clean_identity_name(name: &str) -> Result<&str, crate::error::VaultError> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > MAX_IDENTITY_NAME_LEN {
+        return Err(crate::error::VaultError::InvalidInput(
+            "the identity name must be 1 to 4096 bytes".into(),
+        ));
+    }
+    Ok(name)
+}
+
+/// An identity with its secret key; lives only inside the unlocked vault.
+pub struct Identity {
+    pub record: IdentityRecord,
+    pub secret: Zeroizing<[u8; 32]>,
+}
+
+impl fmt::Debug for Identity {
+    /// Never prints the secret key.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Identity")
+            .field("record", &self.record)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(test)]

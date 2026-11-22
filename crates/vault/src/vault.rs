@@ -4,15 +4,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
+use ed25519_dalek::SigningKey;
 use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 use crate::error::VaultError;
 use crate::format::{self, Dek, Header};
 use crate::payload;
+use crate::types::clean_identity_name;
 use crate::types::{
-    Credential, CredentialInput, CredentialSummary, CredentialUpsert, RevealedSecret, Secret,
-    VaultStatus,
+    Credential, CredentialInput, CredentialSummary, CredentialUpsert, Identity, IdentityRecord,
+    RevealedSecret, Secret, VaultStatus,
 };
 use crate::unlock::{KdfParams, MasterPassword, UnlockMethod};
 
@@ -22,6 +25,7 @@ pub const DEFAULT_AUTO_LOCK: Duration = Duration::from_secs(15 * 60);
 const MAX_CREDENTIALS: usize = 10_000;
 const MAX_TEXT_LEN: usize = 4 * 1024;
 const MAX_SECRET_LEN: usize = 256 * 1024;
+const MAX_IDENTITIES: usize = 1_000;
 
 /// Time source, injectable so the auto-lock logic is testable without sleeping.
 ///
@@ -54,6 +58,7 @@ struct Unlocked {
     dek: Dek,
     header: Header,
     credentials: Vec<Credential>,
+    identities: Vec<Identity>,
 }
 
 /// The vault: an encrypted file plus, while unlocked, its decrypted content.
@@ -202,13 +207,15 @@ impl Vault {
         let dek = format::generate_dek()?;
         let header = format::wrap_dek(&kek, &dek, self.kdf, salt)?;
         let credentials: Vec<Credential> = Vec::new();
-        let plaintext = payload::encode(&credentials)?;
+        let identities: Vec<Identity> = Vec::new();
+        let plaintext = payload::encode(&credentials, &identities)?;
         let bytes = format::seal_file(&header, &dek, &plaintext)?;
         format::write_atomic(&self.path, &bytes)?;
         self.unlocked = Some(Unlocked {
             dek,
             header,
             credentials,
+            identities,
         });
         self.touch();
         Ok(())
@@ -227,11 +234,12 @@ impl Vault {
         let kek = method.derive_kek(&header.kdf, &header.salt)?;
         let dek = format::unwrap_dek(&kek, &header)?;
         let plaintext = format::open_payload(&bytes, &dek)?;
-        let credentials = payload::decode(&plaintext)?;
+        let (credentials, identities) = payload::decode(&plaintext)?;
         self.unlocked = Some(Unlocked {
             dek,
             header,
             credentials,
+            identities,
         });
         self.touch();
         Ok(())
@@ -266,7 +274,7 @@ impl Vault {
         let new_kek = MasterPassword(new_password).derive_kek(&self.kdf, &salt)?;
         let new_dek = format::generate_dek()?;
         let header = format::wrap_dek(&new_kek, &new_dek, self.kdf, salt)?;
-        let plaintext = payload::encode(&unlocked.credentials)?;
+        let plaintext = payload::encode(&unlocked.credentials, &unlocked.identities)?;
         let bytes = format::seal_file(&header, &new_dek, &plaintext)?;
         format::write_atomic(&self.path, &bytes)?;
         if let Some(u) = self.unlocked.as_mut() {
@@ -392,11 +400,101 @@ impl Vault {
         })
     }
 
+    /// The signing identities (without their secret keys).
+    pub fn identities(&self) -> Result<Vec<IdentityRecord>, VaultError> {
+        Ok(self
+            .unlocked()?
+            .identities
+            .iter()
+            .map(|i| i.record.clone())
+            .collect())
+    }
+
+    /// Stores a signing identity. The public key is derived here from `secret` (the only
+    /// place it is), so the two can never disagree.
+    pub fn add_identity(
+        &mut self,
+        id: Uuid,
+        name: &str,
+        secret: &[u8; 32],
+    ) -> Result<IdentityRecord, VaultError> {
+        self.unlocked()?;
+        let name = clean_identity_name(name)?;
+        let public_key = SigningKey::from_bytes(secret).verifying_key().to_bytes();
+        let created_at = rfc3339_utc(self.clock.wall());
+        let Some(unlocked) = self.unlocked.as_mut() else {
+            return Err(VaultError::Locked);
+        };
+        if unlocked.identities.iter().any(|i| i.record.id == id) {
+            return Err(VaultError::InvalidInput("duplicate identity id".into()));
+        }
+        if unlocked
+            .identities
+            .iter()
+            .any(|i| i.record.public_key == public_key)
+        {
+            return Err(VaultError::InvalidInput("identity already present".into()));
+        }
+        if unlocked.identities.len() >= MAX_IDENTITIES {
+            return Err(VaultError::InvalidInput("too many identities".into()));
+        }
+        let record = IdentityRecord {
+            id,
+            name: name.to_owned(),
+            public_key,
+            created_at,
+        };
+        unlocked.identities.push(Identity {
+            record: record.clone(),
+            secret: Zeroizing::new(*secret),
+        });
+        if let Err(err) = save(&self.path, unlocked) {
+            unlocked.identities.pop();
+            return Err(err);
+        }
+        Ok(record)
+    }
+
+    /// The secret key of an identity, for signing. Needs an unlocked vault.
+    pub fn identity_secret(&self, id: Uuid) -> Result<Zeroizing<[u8; 32]>, VaultError> {
+        self.unlocked()?
+            .identities
+            .iter()
+            .find(|i| i.record.id == id)
+            .map(|i| i.secret.clone())
+            .ok_or_else(|| VaultError::NotFound(id.to_string()))
+    }
+
     /// Test hook: the raw DEK bytes of the unlocked vault.
     #[cfg(test)]
     fn dek_bytes(&self) -> Option<[u8; 32]> {
         self.unlocked.as_ref().map(|u| *u.dek.expose_secret())
     }
+}
+
+/// `2026-11-20T09:30:00Z` for a wall-clock time (no date/time dependency needed for this).
+fn rfc3339_utc(time: SystemTime) -> String {
+    let secs = time
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
+    // Civil-from-days (Howard Hinnant's algorithm), valid for the whole u64 range we use.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rem / 3_600,
+        rem % 3_600 / 60,
+        rem % 60
+    )
 }
 
 fn check_master_password(password: &SecretString) -> Result<(), VaultError> {
@@ -409,7 +507,7 @@ fn check_master_password(password: &SecretString) -> Result<(), VaultError> {
 }
 
 fn save(path: &Path, unlocked: &Unlocked) -> Result<(), VaultError> {
-    let plaintext = payload::encode(&unlocked.credentials)?;
+    let plaintext = payload::encode(&unlocked.credentials, &unlocked.identities)?;
     let bytes = format::seal_file(&unlocked.header, &unlocked.dek, &plaintext)?;
     format::write_atomic(path, &bytes)
 }
@@ -468,6 +566,9 @@ fn validate_input(
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
 
     use super::*;
     use crate::types::{CredentialKind, SecretInput};
@@ -749,5 +850,134 @@ mod tests {
             vault.list().expect("list")[0].kind,
             CredentialKind::Password
         );
+    }
+
+    #[test]
+    fn old_payload_without_identities_still_opens() {
+        let dir = scratch();
+        let mut vault = fresh(&dir);
+        vault.create(pw("fake-master")).expect("create");
+        // Rewrite the file with a payload as written before identities existed.
+        let bytes = format::read_file(vault.path()).expect("read");
+        let header = Header::parse(&bytes).expect("header");
+        let kek = MasterPassword(pw("fake-master"))
+            .derive_kek(&header.kdf, &header.salt)
+            .expect("kek");
+        let dek = format::unwrap_dek(&kek, &header).expect("dek");
+        let old = format::seal_file(&header, &dek, br#"{"credentials":[]}"#).expect("seal");
+        format::write_atomic(vault.path(), &old).expect("write");
+        vault.lock().expect("lock");
+        vault.unlock(pw("fake-master")).expect("unlock");
+        assert!(vault.identities().expect("identities").is_empty());
+    }
+
+    #[test]
+    fn identity_survives_lock_and_unlock() {
+        let dir = scratch();
+        let mut vault = fresh(&dir);
+        vault.create(pw("fake-master")).expect("create");
+        let id = Uuid::new_v4();
+        let secret = [9u8; 32];
+        let record = vault.add_identity(id, "Alice", &secret).expect("add");
+        assert_eq!(
+            record.public_key,
+            SigningKey::from_bytes(&secret).verifying_key().to_bytes()
+        );
+        assert!(record.created_at.ends_with('Z') && record.created_at.contains('T'));
+        vault.lock().expect("lock");
+        vault.unlock(pw("fake-master")).expect("unlock");
+        assert_eq!(vault.identities().expect("identities"), [record]);
+        assert_eq!(*vault.identity_secret(id).expect("secret"), secret);
+        assert!(matches!(
+            vault.identity_secret(Uuid::new_v4()),
+            Err(VaultError::NotFound(_))
+        ));
+        assert!(matches!(
+            vault.add_identity(id, "Again", &secret),
+            Err(VaultError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn identity_secret_requires_unlocked_vault() {
+        let dir = scratch();
+        let mut vault = fresh(&dir);
+        vault.create(pw("fake-master")).expect("create");
+        let id = Uuid::new_v4();
+        vault.add_identity(id, "Alice", &[3u8; 32]).expect("add");
+        vault.lock().expect("lock");
+        assert!(matches!(vault.identity_secret(id), Err(VaultError::Locked)));
+        assert!(matches!(vault.identities(), Err(VaultError::Locked)));
+        assert!(matches!(
+            vault.add_identity(Uuid::new_v4(), "B", &[4u8; 32]),
+            Err(VaultError::Locked)
+        ));
+    }
+
+    #[test]
+    fn secret_never_appears_in_debug_output() {
+        let dir = scratch();
+        let mut vault = fresh(&dir);
+        vault.create(pw("fake-master")).expect("create");
+        let secret = [0xABu8; 32];
+        vault
+            .add_identity(Uuid::new_v4(), "Alice", &secret)
+            .expect("add");
+        let identity = &vault.unlocked.as_ref().expect("unlocked").identities[0];
+        // The public key must not collide with the secret's byte pattern for this check.
+        assert!(!identity.record.public_key.contains(&0xAB));
+        let shown = format!("{identity:?} {:#?}", identity);
+        let hex: String = secret.iter().map(|b| format!("{b:02x}")).collect();
+        let list = format!("{:?}", secret.to_vec());
+        for needle in [
+            hex.clone(),
+            hex.to_uppercase(),
+            STANDARD.encode(secret),
+            list,
+            "171, 171".into(),
+        ] {
+            assert!(!shown.contains(&needle), "leaked {needle}");
+        }
+    }
+
+    #[test]
+    fn a_duplicate_public_key_is_refused() {
+        let dir = scratch();
+        let mut vault = fresh(&dir);
+        vault.create(pw("fake-master")).expect("create");
+        vault
+            .add_identity(Uuid::new_v4(), "Alice", &[5u8; 32])
+            .expect("add");
+        let err = vault
+            .add_identity(Uuid::new_v4(), "Alice again", &[5u8; 32])
+            .expect_err("duplicate key");
+        assert!(matches!(&err, VaultError::InvalidInput(m) if m == "identity already present"));
+        assert_eq!(vault.identities().expect("identities").len(), 1);
+    }
+
+    #[test]
+    fn identity_names_are_trimmed_and_bounded() {
+        let dir = scratch();
+        let mut vault = fresh(&dir);
+        vault.create(pw("fake-master")).expect("create");
+        let rec = vault
+            .add_identity(Uuid::new_v4(), "  Bob  ", &[6u8; 32])
+            .expect("add");
+        assert_eq!(rec.name, "Bob");
+        assert!(vault
+            .add_identity(Uuid::new_v4(), "  ", &[7u8; 32])
+            .is_err());
+        let long = "x".repeat(4097);
+        assert!(vault
+            .add_identity(Uuid::new_v4(), &long, &[8u8; 32])
+            .is_err());
+    }
+
+    #[test]
+    fn rfc3339_formatting() {
+        let t = |s| SystemTime::UNIX_EPOCH + Duration::from_secs(s);
+        assert_eq!(rfc3339_utc(t(0)), "1970-01-01T00:00:00Z");
+        assert_eq!(rfc3339_utc(t(1_709_208_000)), "2024-02-29T12:00:00Z");
+        assert_eq!(rfc3339_utc(t(1_795_167_000)), "2026-11-20T09:30:00Z");
     }
 }

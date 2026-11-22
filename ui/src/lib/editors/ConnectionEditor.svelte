@@ -179,7 +179,7 @@
           error={errorText("name")}
         />
       </FormRow>
-      <LocationField bind:value={draft.parentId} nodes={doc.nodes} id="{uid}-parent" />
+      <LocationField bind:value={draft.parentId} nodes={doc.nodes} remote={doc.remoteNodes} id="{uid}-parent" />
       <FormRow label={t("editor.tags")} for="{uid}-tags">
         <TextField id="{uid}-tags" bind:value={draft.tags} hint={t("editor.tagsHint")} />
       </FormRow>

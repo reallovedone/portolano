@@ -9,12 +9,14 @@ import { effectiveCredentialOf } from "../tree/model";
 import type { Ipc } from "./api";
 import { IpcError } from "./errors";
 import { MockPrompter, type MockPromptHooks } from "./mock-credentials";
+import { createMockShares } from "./mock-shares";
 import { createMockTransfer, readMockKeyFile, type MockExport } from "./mock-transfer";
 import { createMockUpdates, type MockUpdateOptions, type MockUpdates } from "./mock-updates";
 import {
   ACCENT_CHOICES,
   SCHEME_CHOICES,
   DEFAULT_APPEARANCE,
+  DELETE_CONTAINS_SHARES,
   DENSITY_CHOICES,
   TERMINAL_FONT_SIZE_MAX,
   TERMINAL_FONT_SIZE_MIN,
@@ -491,6 +493,11 @@ export interface MockOptions {
   quickUnlockAvailable?: boolean;
   /** The saved appearance at the start (default: system theme, portolano scheme, blue, comfortable, 13 px). */
   appearance?: Appearance;
+  /**
+   * `true` mounts a demo shared folder (read-only, with a connection waiting for its target to
+   * be confirmed). Default `false`: no shares until one is subscribed.
+   */
+  shares?: boolean;
   /** Canned answers of the update commands (default: up to date, no "What's new"). */
   updates?: MockUpdateOptions;
 }
@@ -521,10 +528,16 @@ export interface MockIpc extends Ipc {
     closeTabMenu(): void;
     /** "Settings…" (⌘,) chosen in the macOS menu bar. */
     settingsMenu(): void;
+    /** "Add Remote Folder…" chosen in the macOS menu bar. */
+    addRemoteFolderMenu(): void;
     /** Help → "Release Notes…" chosen in the macOS menu bar. */
     releaseNotesMenu(): void;
     /** The user asked to quit or to close the window (`quit-requested`). */
     quitRequested(): void;
+    /** A sync changed the shared folders (`shares-changed`). */
+    sharesChanged(): void;
+    /** A share moves to its next revision without the UI hearing of it (for conflict tests). */
+    bumpShareRevision(linkId: Uuid): void;
   };
   /** Every `menuSetSessionKeys` call, in order. */
   readonly sessionKeyCaptures: readonly boolean[];
@@ -544,6 +557,11 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     options.seed === false
       ? { schemaVersion: 1, nodes: [] }
       : seedDocument(initialVault !== "notCreated");
+  const shares = createMockShares(options.shares === true);
+  /** Local nodes and the mounted shares, as the sessions see them. */
+  const allNodes = (): Document => ({ ...doc, nodes: shares.nodes(doc) });
+  const readOnly = (): IpcError =>
+    new IpcError("read_only", "This item belongs to a shared folder and cannot be changed here.");
   let vaultStatus: VaultStatus = initialVault;
   let autoLockMinutes = options.autoLockMinutes ?? 15;
   let masterPassword: string | null = initialVault === "notCreated" ? null : MOCK_MASTER_PASSWORD;
@@ -567,6 +585,7 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
   const sessionKeyCaptures: boolean[] = [];
   const menuCloseTabHandlers = new Set<() => void>();
   const menuSettingsHandlers = new Set<() => void>();
+  const menuAddRemoteHandlers = new Set<() => void>();
   const menuReleaseNotesHandlers = new Set<() => void>();
   let appearance: Appearance = { ...(options.appearance ?? DEFAULT_APPEARANCE) };
   const saveFailedHandlers = new Set<(notice: CredentialSaveFailed) => void>();
@@ -616,7 +635,7 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
   const promptHooks: MockPromptHooks = {
     decide(connection, askRequested) {
       if (askRequested) return "ask";
-      const effective = effectiveCredentialOf(doc.nodes, connection.id);
+      const effective = effectiveCredentialOf(shares.nodes(doc), connection.id);
       if (effective.kind !== "id") return "ask";
       if (vaultStatus === "notCreated") return "ask";
       if (vaultStatus === "locked") throw new IpcError("vault_locked", "the vault is locked");
@@ -650,9 +669,9 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       };
     },
   };
-  const terminal = createMockTerminal(() => doc, options.terminal === true, promptHooks);
-  const fb = createMockFramebuffer(() => doc, options.framebuffer === true, promptHooks);
-  const web = createMockWeb(() => doc, options.web === true);
+  const terminal = createMockTerminal(allNodes, options.terminal === true, promptHooks);
+  const fb = createMockFramebuffer(allNodes, options.framebuffer === true, promptHooks);
+  const web = createMockWeb(allNodes, options.web === true);
 
   return {
     simulate: {
@@ -666,6 +685,9 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       closeTabMenu() {
         for (const handler of [...menuCloseTabHandlers]) handler();
       },
+      addRemoteFolderMenu() {
+        for (const handler of [...menuAddRemoteHandlers]) handler();
+      },
       settingsMenu() {
         for (const handler of [...menuSettingsHandlers]) handler();
       },
@@ -675,6 +697,8 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       quitRequested() {
         for (const handler of [...quitHandlers]) handler();
       },
+      sharesChanged: () => shares.notifyChanged(),
+      bumpShareRevision: (linkId) => shares.bumpRevision(linkId),
     },
     quitReplies,
     sessionKeyCaptures,
@@ -682,9 +706,12 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
     updates,
     quickUnlock,
     async docGet() {
-      return clone(doc);
+      return shares.view(doc);
     },
     async docUpsertNode(node) {
+      if (shares.isRemote(node.id) || (node.parentId !== null && shares.isRemote(node.parentId))) {
+        throw readOnly();
+      }
       if (node.name.trim() === "") throw new IpcError("invalid_input", "the name is empty");
       // Like the backend: only the icons and colours of appearance.json are accepted on save.
       if (node.icon !== undefined && !isNodeIcon(node.icon)) {
@@ -718,12 +745,26 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       return clone(stored);
     },
     async docDeleteNode(id) {
+      if (shares.isRemote(id)) throw readOnly();
       requireNode(id);
       const doomed = descendantIds(doc.nodes, id);
+      // The UI confirms, unsubscribes those shares and deletes again.
+      if (shares.linksUnder(doomed).length > 0) {
+        throw new IpcError("conflict", DELETE_CONTAINS_SHARES);
+      }
       doc = { ...doc, nodes: doc.nodes.filter((n) => !doomed.has(n.id)) };
       clearJumpHosts(doomed);
     },
     async docMoveNode(id, newParentId) {
+      if (newParentId !== null && shares.isRemote(newParentId)) throw readOnly();
+      if (shares.isRemote(id)) {
+        if (!shares.isRoot(id)) throw readOnly();
+        if (newParentId !== null && requireNode(newParentId).type !== "folder") {
+          throw new IpcError("invalid_input", "the new parent is not a folder");
+        }
+        shares.setParent(id, newParentId);
+        return;
+      }
       const node = requireNode(id);
       if (newParentId !== null) {
         const parent = requireNode(newParentId);
@@ -740,6 +781,9 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       };
     },
     async nodeReorder(id, newParentId, before, visibleOrder) {
+      if (shares.isRemote(id) || (newParentId !== null && shares.isRemote(newParentId))) {
+        throw readOnly();
+      }
       const node = requireNode(id);
       if (newParentId !== null) {
         const parent = requireNode(newParentId);
@@ -782,6 +826,7 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       };
     },
     async nodeSortByName(parentId) {
+      if (parentId !== null && shares.isRemote(parentId)) throw readOnly();
       if (parentId !== null && requireNode(parentId).type !== "folder") {
         throw new IpcError("invalid_input", "the parent is not a folder");
       }
@@ -794,6 +839,21 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
         }),
       };
     },
+
+    // The identity lives in the vault: like the backend, these need it unlocked.
+    identityGet: async () => (requireUnlocked(), shares.api.identityGet()),
+    identityCreate: async (name) => (requireUnlocked(), shares.api.identityCreate(name)),
+    identityExport: async (path, password) => (requireUnlocked(), shares.api.identityExport(path, password)),
+    identityImport: async (path, password) => (requireUnlocked(), shares.api.identityImport(path, password)),
+    sharePublish: async (folderId, path) => (requireUnlocked(), shares.api.sharePublish(folderId, path, doc)),
+    shareRepublish: async (linkId) => (requireUnlocked(), shares.api.shareRepublish(linkId)),
+    sharePreview: shares.api.sharePreview,
+    shareSubscribe: (previewId, parentId) => shares.api.shareSubscribe(previewId, parentId, doc),
+    shareSync: shares.api.shareSync,
+    shareUnsubscribe: shares.api.shareUnsubscribe,
+    shareSetCredential: shares.api.shareSetCredential,
+    shareConfirmTargets: shares.api.shareConfirmTargets,
+    onSharesChanged: shares.onChanged,
 
     async vaultStatus() {
       return vaultStatus;
@@ -967,6 +1027,10 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       menuUpdateHandlers.add(handler);
       return () => menuUpdateHandlers.delete(handler);
     },
+    onAddRemoteFolderMenu(handler) {
+      menuAddRemoteHandlers.add(handler);
+      return () => menuAddRemoteHandlers.delete(handler);
+    },
     onSettingsMenu(handler) {
       menuSettingsHandlers.add(handler);
       return () => menuSettingsHandlers.delete(handler);
@@ -1006,4 +1070,10 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
 }
 
 /** Instance used by the browser demo (`pnpm dev:mock`): demo content and a locked vault. */
-export const mockIpc: Ipc = createMockIpc({ vault: "locked", terminal: true, framebuffer: true, web: true });
+export const mockIpc: Ipc = createMockIpc({
+  vault: "locked",
+  terminal: true,
+  framebuffer: true,
+  web: true,
+  shares: true,
+});

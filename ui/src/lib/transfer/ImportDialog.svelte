@@ -44,7 +44,7 @@
   let error = $state<{ title: string; message: string } | null>(null);
   let busy = $state(false);
   // The selected folder is the natural place to import into, like "new connection".
-  let target = $state<string>(defaultParentFor(doc.nodes, ui.selectedId) ?? "");
+  let target = $state<string>(defaultParentFor(doc.nodes, ui.selectedId, doc.remoteNodes) ?? "");
   let generation = 0;
 
   const formatOptions = $derived<SelectOption[]>([
@@ -53,7 +53,7 @@
   ]);
   const targetOptions = $derived<TreeSelectOption[]>([
     { value: "", label: t("import.targetRoot"), icon: null },
-    ...folderOptions(doc.nodes).map((f) => ({
+    ...folderOptions(doc.nodes, null, doc.remoteNodes).map((f) => ({
       value: f.id,
       label: f.name,
       depth: f.depth,

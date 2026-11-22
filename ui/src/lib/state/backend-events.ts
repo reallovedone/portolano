@@ -49,6 +49,8 @@ export function connectBackendEvents(app: App): () => void {
   const subscriptions = [
     // The vault locked itself or was locked: show it now instead of on the next call.
     app.vault.listen(),
+    // A sync changed the shared folders: show the new content.
+    app.ipc.onSharesChanged(() => void app.doc.reload()),
     // macOS menu bar "Check for Updates…": the same dialog as the sidebar entry.
     app.ipc.onCheckForUpdatesMenu(() => {
       const { ui, updates, notices } = app;
@@ -71,6 +73,17 @@ export function connectBackendEvents(app: App): () => void {
         return;
       }
       ui.open({ type: "settings" });
+    }),
+    // macOS menu bar File → "Add Remote Folder…".
+    app.ipc.onAddRemoteFolderMenu(() => {
+      const { ui, notices } = app;
+      if (ui.dialog?.type === "addRemoteFolder") return;
+      // Another dialog may hold unsaved input: do not replace it.
+      if (ui.dialog) {
+        notices.push("info", t("share.menuBusy"));
+        return;
+      }
+      ui.open({ type: "addRemoteFolder" });
     }),
     // macOS menu bar Help → "Release Notes…": the window with every version.
     app.ipc.onReleaseNotesMenu(() => {

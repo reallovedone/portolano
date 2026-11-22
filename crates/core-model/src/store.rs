@@ -408,14 +408,16 @@ fn migrate(mut value: serde_json::Value, from: u32) -> Result<serde_json::Value,
     Ok(value)
 }
 
-/// Hook for future format changes: transforms a document from version `from` to `from + 1`.
-/// Add one `match` arm per step. Version 1 is the first and current version, so for now every
-/// input is unknown.
-#[allow(clippy::match_single_binding)] // grows one arm per schema version
-fn migrate_step(value: serde_json::Value, from: u32) -> Result<serde_json::Value, ModelError> {
-    let _ = value;
+/// Transforms a document from version `from` to `from + 1`. Add one `match` arm per step.
+fn migrate_step(mut value: serde_json::Value, from: u32) -> Result<serde_json::Value, ModelError> {
     match from {
-        // 1 => Ok(upgrade_v1_to_v2(value)),
+        // 1 -> 2: shared folders. Existing documents have none.
+        1 => {
+            if let Some(obj) = value.as_object_mut() {
+                obj.entry("shares").or_insert_with(|| serde_json::json!([]));
+            }
+            Ok(value)
+        }
         other => Err(ModelError::Corrupt(format!(
             "no migration from schema version {other}"
         ))),
@@ -1045,7 +1047,7 @@ mod tests {
             err,
             ModelError::NewerSchema {
                 found: 99,
-                supported: 1
+                supported: SCHEMA_VERSION
             }
         ));
         assert_eq!(err.code(), crate::ErrorCode::Unsupported);
@@ -1063,6 +1065,7 @@ mod tests {
         let json = serde_json::to_vec(&Document {
             schema_version: 1,
             nodes: vec![folder(1, Some(42), "A")],
+            shares: Vec::new(),
         })
         .expect("json");
         fs::write(dir.file(), json).expect("write");
@@ -1102,6 +1105,7 @@ mod tests {
         let json = serde_json::to_vec(&Document {
             schema_version: 1,
             nodes: vec![folder(1, None, "A"), conn(1, None, "B")],
+            shares: Vec::new(),
         })
         .expect("json");
         fs::write(dir.file(), json).expect("write");
@@ -1471,7 +1475,7 @@ mod tests {
         store.upsert_node(conn(2, None, "C")).expect("c");
         let value: serde_json::Value =
             serde_json::from_slice(&fs::read(dir.file()).expect("read")).expect("json");
-        assert_eq!(value["schemaVersion"], 1);
+        assert_eq!(value["schemaVersion"], SCHEMA_VERSION);
         assert_eq!(value["nodes"][0]["type"], "connection");
         assert_eq!(value["nodes"][0]["parentId"], serde_json::Value::Null);
         assert_eq!(value["nodes"][0]["credential"]["type"], "inherit");
@@ -1487,7 +1491,10 @@ mod tests {
         let dir = TempDir::new();
         fs::write(dir.file(), OLD_FILE).expect("write");
         let store = DocumentStore::load(dir.file()).expect("load");
-        let expected: serde_json::Value = serde_json::from_str(OLD_FILE).expect("json");
+        let mut expected: serde_json::Value = serde_json::from_str(OLD_FILE).expect("json");
+        // The only differences are the migration's: the new version and the empty share list.
+        expected["schemaVersion"] = SCHEMA_VERSION.into();
+        expected["shares"] = serde_json::json!([]);
         assert_eq!(
             serde_json::to_value(store.document()).expect("value"),
             expected
@@ -1499,6 +1506,21 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&text).expect("json"),
             expected
         );
+    }
+
+    #[test]
+    fn migration_v1_adds_empty_shares() {
+        let dir = TempDir::new();
+        fs::write(dir.file(), OLD_FILE).expect("write");
+        let store = DocumentStore::load(dir.file()).expect("load");
+        assert_eq!(store.document().schema_version, 2);
+        assert!(store.document().shares.is_empty());
+        // The migrated document was saved back and the old file became the backup.
+        let saved: serde_json::Value =
+            serde_json::from_slice(&fs::read(dir.file()).expect("read")).expect("json");
+        assert_eq!(saved["schemaVersion"], 2);
+        assert_eq!(saved["shares"], serde_json::json!([]));
+        assert!(backup_path(&dir.file()).exists());
     }
 
     #[test]

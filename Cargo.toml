@@ -7,6 +7,7 @@ members = [
     "crates/session-rdp",
     "crates/session-vnc",
     "crates/importers",
+    "crates/shares",
     "src-tauri",
 ]
 # Vendored third-party crate (see docs/VENDORED.md): never a workspace member, so it is not
@@ -29,6 +30,7 @@ portolano-session-term = { path = "crates/session-term" }
 portolano-session-rdp = { path = "crates/session-rdp" }
 portolano-session-vnc = { path = "crates/session-vnc" }
 portolano-importers = { path = "crates/importers" }
+portolano-shares = { path = "crates/shares" }
 
 # External
 tauri = { version = "=2.12.5", features = ["unstable"] }
@@ -45,10 +47,17 @@ thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-uuid = { version = "1.29.2", features = ["v4", "serde"] }
+uuid = { version = "1.29.2", features = ["v4", "v5", "serde"] }
 dirs = "7.0.0"
 secrecy = { version = "0.10.3", features = ["serde"] }
 zeroize = "1.9.1"
+
+# Shared folders: signed share files (Ed25519) and their base64 text forms
+ed25519-dalek = "3"
+base64 = "0.22"
+# Shared folders: fetching a share file from an https:// address. rustls with the platform
+# certificate verifier (the `rustls` feature of 0.13 includes it), no other default feature.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
 
 # WP3 (vault)
 argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize"] }

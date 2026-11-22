@@ -2,7 +2,7 @@
   import { tick } from "svelte";
 
   import { t, type StringKey } from "../i18n/strings";
-  import type { Node, Uuid } from "../ipc";
+  import { DELETE_CONTAINS_SHARES, type Node, type Uuid } from "../ipc";
   import { detectMac, shortcutLabel } from "../shortcuts";
   import { getApp } from "../state/app";
   import Badge from "../ui/Badge.svelte";
@@ -23,6 +23,8 @@
   import Spinner from "../ui/Spinner.svelte";
   import TextField from "../ui/TextField.svelte";
   import MoveDialog from "./MoveDialog.svelte";
+  import { ERROR_MAX, displayText } from "../shares/display";
+  import RemoteCredentialDialog from "./RemoteCredentialDialog.svelte";
   import SidebarHeader from "./SidebarHeader.svelte";
   import {
     buildTree,
@@ -33,10 +35,15 @@
     groupHasIndices,
     flattenTree,
     isConnection,
+    isRemote,
+    isShareRoot,
     jumpHostDependents,
     nodeKind,
     planReorder,
     planStep,
+    shareOf,
+    sharesUnder,
+    unsubscribeSharesUnder,
     siblingIds,
     subtreeIds,
     type DropEdge,
@@ -53,7 +60,7 @@
   let treeEl: HTMLDivElement | undefined = $state();
 
   const filter = $derived(filterNodes(doc.nodes, query));
-  const roots = $derived(buildTree(doc.nodes));
+  const roots = $derived(buildTree(doc.nodes, doc.remoteNodes));
   const rows = $derived(flattenTree(roots, doc.expanded, filter));
   const focusId = $derived(
     ui.selectedId !== null && rows.some((r) => r.node.id === ui.selectedId)
@@ -64,6 +71,10 @@
   type Pending =
     | { type: "rename"; node: Node }
     | { type: "delete"; node: Node; error: string | null }
+    // Deleting a folder that holds shared folders: unsubscribe from them first.
+    | { type: "deleteWithShares"; node: Node; error: string | null }
+    | { type: "unsubscribe"; node: Node; linkId: Uuid; error: string | null }
+    | { type: "credential"; node: Node }
     | { type: "move"; node: Node }
     | { type: "newFolder"; parentId: Uuid | null };
   let pending = $state<Pending | null>(null);
@@ -88,12 +99,15 @@
     ui.open({
       type: "connection",
       id: null,
-      parentId: defaultParentFor(doc.nodes, ui.selectedId),
+      parentId: defaultParentFor(doc.nodes, ui.selectedId, doc.remoteNodes),
     });
   }
 
   function newFolderHere(): void {
-    pending = { type: "newFolder", parentId: defaultParentFor(doc.nodes, ui.selectedId) };
+    pending = {
+      type: "newFolder",
+      parentId: defaultParentFor(doc.nodes, ui.selectedId, doc.remoteNodes),
+    };
   }
 
   function openMoreMenu(event: MouseEvent): void {
@@ -141,6 +155,10 @@
   async function confirmDelete(node: Node): Promise<void> {
     const doomed = subtreeIds(doc.nodes, node.id);
     const result = await doc.remove(node.id);
+    if (!result.ok && result.error.code === "conflict" && result.error.message === DELETE_CONTAINS_SHARES) {
+      pending = { type: "deleteWithShares", node, error: null };
+      return;
+    }
     if (!result.ok) {
       pending = { type: "delete", node, error: `${result.error.message} (${result.error.code})` };
       return;
@@ -148,6 +166,69 @@
     pending = null;
     await tabs.closeForConnections(doomed);
     if (ui.selectedId !== null && doomed.has(ui.selectedId)) ui.selectedId = null;
+  }
+
+  /** The user agreed: unsubscribe from the shares inside the folder, then delete it. */
+  async function confirmDeleteWithShares(node: Node): Promise<void> {
+    const doomed = subtreeIds(doc.nodes, node.id);
+    const failure = await unsubscribeSharesUnder(
+      () => doc,
+      doomed,
+      (linkId) => doc.unsubscribe(linkId),
+      async (removed) => {
+        await tabs.closeForConnections(removed);
+        if (ui.selectedId !== null && removed.has(ui.selectedId)) ui.selectedId = null;
+      },
+    );
+    if (failure) {
+      pending = {
+        type: "deleteWithShares",
+        node,
+        error: `${failure.message} (${failure.code})`,
+      };
+      return;
+    }
+    await confirmDelete(node);
+  }
+
+  async function confirmUnsubscribe(node: Node, linkId: Uuid): Promise<void> {
+    const doomed = subtreeIds(doc.nodes, node.id);
+    const result = await doc.unsubscribe(linkId);
+    if (!result.ok) {
+      pending = { type: "unsubscribe", node, linkId, error: `${result.error.message} (${result.error.code})` };
+      return;
+    }
+    pending = null;
+    await tabs.closeForConnections(doomed);
+    if (ui.selectedId !== null && doomed.has(ui.selectedId)) ui.selectedId = null;
+  }
+
+  async function syncNow(linkId: Uuid): Promise<void> {
+    const name = doc.shares.find((share) => share.id === linkId)?.name ?? "";
+    const result = await doc.syncShare(linkId);
+    if (!result.ok) {
+      notices.push("error", t("share.syncFailed"), `${result.error.message} (${result.error.code})`);
+      return;
+    }
+    const error = doc.shares.find((share) => share.id === linkId)?.lastError;
+    if (error) notices.push("warning", t("share.syncFailed"), displayText(error, ERROR_MAX));
+    else notices.push("info", t("share.synced"), t("share.syncedDetail", { name: displayText(name) }));
+  }
+
+  async function publishUpdate(linkId: Uuid): Promise<void> {
+    // Publishing signs with the identity in the vault; a cancelled unlock is not an error.
+    if (!(await app.vault.ensureUnlocked(null))) return;
+    const result = await doc.republish(linkId);
+    if (!result.ok) {
+      notices.push("error", t("tree.opFailed"), `${result.error.message} (${result.error.code})`);
+      return;
+    }
+    const share = doc.shares.find((s) => s.id === linkId);
+    notices.push(
+      "info",
+      t("share.published"),
+      t("share.publishedDetail", { name: displayText(share?.name), revision: share?.revision ?? 0 }),
+    );
   }
 
   /** What deleting `target` does, including the SSH connections that lose their jump host. */
@@ -172,16 +253,21 @@
   }
 
   async function moveNode(id: Uuid, parentId: Uuid | null): Promise<string | null> {
-    const check = checkMove(doc.nodes, id, parentId);
-    if (!check.ok) return check.reason === "unchanged" ? null : t("tree.moveInvalid");
+    const check = checkMove(doc.nodes, id, parentId, doc.remoteNodes);
+    if (!check.ok) {
+      if (check.reason === "unchanged") return null;
+      return check.reason === "readOnly" ? t("share.readOnly") : t("tree.moveInvalid");
+    }
     // Keep today's behaviour (alphabetical placement) unless a manual order is involved: then
     // the node goes to the end of the target group, so a stale index can't misplace it.
     const node = doc.node(id);
     const folders = node?.type === "folder";
+    // A mount root keeps its place after the local siblings: it is only ever moved.
     const manual =
-      node?.sortIndex !== undefined || groupHasIndices(doc.nodes, parentId, folders === true);
+      !isShareRoot(doc, id) &&
+      (node?.sortIndex !== undefined || groupHasIndices(doc.nodes, parentId, folders === true));
     const result = manual
-      ? await doc.reorder(id, parentId, null, siblingIds(doc.nodes, parentId, folders === true))
+      ? await doc.reorder(id, parentId, null, siblingIds(doc.nodes, parentId, folders === true, doc.remoteNodes))
       : await doc.move(id, parentId);
     if (result.ok) return null;
     return `${result.error.message} (${result.error.code})`;
@@ -211,6 +297,9 @@
 
   function nodeMenu(node: Node): MenuItem[] {
     const items: MenuItem[] = [];
+    const remote = isRemote(doc, node.id);
+    const root = isShareRoot(doc, node.id);
+    const share = shareOf(doc, node.id);
     if (isConnection(node)) {
       items.push({
         label: t("tree.open"),
@@ -218,7 +307,7 @@
         icon: "plug",
         shortcut: isMac ? "↵" : "Enter",
       });
-    } else {
+    } else if (!remote) {
       items.push(
         {
           label: t("tree.newConnectionHere"),
@@ -231,6 +320,45 @@
           icon: "folder-plus",
         },
       );
+    }
+    if (remote) {
+      // A shared folder is read-only: only the credential (kept on this machine) can change.
+      items.push({
+        label: t("share.credential"),
+        action: () => (pending = { type: "credential", node }),
+        separatorBefore: items.length > 0,
+        icon: "key",
+      });
+      if (root && share) {
+        items.push(
+          {
+            label: t("share.syncNow"),
+            action: () => void syncNow(share.id),
+            separatorBefore: true,
+            icon: "refresh",
+          },
+          {
+            label: t("share.info"),
+            action: () => ui.open({ type: "shareInfo", linkId: share.id }),
+            icon: "info",
+          },
+          {
+            label: t("tree.moveTo"),
+            action: () => (pending = { type: "move", node }),
+            icon: "arrow-right",
+            separatorBefore: true,
+          },
+          {
+            label: t("share.unsubscribe"),
+            action: () => (pending = { type: "unsubscribe", node, linkId: share.id, error: null }),
+            danger: true,
+            separatorBefore: true,
+            icon: "trash",
+            shortcut: isMac ? "⌦" : "Del",
+          },
+        );
+      }
+      return items;
     }
     items.push(
       {
@@ -254,20 +382,20 @@
       {
         label: t("tree.moveUp"),
         action: () => {
-          const plan = planStep(doc.nodes, node.id, -1);
+          const plan = planStep(doc.nodes, node.id, -1, doc.remoteNodes);
           if (plan) void applyReorder(node.id, plan);
         },
         icon: "chevron-up",
-        disabled: filter !== null || planStep(doc.nodes, node.id, -1) === null,
+        disabled: filter !== null || planStep(doc.nodes, node.id, -1, doc.remoteNodes) === null,
       },
       {
         label: t("tree.moveDown"),
         action: () => {
-          const plan = planStep(doc.nodes, node.id, 1);
+          const plan = planStep(doc.nodes, node.id, 1, doc.remoteNodes);
           if (plan) void applyReorder(node.id, plan);
         },
         icon: "chevron-down",
-        disabled: filter !== null || planStep(doc.nodes, node.id, 1) === null,
+        disabled: filter !== null || planStep(doc.nodes, node.id, 1, doc.remoteNodes) === null,
       },
       ...(node.type === "folder"
         ? [
@@ -276,6 +404,29 @@
               action: () => void sortByName(node.id),
               disabled: filter !== null,
             },
+            // The owner of a folder publishes it; once published the folder offers an update.
+            ...(share
+              ? [
+                  {
+                    label: t("share.publishUpdate"),
+                    action: () => void publishUpdate(share.id),
+                    separatorBefore: true,
+                    icon: "upload" as const,
+                  },
+                  {
+                    label: t("share.info"),
+                    action: () => ui.open({ type: "shareInfo", linkId: share.id }),
+                    icon: "info" as const,
+                  },
+                ]
+              : [
+                  {
+                    label: t("share.share"),
+                    action: () => ui.open({ type: "shareFolder", folderId: node.id }),
+                    separatorBefore: true,
+                    icon: "link" as const,
+                  },
+                ]),
           ]
         : []),
       {
@@ -332,6 +483,12 @@
         label: t("tree.sortByName"),
         action: () => void sortByName(null),
         disabled: filter !== null,
+        separatorBefore: true,
+      },
+      {
+        label: t("share.addRemote"),
+        action: () => ui.open({ type: "addRemoteFolder" }),
+        icon: "link",
         separatorBefore: true,
       },
       {
@@ -425,12 +582,15 @@
         break;
       case "F2":
         event.preventDefault();
-        pending = { type: "rename", node: row.node };
+        if (!isRemote(doc, row.node.id)) pending = { type: "rename", node: row.node };
         break;
-      case "Delete":
+      case "Delete": {
         event.preventDefault();
-        pending = { type: "delete", node: row.node, error: null };
+        const share = isShareRoot(doc, row.node.id) ? shareOf(doc, row.node.id) : undefined;
+        if (share) pending = { type: "unsubscribe", node: row.node, linkId: share.id, error: null };
+        else if (!isRemote(doc, row.node.id)) pending = { type: "delete", node: row.node, error: null };
         break;
+      }
       case "ContextMenu":
         event.preventDefault();
         openMenuForRow(row);
@@ -460,7 +620,7 @@
   // ---- drag and drop ----
 
   function canDropOn(target: Uuid | null): boolean {
-    return draggingId !== null && checkMove(doc.nodes, draggingId, target).ok;
+    return draggingId !== null && checkMove(doc.nodes, draggingId, target, doc.remoteNodes).ok;
   }
 
   function onDragStart(event: DragEvent, node: Node): void {
@@ -502,7 +662,7 @@
       const edge: DropEdge | null =
         ratio < edgeSize ? "before" : ratio >= 1 - edgeSize && !hasShownChildren ? "after" : null;
       if (edge) {
-        const plan = planReorder(doc.nodes, dragged.id, row.node.id, edge);
+        const plan = planReorder(doc.nodes, dragged.id, row.node.id, edge, doc.remoteNodes);
         // A drop that changes nothing must not fall through to "move to the top level".
         return plan ? { kind: edge, plan } : { kind: "none" };
       }
@@ -686,7 +846,7 @@
             tabindex={focusId === node.id ? 0 : -1}
             data-node-id={node.id}
             data-kind={nodeKind(node)}
-            draggable="true"
+            draggable={!isRemote(doc, node.id) || isShareRoot(doc, node.id)}
             onclick={() => (ui.selectedId = node.id)}
             onfocus={() => (ui.selectedId = node.id)}
             ondblclick={() => open(node)}
@@ -719,6 +879,23 @@
             <span class="name-line">
               <span class="name" title={node.name}>{node.name}</span>
               <NodeDot color={node.color} />
+              {#if isShareRoot(doc, node.id)}
+                {@const link = shareOf(doc, node.id)}
+                <span class="share-badge" title={t("share.badge")}>
+                  <Icon name="link" size={14} />
+                  {#if link && (link.lastError || link.pendingTargets > 0)}
+                    <span class="share-dot" title={t("share.badgeAttention")}></span>
+                  {/if}
+                </span>
+              {:else if isRemote(doc, node.id)}
+                <span class="share-lock" title={t("share.lockedItem")}>
+                  <Icon name="lock" size={14} />
+                </span>
+              {:else if shareOf(doc, node.id)}
+                <span class="share-badge" title={t("share.badgeOwned")}>
+                  <Icon name="link" size={14} />
+                </span>
+              {/if}
             </span>
             {#snippet secondary()}
               {#if isConnection(node)}<span class="host" title={node.host}>{node.host}</span>{/if}
@@ -776,11 +953,36 @@
     onconfirm={() => confirmDelete(target)}
     oncancel={() => (pending = null)}
   />
+{:else if pending?.type === "deleteWithShares"}
+  {@const target = pending.node}
+  {@const count = sharesUnder(doc, doc.nodes, subtreeIds(doc.nodes, target.id)).length}
+  <ConfirmDialog
+    title={t("share.deleteContainsTitle")}
+    message={t("share.deleteContainsShares", { name: target.name, count })}
+    confirmLabel={t("share.deleteContainsConfirm")}
+    error={pending.error}
+    onconfirm={() => confirmDeleteWithShares(target)}
+    oncancel={() => (pending = null)}
+  />
+{:else if pending?.type === "unsubscribe"}
+  {@const target = pending.node}
+  {@const linkId = pending.linkId}
+  <ConfirmDialog
+    title={t("share.unsubscribeTitle")}
+    message={t("share.unsubscribeBody", { name: target.name })}
+    confirmLabel={t("share.unsubscribeConfirm")}
+    error={pending.error}
+    onconfirm={() => confirmUnsubscribe(target, linkId)}
+    oncancel={() => (pending = null)}
+  />
+{:else if pending?.type === "credential"}
+  <RemoteCredentialDialog node={pending.node} onclose={() => (pending = null)} />
 {:else if pending?.type === "move"}
   {@const target = pending.node}
   <MoveDialog
     node={target}
     nodes={doc.nodes}
+    remote={doc.remoteNodes}
     onmove={(parentId) => moveFromDialog(target, parentId)}
     oncancel={() => (pending = null)}
   />
@@ -879,6 +1081,23 @@
 
   .host {
     font-size: var(--font-size-sm);
+  }
+
+  .share-badge,
+  .share-lock {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    color: var(--text-tertiary);
+  }
+  .share-dot {
+    position: absolute;
+    top: calc(-1 * var(--space-1) / 2);
+    right: calc(-1 * var(--space-1) / 2);
+    width: var(--space-2);
+    height: var(--space-2);
+    border-radius: var(--radius-full);
+    background: var(--warning-text);
   }
 
   .tags {

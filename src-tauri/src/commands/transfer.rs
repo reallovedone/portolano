@@ -8,8 +8,9 @@ use portolano_importers::{ExportFormat, ImportFormat, ImportPreview};
 use tauri::State;
 use uuid::Uuid;
 
-use crate::commands::model::with_document;
+use crate::commands::model::with_local_document;
 use crate::error::{poisoned, AppError};
+use crate::shares::read_only;
 use crate::state::AppState;
 
 /// Reads and parses `path`, caches the preview for `import_apply` and returns it.
@@ -40,6 +41,13 @@ fn import_apply_impl(
         .map_err(poisoned)?
         .get(preview_id)
         .ok_or_else(|| AppError::not_found("the import preview was not found or has expired"))?;
+    // A shared folder belongs to its owner: nothing is imported into it.
+    if let Some(target) = target_folder_id {
+        let remote = with_local_document(state, |doc| state.shares.remote_map(doc))?;
+        if remote.contains_key(&target) {
+            return Err(read_only());
+        }
+    }
     let count = {
         let mut store = state.store.lock().map_err(poisoned)?;
         portolano_importers::apply(&mut store, target_folder_id, &preview)?
@@ -59,7 +67,19 @@ fn export_document_impl(
     path: &str,
     node_ids: Option<&[Uuid]>,
 ) -> Result<(), AppError> {
-    let nodes = with_document(state, |doc| Ok(portolano_importers::select(doc, node_ids)?))?;
+    // The local document only: what a shared folder holds belongs to its owner and is never
+    // written to a file from here. Ids of shared nodes in the selection are ignored.
+    let nodes = with_local_document(state, |doc| {
+        // Ids that belong to a shared folder are ignored; unknown ids still fail.
+        let remote = state.shares.remote_map(doc)?;
+        let selected: Option<Vec<Uuid>> = node_ids.map(|ids| {
+            ids.iter()
+                .copied()
+                .filter(|id| !remote.contains_key(id))
+                .collect()
+        });
+        Ok(portolano_importers::select(doc, selected.as_deref())?)
+    })?;
     portolano_importers::export(format, Path::new(path), &nodes)?;
     Ok(())
 }
@@ -196,6 +216,35 @@ mod tests {
         assert_eq!(again.code, ErrorCode::NotFound);
     }
 
+    #[tokio::test]
+    async fn import_into_a_shared_folder_is_read_only() {
+        use crate::shares::testkit::{subscribe, world};
+        let dir = TempDir::new();
+        let w = world();
+        subscribe(&w).await;
+        let team = with_local_document(&w.sub, |doc| state_remote_root(&w.sub, doc))
+            .expect("mounted root");
+        let preview = import_preview_impl(&w.sub, ImportFormat::Csv, path_str(&csv_file(&dir)))
+            .expect("preview");
+        let err = import_apply_impl(&w.sub, preview.preview_id, Some(team)).expect_err("remote");
+        assert_eq!(err.code, ErrorCode::ReadOnly);
+        // Nothing was imported and the preview is still there for another target.
+        assert_eq!(
+            import_apply_impl(&w.sub, preview.preview_id, None).expect("elsewhere"),
+            4
+        );
+    }
+
+    fn state_remote_root(state: &AppState, doc: &Document) -> Result<Uuid, AppError> {
+        state
+            .shares
+            .remote_map(doc)?
+            .iter()
+            .find(|(_, info)| info.is_root)
+            .map(|(id, _)| *id)
+            .ok_or_else(|| AppError::not_found("no mounted root"))
+    }
+
     #[test]
     fn unknown_preview_is_not_found() {
         let dir = TempDir::new();
@@ -315,5 +364,48 @@ mod tests {
 
     fn path_str(path: &Path) -> &str {
         path.to_str().expect("utf-8 temp path")
+    }
+
+    #[tokio::test]
+    async fn export_skips_remote_nodes() {
+        let w = crate::shares::testkit::world();
+        crate::shares::testkit::subscribe(&w).await;
+        let remote = w
+            .sub
+            .shares
+            .with_store(|store| {
+                let merged = w.sub.shares.merged(store.document())?;
+                Ok(merged
+                    .document
+                    .nodes
+                    .iter()
+                    .map(Node::id)
+                    .filter(|id| store.document().node(*id).is_none())
+                    .collect::<Vec<_>>())
+            })
+            .expect("remote ids");
+        assert_eq!(remote.len(), 2);
+        let local = Node::Folder(Folder {
+            sort_index: None,
+            icon: None,
+            color: None,
+            id: u(1),
+            parent_id: None,
+            name: "mine".into(),
+            credential: CredentialRef::Inherit,
+        });
+        crate::commands::model::with_store(&w.sub, |s| Ok(s.upsert_node(local)?)).expect("local");
+        let out = w._sub_dir.path().join("out.json");
+        // The whole document, and a selection that names remote ids: neither carries them.
+        for ids in [None, Some(vec![u(1), remote[0], remote[1]])] {
+            export_document_impl(&w.sub, ExportFormat::Json, path_str(&out), ids.as_deref())
+                .expect("export");
+            let text = fs::read_to_string(&out).expect("read");
+            assert!(text.contains("mine"), "{text}");
+            assert!(
+                !text.contains("web.example.net") && !text.contains("Team"),
+                "{text}"
+            );
+        }
     }
 }

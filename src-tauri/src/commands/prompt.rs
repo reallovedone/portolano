@@ -15,6 +15,7 @@ use portolano_vault::{CredentialInput, SecretInput, Vault, VaultStatus};
 use uuid::Uuid;
 
 use crate::error::{poisoned, AppError};
+use crate::shares::ShareService;
 use crate::state::AppState;
 
 /// Decides where the credential of a connection comes from.
@@ -70,6 +71,7 @@ pub fn hooks(state: &AppState, connection_id: Uuid, connection_name: String) -> 
     let probe_vault = state.vault.clone();
     let vault = state.vault.clone();
     let store = state.store.clone();
+    let shares = state.shares.clone();
     let notifier = state.notifier.clone();
     PromptHooks {
         can_save: Arc::new(move || {
@@ -80,7 +82,21 @@ pub fn hooks(state: &AppState, connection_id: Uuid, connection_name: String) -> 
                 .unwrap_or(false)
         }),
         saved: Arc::new(move |credential| {
-            if let Err(e) = save(&vault, &store, connection_id, &connection_name, credential) {
+            // A connection of a shared folder is not in the local document: the choice is
+            // kept as the user's own override of that share. Failing to tell is an error.
+            let remote = shares.with_store(|s| {
+                Ok(shares
+                    .remote_map(s.document())?
+                    .contains_key(&connection_id))
+            });
+            let saved = match remote {
+                Ok(true) => {
+                    save_remote(&vault, &shares, connection_id, &connection_name, credential)
+                }
+                Ok(false) => save(&vault, &store, connection_id, &connection_name, credential),
+                Err(e) => Err(e),
+            };
+            if let Err(e) = saved {
                 // The message never contains the secret.
                 tracing::warn!(
                     code = e.code.as_str(),
@@ -97,11 +113,8 @@ pub fn hooks(state: &AppState, connection_id: Uuid, connection_name: String) -> 
     }
 }
 
-/// Creates a vault credential from what the user typed and points the connection to it.
-pub fn save(
+fn create_credential(
     vault: &Mutex<Vault>,
-    store: &Mutex<DocumentStore>,
-    connection_id: Uuid,
     connection_name: &str,
     credential: SavedCredential,
 ) -> Result<Uuid, AppError> {
@@ -115,9 +128,7 @@ pub fn save(
             passphrase,
         },
     };
-    let id = vault
-        .lock()
-        .map_err(poisoned)?
+    Ok(crate::state::lock_vault_mutex(vault)?
         .upsert(CredentialInput {
             id: None,
             name: format!("{connection_name} ({})", credential.username),
@@ -125,8 +136,30 @@ pub fn save(
             domain: credential.domain,
             secret,
         })?
-        .id;
+        .id)
+}
 
+/// Do not leave a credential nobody points to.
+fn undo_credential(vault: &Mutex<Vault>, id: Uuid) {
+    match vault.lock() {
+        Ok(mut v) => {
+            if let Err(undo) = v.delete(id) {
+                tracing::warn!("could not undo the saved credential: {undo}");
+            }
+        }
+        Err(_) => tracing::warn!("could not undo the saved credential: vault state poisoned"),
+    }
+}
+
+/// Creates a vault credential from what the user typed and points the connection to it.
+pub fn save(
+    vault: &Mutex<Vault>,
+    store: &Mutex<DocumentStore>,
+    connection_id: Uuid,
+    connection_name: &str,
+    credential: SavedCredential,
+) -> Result<Uuid, AppError> {
+    let id = create_credential(vault, connection_name, credential)?;
     let linked = (|| {
         let mut store = store.lock().map_err(poisoned)?;
         store.ensure_loaded()?;
@@ -142,15 +175,31 @@ pub fn save(
         Ok(())
     })();
     if let Err(e) = linked {
-        // Do not leave a credential nobody points to.
-        match vault.lock() {
-            Ok(mut v) => {
-                if let Err(undo) = v.delete(id) {
-                    tracing::warn!("could not undo the saved credential: {undo}");
-                }
-            }
-            Err(_) => tracing::warn!("could not undo the saved credential: vault state poisoned"),
-        }
+        undo_credential(vault, id);
+        return Err(e);
+    }
+    Ok(id)
+}
+
+/// `save` for a connection of a shared folder: the new credential becomes the user's own
+/// override for that connection (the shared file is never changed).
+pub fn save_remote(
+    vault: &Mutex<Vault>,
+    shares: &ShareService,
+    connection_id: Uuid,
+    connection_name: &str,
+    credential: SavedCredential,
+) -> Result<Uuid, AppError> {
+    // Until the host is confirmed the credential would be ignored, and the user would be asked
+    // again with no explanation: say what to do instead of saving something that cannot apply.
+    if shares.is_pending_target(connection_id)? {
+        return Err(AppError::invalid_input(
+            "This host is new or changed: confirm it in Share info first, then save the credential.",
+        ));
+    }
+    let id = create_credential(vault, connection_name, credential)?;
+    if let Err(e) = shares.set_credential(connection_id, CredentialRef::Id { id }) {
+        undo_credential(vault, id);
         return Err(e);
     }
     Ok(id)
@@ -228,6 +277,60 @@ mod tests {
             .expect("vault")
             .create(SecretString::from("master-for-tests".to_owned()))
             .expect("create vault");
+    }
+
+    fn remote_credential(state: &AppState, id: Uuid) -> CredentialRef {
+        crate::commands::model::with_document(state, |doc| match doc.node(id) {
+            Some(Node::Connection(c)) => Ok(c.credential),
+            other => panic!("{other:?}"),
+        })
+        .expect("document")
+    }
+
+    #[tokio::test]
+    async fn saving_for_a_shared_connection_stores_a_share_override() {
+        use crate::shares::testkit::{subscribe, world};
+        let w = world();
+        subscribe(&w).await;
+        let web = crate::commands::model::with_document(&w.sub, |doc| {
+            Ok(doc
+                .nodes
+                .iter()
+                .find(|n| n.name() == "web")
+                .map(Node::id)
+                .expect("web"))
+        })
+        .expect("document");
+        assert!((hooks(&w.sub, web, "web".into()).can_save)());
+        (hooks(&w.sub, web, "web".into()).saved)(typed_password("ada", "pw"));
+        let CredentialRef::Id { id } = remote_credential(&w.sub, web) else {
+            panic!("the override should apply");
+        };
+        assert!(w.sub.vault.lock().expect("vault").is_unlocked());
+        assert_eq!(
+            vault_credential(&w.sub, Some(id), false).expect("stored"),
+            Some(id)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_save_for_a_shared_connection_leaves_nothing_behind() {
+        use crate::shares::testkit::{subscribe, world};
+        let w = world();
+        subscribe(&w).await;
+        let web = crate::commands::model::with_document(&w.sub, |doc| {
+            Ok(doc
+                .nodes
+                .iter()
+                .find(|n| n.name() == "web")
+                .map(Node::id)
+                .expect("web"))
+        })
+        .expect("document");
+        // A locked vault cannot take the credential: fail closed, no override.
+        w.sub.vault.lock().expect("vault").lock().expect("lock");
+        (hooks(&w.sub, web, "web".into()).saved)(typed_password("ada", "pw"));
+        assert_eq!(remote_credential(&w.sub, web), CredentialRef::Inherit);
     }
 
     #[test]

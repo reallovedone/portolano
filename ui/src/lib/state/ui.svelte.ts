@@ -15,7 +15,13 @@ export type Dialog =
   // Settings window (for now only the Appearance section).
   | { type: "settings" }
   // "Release notes": every version of the changelog, with screenshots.
-  | { type: "releaseNotes" };
+  | { type: "releaseNotes" }
+  // "Share…" on a local folder: publish it as a signed file.
+  | { type: "shareFolder"; folderId: Uuid }
+  // "Share info…": who published it, the fingerprint, the state of a share.
+  | { type: "shareInfo"; linkId: Uuid }
+  // "Add Remote Folder…": subscribe to a folder shared by someone else.
+  | { type: "addRemoteFolder" };
 
 export class UiStore {
   dialog = $state<Dialog | null>(null);

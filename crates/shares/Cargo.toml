@@ -1,0 +1,22 @@
+[package]
+name = "portolano-shares"
+description = "Shared folders for Portolano: identities, signed share files, acceptance rules and the merged tree"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+portolano-core-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+ed25519-dalek.workspace = true
+base64.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
+url.workspace = true

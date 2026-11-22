@@ -93,6 +93,7 @@
       <LocationField
         bind:value={draft.parentId}
         nodes={doc.nodes}
+        remote={doc.remoteNodes}
         excludeSubtreeOf={draft.id}
         id="{uid}-parent"
       />
