@@ -4481,7 +4481,7 @@ dependencies = [
 
 [[package]]
 name = "portolano"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "arboard",
  "block2",
@@ -4526,7 +4526,7 @@ dependencies = [
 
 [[package]]
 name = "portolano-core-model"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "dirs",
  "secrecy",
@@ -4540,7 +4540,7 @@ dependencies = [
 
 [[package]]
 name = "portolano-importers"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "csv",
  "portolano-core-model",
@@ -4554,7 +4554,7 @@ dependencies = [
 
 [[package]]
 name = "portolano-session-rdp"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "ironrdp-cliprdr",
  "ironrdp-connector",
@@ -4588,7 +4588,7 @@ dependencies = [
 
 [[package]]
 name = "portolano-session-term"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "dirs",
  "portable-pty",
@@ -4607,7 +4607,7 @@ dependencies = [
 
 [[package]]
 name = "portolano-session-vnc"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "des",
  "flate2",
@@ -4627,7 +4627,7 @@ dependencies = [
 
 [[package]]
 name = "portolano-shares"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -4644,7 +4644,7 @@ dependencies = [
 
 [[package]]
 name = "portolano-vault"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "argon2",
  "base64 0.22.1",
