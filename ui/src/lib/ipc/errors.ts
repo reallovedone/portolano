@@ -15,6 +15,8 @@ const ERROR_CODES: readonly ErrorCode[] = [
   "quick_unlock_cancelled",
   "quick_unlock_failed",
   "quick_unlock_not_ready",
+  "read_only",
+  "conflict",
 ];
 
 /** The error every IPC wrapper throws: carries the stable backend `code`. */

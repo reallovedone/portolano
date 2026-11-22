@@ -23,6 +23,7 @@ portolano-session-term.workspace = true
 portolano-session-rdp.workspace = true
 portolano-session-vnc.workspace = true
 portolano-importers.workspace = true
+portolano-shares.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog.workspace = true
 tauri-plugin-updater.workspace = true
@@ -41,6 +42,9 @@ arboard.workspace = true
 chacha20poly1305.workspace = true
 getrandom.workspace = true
 zeroize.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+ed25519-dalek.workspace = true
 
 # The change counter of the macOS pasteboard (readable without any permission prompt) and the
 # marker types password managers use for concealed content.

@@ -27,6 +27,7 @@
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
   import Icon from "../ui/Icon.svelte";
+  import IdentitySection from "../shares/IdentitySection.svelte";
   import ChoiceGroup from "./ChoiceGroup.svelte";
 
   let { onclose }: { onclose: () => void } = $props();
@@ -175,6 +176,8 @@
       </div>
     </div>
   </section>
+
+  <IdentitySection />
 
   <section class="about" aria-label={t("settings.about")} data-testid="settings-about">
     {#if updates.settings?.currentVersion}

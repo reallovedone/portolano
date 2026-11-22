@@ -66,7 +66,7 @@
     ui.open({
       type: "connection",
       id: null,
-      parentId: defaultParentFor(doc.nodes, ui.selectedId),
+      parentId: defaultParentFor(doc.nodes, ui.selectedId, doc.remoteNodes),
     });
   }
 

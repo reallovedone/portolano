@@ -11,6 +11,7 @@ pub mod keyfile;
 pub mod model;
 pub mod prompt;
 pub mod rdp;
+pub mod shares;
 pub mod term;
 pub mod transfer;
 pub mod update;

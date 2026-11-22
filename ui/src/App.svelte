@@ -17,6 +17,9 @@
   import Splitter from "./lib/ui/Splitter.svelte";
   import StatusBar from "./lib/ui/StatusBar.svelte";
   import Toasts from "./lib/ui/Toasts.svelte";
+  import AddRemoteFolderDialog from "./lib/shares/AddRemoteFolderDialog.svelte";
+  import ShareFolderDialog from "./lib/shares/ShareFolderDialog.svelte";
+  import ShareInfoDialog from "./lib/shares/ShareInfoDialog.svelte";
   import SettingsDialog from "./lib/settings/SettingsDialog.svelte";
   import ReleaseNotesDialog from "./lib/updates/ReleaseNotesDialog.svelte";
   import UpdateCheckDialog from "./lib/updates/UpdateCheckDialog.svelte";
@@ -113,7 +116,7 @@
         ui.open({
           type: "connection",
           id: null,
-          parentId: defaultParentFor(doc.nodes, ui.selectedId),
+          parentId: defaultParentFor(doc.nodes, ui.selectedId, doc.remoteNodes),
         });
         break;
       case "search":
@@ -199,6 +202,12 @@
   <UpdateCheckDialog onclose={() => ui.closeDialog()} />
 {:else if ui.dialog?.type === "settings"}
   <SettingsDialog onclose={() => ui.closeDialog()} />
+{:else if ui.dialog?.type === "shareFolder"}
+  <ShareFolderDialog folderId={ui.dialog.folderId} onclose={() => ui.closeDialog()} />
+{:else if ui.dialog?.type === "shareInfo"}
+  <ShareInfoDialog linkId={ui.dialog.linkId} onclose={() => ui.closeDialog()} />
+{:else if ui.dialog?.type === "addRemoteFolder"}
+  <AddRemoteFolderDialog onclose={() => ui.closeDialog()} />
 {:else if ui.dialog?.type === "releaseNotes"}
   <ReleaseNotesDialog onclose={() => ui.closeDialog()} />
 {/if}

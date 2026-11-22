@@ -140,3 +140,18 @@ describe("menu-check-for-updates event (macOS menu bar)", () => {
     ]);
   });
 });
+
+describe("shares-changed event", () => {
+  it("reloads the document when the backend reports a change in the shared folders", async () => {
+    const ipc = createMockIpc({ vault: "unlocked", shares: true });
+    const app = createApp(ipc);
+    await app.doc.reload();
+    const off = connectBackendEvents(app);
+    expect(app.doc.shares.length).toBeGreaterThan(0);
+
+    const spy = vi.spyOn(app.doc, "reload");
+    ipc.simulate.sharesChanged();
+    expect(spy).toHaveBeenCalledTimes(1);
+    off();
+  });
+});

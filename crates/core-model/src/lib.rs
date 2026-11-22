@@ -30,7 +30,7 @@ pub use credential::resolve_credential;
 pub use error::{AppError, ErrorCode, ModelError};
 pub use model::{
     host_is_storable, Connection, ConnectionOptions, CredentialRef, Document, Folder, Node,
-    SCHEMA_VERSION,
+    OwnedShare, ShareLink, ShareLocation, ShareRole, ShareTarget, SCHEMA_VERSION,
 };
 pub use paths::{
     connections_path, data_dir, known_hosts_path, resolve_data_dir, vault_path, DATA_DIR_ENV,

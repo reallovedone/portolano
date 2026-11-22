@@ -1,16 +1,21 @@
 //! Connection document (§4.1). See the crate docs for the JSON convention.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Current on-disk schema version.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Document {
     pub schema_version: u32,
     pub nodes: Vec<Node>,
+    /// Shared folders this document subscribes to or publishes (schema 2).
+    #[serde(default)]
+    pub shares: Vec<ShareLink>,
 }
 
 impl Default for Document {
@@ -18,8 +23,88 @@ impl Default for Document {
         Self {
             schema_version: SCHEMA_VERSION,
             nodes: Vec::new(),
+            shares: Vec::new(),
         }
     }
+}
+
+/// How this installation takes part in a shared folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShareRole {
+    Subscriber,
+    Owner,
+}
+
+/// Where the share file is read from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ShareLocation {
+    Path { value: String },
+    Url { value: String },
+}
+
+/// The folder an owner publishes and the identity that signs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnedShare {
+    pub folder_id: Uuid,
+    pub identity_id: Uuid,
+}
+
+/// What a subscriber confirmed a remote connection points at (no secrets).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareTarget {
+    pub protocol: String,
+    pub host: String,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub username: Option<String>,
+    /// RDP domain (`None` for other protocols).
+    #[serde(default)]
+    pub domain: Option<String>,
+    /// Source id of the jump host (SSH only).
+    #[serde(default)]
+    pub jump_host: Option<Uuid>,
+}
+
+/// A shared folder this document is linked to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareLink {
+    pub id: Uuid,
+    pub share_id: Uuid,
+    pub name: String,
+    pub role: ShareRole,
+    #[serde(default)]
+    pub location: Option<ShareLocation>,
+    #[serde(default)]
+    pub publish_path: Option<String>,
+    /// Local folder the remote tree is mounted under (`None`: the root).
+    #[serde(default)]
+    pub parent_id: Option<Uuid>,
+    pub owner_name: String,
+    /// The pinned owner public key, base64.
+    pub owner_key: String,
+    #[serde(default)]
+    pub last_revision: u64,
+    #[serde(default)]
+    pub editors_version: u64,
+    /// RFC 3339 time of the last successful sync.
+    #[serde(default)]
+    pub last_sync: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// Local credential choices by source (remote) node id.
+    #[serde(default)]
+    pub overrides: BTreeMap<Uuid, CredentialRef>,
+    /// Targets the user confirmed, by source connection id.
+    #[serde(default)]
+    pub confirmed_targets: BTreeMap<Uuid, ShareTarget>,
+    #[serde(default)]
+    pub owned: Option<OwnedShare>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -231,7 +316,7 @@ mod tests {
         let doc = Document::default();
         assert_eq!(
             serde_json::to_value(&doc).expect("serialize"),
-            json!({"schemaVersion": 1, "nodes": []})
+            json!({"schemaVersion": 2, "nodes": [], "shares": []})
         );
     }
 

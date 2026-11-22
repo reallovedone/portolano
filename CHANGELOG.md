@@ -18,10 +18,12 @@ attention when you upgrade.
 - The session toolbar can be slid away and back with the small tab under its middle (web pages keep their navigation and address visible), or from *Show session toolbar* in the sidebar's more-actions menu.
 
 - A new *Release notes* window, from *Help → Release Notes…* on macOS or from Settings, lists what changed in every version; release notes show screenshots of the new features in the look you use, and after an update the *What's new* window links to it when older versions do not fit.
+- Shared folders: publish a folder as a signed file on a network drive, OneDrive, Nextcloud or an internal web server, and subscribe to folders shared by colleagues. Shared folders are read-only; you choose the credentials.
 
 ### 🔄 Changed
 
 - A connections file saved by 0.4.0 still opens in 0.3.x, but if you go back to 0.3.x and save there, your custom order, icons, colours and appearance settings are lost.
+- With shared folders, the connections file moves to a newer format: once this version has opened it, earlier versions of Portolano can no longer open it, so keep a copy first if you may go back.
 - After an update, the release notes of every version you skipped are shown; they are no longer shown before installing.
 - The RDP connection editor is shorter: options are grouped into Display, Sign-in, Clipboard & keyboard and Security sections, and long explanations open with "Learn more".
 

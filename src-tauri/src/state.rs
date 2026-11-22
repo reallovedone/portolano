@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use portolano_core_model::prompt::CredentialAnswer;
 use portolano_core_model::web::{Bounds, WebNavAction};
@@ -25,6 +25,7 @@ use uuid::Uuid;
 use crate::clipboard::SystemClipboard;
 use crate::error::{poisoned, AppError};
 use crate::quick_unlock::QuickUnlock;
+use crate::shares::ShareService;
 
 pub type SessionId = Uuid;
 
@@ -263,6 +264,26 @@ impl Notifier {
     }
 }
 
+/// Locks the vault mutex. A poisoned mutex means a panic while the vault was being used, so its
+/// in-memory state cannot be trusted: fail closed. The guard is recovered, the vault is locked
+/// (the key and every secret are zeroised, the user unlocks again from the file) and the
+/// poison is cleared, so the vault stays usable and, above all, lockable.
+pub(crate) fn lock_vault_mutex(vault: &Mutex<Vault>) -> Result<MutexGuard<'_, Vault>, AppError> {
+    match vault.lock() {
+        Ok(guard) => Ok(guard),
+        Err(poison) => {
+            let mut guard = poison.into_inner();
+            tracing::error!("vault state was poisoned; locking the vault");
+            if let Err(e) = guard.lock() {
+                tracing::error!(error = %e, "could not lock a poisoned vault");
+                return Err(AppError::from(e));
+            }
+            vault.clear_poison();
+            Ok(guard)
+        }
+    }
+}
+
 pub struct AppState {
     pub data_dir: PathBuf,
     /// `Arc` so that a session can hold them (the "save to vault" hook of a credential prompt
@@ -278,21 +299,37 @@ pub struct AppState {
     pub clipboard: Arc<SystemClipboard>,
     /// The key behind Touch ID / Windows Hello unlock; in memory only (see `quick_unlock`).
     pub quick_unlock: QuickUnlock,
+    /// Shared folders: publishing, subscriptions, sync and the merged tree.
+    pub shares: Arc<ShareService>,
 }
 
 impl AppState {
     /// Builds the state for `data_dir`. Performs no I/O: the store and the vault bind to their
     /// files lazily (their real loading is owned by WP2 and WP3).
     pub fn new(data_dir: PathBuf) -> Self {
-        let store = DocumentStore::new(connections_path(&data_dir));
         let vault = Vault::new(vault_path(&data_dir));
+        Self::from_parts(data_dir, vault)
+    }
+
+    /// Like [`AppState::new`] with a vault built by the caller (tests use a cheap key derivation).
+    pub fn from_parts(data_dir: PathBuf, vault: Vault) -> Self {
+        let store = Arc::new(Mutex::new(DocumentStore::new(connections_path(&data_dir))));
+        let vault = Arc::new(Mutex::new(vault));
+        let notifier = Arc::new(Notifier::default());
+        let shares = Arc::new(ShareService::new(
+            data_dir.clone(),
+            Arc::clone(&store),
+            Arc::clone(&vault),
+            Arc::clone(&notifier),
+        ));
         Self {
             data_dir,
-            store: Arc::new(Mutex::new(store)),
-            vault: Arc::new(Mutex::new(vault)),
+            store,
+            vault,
+            shares,
             sessions: SessionManager::new(),
             import_previews: Mutex::new(PreviewCache::default()),
-            notifier: Arc::new(Notifier::default()),
+            notifier,
             clipboard: Arc::new(SystemClipboard::default()),
             quick_unlock: QuickUnlock::default(),
         }

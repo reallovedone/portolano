@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { IpcError } from "./errors";
 import { createMockIpc, MOCK_MASTER_PASSWORD } from "./mock";
+import { MOCK_SHARE_IDS } from "./mock-shares";
 import type { Connection, Node } from "./types";
 
 const newConnection = (id: string, parentId: string | null): Node => {
@@ -384,5 +385,77 @@ describe("mock appearance", () => {
     const custom = { sections: [{ version: "1.0.0", date: null, notes: "- x" }], truncated: true };
     expect(await createMockIpc({ updates: { releaseNotes: custom } }).releaseNotes()).toEqual(custom);
     await expect(createMockIpc({ updates: { releaseNotesError: "boom" } }).releaseNotes()).rejects.toThrow("boom");
+  });
+});
+
+describe("mock shared folders", () => {
+  it("mock_share_set_credential_updates_view", async () => {
+    const ipc = createMockIpc({ shares: true });
+    const view = await ipc.docGet();
+    expect(view.shares).toHaveLength(1);
+    expect(view.shares[0]).toMatchObject({ id: MOCK_SHARE_IDS.link, role: "subscriber", pendingTargets: 1 });
+    expect(view.remoteNodes[MOCK_SHARE_IDS.root]).toEqual({ linkId: MOCK_SHARE_IDS.link, isRoot: true });
+    expect(view.remoteNodes[MOCK_SHARE_IDS.gateway]).toEqual({ linkId: MOCK_SHARE_IDS.link, isRoot: false });
+    expect(view.nodes.find((n) => n.id === MOCK_SHARE_IDS.gateway)?.credential).toEqual({ type: "inherit" });
+
+    await ipc.shareSetCredential(MOCK_SHARE_IDS.gateway, { type: "none" });
+    expect((await ipc.docGet()).nodes.find((n) => n.id === MOCK_SHARE_IDS.gateway)?.credential).toEqual({
+      type: "none",
+    });
+    await ipc.shareSetCredential(MOCK_SHARE_IDS.gateway, { type: "inherit" });
+    expect((await ipc.docGet()).nodes.find((n) => n.id === MOCK_SHARE_IDS.gateway)?.credential).toEqual({
+      type: "inherit",
+    });
+    // A local node is not a shared one.
+    expect(await codeOf(ipc.shareSetCredential("00000000-0000-4000-8000-000000000001", { type: "none" }))).toBe(
+      "invalid_input",
+    );
+  });
+
+  it("has no shares unless asked and keeps remote nodes read-only", async () => {
+    expect((await createMockIpc().docGet()).shares).toEqual([]);
+    const ipc = createMockIpc({ shares: true });
+    const gateway = (await ipc.docGet()).nodes.find((n) => n.id === MOCK_SHARE_IDS.gateway) as Node;
+    expect(await codeOf(ipc.docUpsertNode({ ...gateway, name: "x" }))).toBe("read_only");
+    expect(await codeOf(ipc.docDeleteNode(MOCK_SHARE_IDS.gateway))).toBe("read_only");
+    expect(await codeOf(ipc.docMoveNode(MOCK_SHARE_IDS.gateway, null))).toBe("read_only");
+    expect(await codeOf(ipc.docMoveNode("00000000-0000-4000-8000-000000000001", MOCK_SHARE_IDS.servers))).toBe(
+      "read_only",
+    );
+    // The mount root moves into a local folder.
+    await ipc.docMoveNode(MOCK_SHARE_IDS.root, "00000000-0000-4000-8000-000000000009");
+    const moved = (await ipc.docGet()).nodes.find((n) => n.id === MOCK_SHARE_IDS.root);
+    expect(moved?.parentId).toBe("00000000-0000-4000-8000-000000000009");
+  });
+
+  it("refuses to delete a folder that holds a share, then allows it once unsubscribed", async () => {
+    const ipc = createMockIpc({ shares: true });
+    const production = "00000000-0000-4000-8000-000000000009";
+    await ipc.docMoveNode(MOCK_SHARE_IDS.root, production);
+    const error = await ipc.docDeleteNode(production).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "conflict", message: "share.deleteContainsShares" });
+    await ipc.shareUnsubscribe(MOCK_SHARE_IDS.link);
+    await ipc.docDeleteNode(production);
+    const view = await ipc.docGet();
+    expect(view.shares).toEqual([]);
+    expect(view.nodes.some((n) => n.id === MOCK_SHARE_IDS.root)).toBe(false);
+  });
+
+  it("confirms the targets only for the revision the user saw", async () => {
+    const ipc = createMockIpc({ shares: true });
+    expect(await codeOf(ipc.shareConfirmTargets(MOCK_SHARE_IDS.link, 1))).toBe("conflict");
+    expect((await ipc.docGet()).shares[0]?.pendingTargets).toBe(1);
+    await ipc.shareConfirmTargets(MOCK_SHARE_IDS.link, 3);
+    expect((await ipc.docGet()).shares[0]?.pendingTargets).toBe(0);
+  });
+
+  it("emits shares-changed to subscribers", () => {
+    const ipc = createMockIpc();
+    const handler = vi.fn();
+    const off = ipc.onSharesChanged(handler);
+    ipc.simulate.sharesChanged();
+    off();
+    ipc.simulate.sharesChanged();
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });

@@ -33,6 +33,11 @@ pub enum ErrorCode {
     /// Quick unlock has no key held (never unlocked with the password in this run, turned off,
     /// or the password changed). Additive.
     QuickUnlockNotReady,
+    /// The item belongs to a shared folder and cannot be changed here. Additive.
+    ReadOnly,
+    /// The request clashes with the current state (a share already subscribed, an identity
+    /// that exists, a folder that still holds shared folders). Additive.
+    Conflict,
 }
 
 impl ErrorCode {
@@ -53,6 +58,8 @@ impl ErrorCode {
             Self::QuickUnlockCancelled => "quick_unlock_cancelled",
             Self::QuickUnlockFailed => "quick_unlock_failed",
             Self::QuickUnlockNotReady => "quick_unlock_not_ready",
+            Self::ReadOnly => "read_only",
+            Self::Conflict => "conflict",
         }
     }
 }
@@ -177,6 +184,8 @@ mod tests {
             ErrorCode::QuickUnlockCancelled,
             ErrorCode::QuickUnlockFailed,
             ErrorCode::QuickUnlockNotReady,
+            ErrorCode::ReadOnly,
+            ErrorCode::Conflict,
         ] {
             let json = serde_json::to_value(code).expect("serialize");
             assert_eq!(json, serde_json::Value::String(code.as_str().to_owned()));

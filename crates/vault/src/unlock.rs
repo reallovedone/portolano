@@ -7,6 +7,7 @@
 
 use argon2::{Algorithm, Argon2, Block, Params, Version};
 use secrecy::{ExposeSecret, SecretBox, SecretString};
+use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use crate::error::VaultError;
@@ -21,7 +22,8 @@ pub const MAX_ITERATIONS: u32 = 16;
 pub const MAX_PARALLELISM: u32 = 8;
 
 /// Argon2id parameters stored in the clear in the file header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct KdfParams {
     /// Memory cost in KiB.
     pub memory_kib: u32,

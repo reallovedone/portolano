@@ -10,6 +10,7 @@ mod quit;
 #[cfg(target_os = "macos")]
 mod quit_macos;
 mod settings;
+mod shares;
 mod state;
 mod update;
 
@@ -138,6 +139,8 @@ pub fn run() {
             ));
             // Vault auto-lock timer (WP3).
             commands::vault::spawn_auto_lock(app.handle().clone());
+            // Shared folders: sync at start-up, then every 15 minutes. Never blocks `setup`.
+            app.state::<AppState>().shares.spawn_periodic();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -200,6 +203,19 @@ pub fn run() {
             commands::update::release_notes,
             commands::update::update_open_release_page,
             commands::update::update_open_changelog,
+            // Shares
+            commands::shares::identity_get,
+            commands::shares::identity_create,
+            commands::shares::identity_export,
+            commands::shares::identity_import,
+            commands::shares::share_publish,
+            commands::shares::share_republish,
+            commands::shares::share_preview,
+            commands::shares::share_subscribe,
+            commands::shares::share_sync,
+            commands::shares::share_unsubscribe,
+            commands::shares::share_set_credential,
+            commands::shares::share_confirm_targets,
             quit::quit_reply,
             // Not in the contract table: UI-to-backend log line.
             commands::ui_log,
@@ -238,6 +254,7 @@ pub fn run() {
             }
             RunEvent::Exit => {
                 if let Some(state) = handle.try_state::<AppState>() {
+                    state.shares.shutdown();
                     state.sessions.close_all();
                     commands::vault::lock_on_exit(&state);
                 }
@@ -425,6 +442,18 @@ mod tests {
             "update_open_release_page",
             "update_open_changelog",
             "quit_reply",
+            "identity_get",
+            "identity_create",
+            "identity_export",
+            "identity_import",
+            "share_publish",
+            "share_republish",
+            "share_preview",
+            "share_subscribe",
+            "share_sync",
+            "share_unsubscribe",
+            "share_set_credential",
+            "share_confirm_targets",
         ];
         let source = include_str!("lib.rs");
         let handler = source

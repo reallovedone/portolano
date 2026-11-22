@@ -3,12 +3,14 @@ import type {
   Bounds,
   CredentialAnswer,
   CredentialInput,
+  CredentialRef,
   CredentialSaveFailed,
   CredentialSummary,
-  Document,
+  DocumentView,
   ExportFormat,
   FbEvent,
   ImportFormat,
+  IdentitySummary,
   ImportPreview,
   KnownHostEntry,
   Node,
@@ -16,6 +18,9 @@ import type {
   QuickUnlockInfo,
   QuitReply,
   RevealedSecret,
+  ShareLocation,
+  SharePreview,
+  ShareSummary,
   SessionId,
   TermEvent,
   UpdateCheck,
@@ -34,7 +39,8 @@ import type {
  */
 export interface Ipc {
   // document
-  docGet(): Promise<Document>;
+  /** The document with the shared folders mounted (read-only nodes listed in `remoteNodes`). */
+  docGet(): Promise<DocumentView>;
   docUpsertNode(node: Node): Promise<Node>;
   docDeleteNode(id: Uuid): Promise<void>;
   docMoveNode(id: Uuid, newParentId: Uuid | null): Promise<void>;
@@ -53,6 +59,31 @@ export interface Ipc {
   ): Promise<void>;
   /** Removes the manual order of the children of `parentId` (null = root). */
   nodeSortByName(parentId: Uuid | null): Promise<void>;
+
+  // signing identity and shared folders
+  identityGet(): Promise<IdentitySummary | null>;
+  identityCreate(name: string): Promise<IdentitySummary>;
+  identityExport(path: string, password: string): Promise<void>;
+  identityImport(path: string, password: string): Promise<IdentitySummary>;
+  /** Publishes a local folder as a share file at `path` (needs the unlocked vault). */
+  sharePublish(folderId: Uuid, path: string): Promise<ShareSummary>;
+  /** Writes a new revision of a share this installation owns. */
+  shareRepublish(linkId: Uuid): Promise<ShareSummary>;
+  /** Reads and verifies a share file (path or https address); nothing is mounted yet. */
+  sharePreview(location: ShareLocation): Promise<SharePreview>;
+  /** Mounts the previewed share under `parentId` (null = top level). */
+  shareSubscribe(previewId: Uuid, parentId: Uuid | null): Promise<ShareSummary>;
+  /** Syncs one share, or every share when `linkId` is null. */
+  shareSync(linkId: Uuid | null): Promise<ShareSummary[]>;
+  /** Removes the mounted copy; the share file is not touched. */
+  shareUnsubscribe(linkId: Uuid): Promise<void>;
+  /** Credential of a node of a shared folder (stored on this machine only). */
+  shareSetCredential(nodeId: Uuid, credential: CredentialRef): Promise<void>;
+  /**
+   * Accepts the new or changed connection targets of a share. `revision` is the one the user
+   * saw; `conflict` when the share moved on since.
+   */
+  shareConfirmTargets(linkId: Uuid, revision: number): Promise<void>;
 
   // vault
   vaultStatus(): Promise<VaultStatus>;
@@ -215,6 +246,8 @@ export interface Ipc {
   // backend notices (events, not commands). Each returns the function that unsubscribes.
   /** The vault locked itself (inactivity) or was locked: update the state at once. */
   onVaultLocked(handler: () => void): () => void;
+  /** The shared folders changed on their own (a sync): reload the document. */
+  onSharesChanged(handler: () => void): () => void;
   /** macOS menu bar: "Check for Updates…" was chosen (the event never fires elsewhere). */
   onCheckForUpdatesMenu(handler: () => void): () => void;
   /**
@@ -224,6 +257,8 @@ export interface Ipc {
   onQuitRequested(handler: () => void): () => void;
   /** macOS menu bar: "Settings…" (⌘,) was chosen (the event never fires elsewhere). */
   onSettingsMenu(handler: () => void): () => void;
+  /** macOS menu bar: "Add Remote Folder…" was chosen. */
+  onAddRemoteFolderMenu(handler: () => void): () => void;
   /** macOS menu bar: Help → "Release Notes…" was chosen (the event never fires elsewhere). */
   onReleaseNotesMenu(handler: () => void): () => void;
   /** macOS menu bar: "Close Tab" (⌘W) was chosen; the active tab is to be closed. */

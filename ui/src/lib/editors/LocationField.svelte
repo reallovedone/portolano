@@ -2,7 +2,7 @@
 <script lang="ts">
   import { t } from "../i18n/strings";
   import type { Node, Uuid } from "../ipc";
-  import { folderOptions } from "../tree/model";
+  import { folderOptions, type RemoteMap } from "../tree/model";
   import FormRow from "../ui/FormRow.svelte";
   import TreeSelect, { type TreeSelectOption } from "../ui/TreeSelect.svelte";
 
@@ -10,17 +10,20 @@
     value = $bindable(),
     nodes,
     excludeSubtreeOf = null,
+    remote,
     id,
   }: {
     value: Uuid | null;
     nodes: readonly Node[];
     excludeSubtreeOf?: Uuid | null;
+    /** Shared nodes: their folders are not offered. */
+    remote?: RemoteMap;
     id: string;
   } = $props();
 
   const options = $derived<TreeSelectOption[]>([
     { value: "", label: t("tree.moveToRoot"), icon: null },
-    ...folderOptions(nodes, excludeSubtreeOf).map((option) => ({
+    ...folderOptions(nodes, excludeSubtreeOf, remote).map((option) => ({
       value: option.id,
       label: option.name,
       depth: option.depth,

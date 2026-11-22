@@ -27,7 +27,11 @@ export type ErrorCode =
   /** The biometric check failed or quick unlock could not open the vault: use the password. */
   | "quick_unlock_failed"
   /** Quick unlock holds no key (unlock with the password first). */
-  | "quick_unlock_not_ready";
+  | "quick_unlock_not_ready"
+  /** The item belongs to a shared folder and cannot be changed here. */
+  | "read_only"
+  /** The request clashes with the current state (already subscribed, identity exists, ...). */
+  | "conflict";
 
 export interface AppError {
   code: ErrorCode;
@@ -40,6 +44,81 @@ export interface Document {
   schemaVersion: number;
   nodes: Node[];
 }
+
+/** What `doc_get` returns: the document with the shared folders mounted, plus what they are. */
+export interface DocumentView extends Document {
+  shares: ShareSummary[];
+  /** Nodes that belong to a shared folder (read-only), by id. */
+  remoteNodes: Record<Uuid, RemoteNodeInfo>;
+}
+
+export interface RemoteNodeInfo {
+  linkId: Uuid;
+  /** The mount root (the only remote node that can be moved, to another local folder). */
+  isRoot: boolean;
+}
+
+export type ShareRole = "subscriber" | "owner";
+
+export type ShareLocation = { type: "path"; value: string } | { type: "url"; value: string };
+
+export interface ShareSummary {
+  /** The link id (not the share id). */
+  id: Uuid;
+  name: string;
+  role: ShareRole;
+  /** The mounted root (subscriber) or the published folder (owner). */
+  rootNodeId: Uuid | null;
+  ownerName: string;
+  fingerprint: string;
+  revision: number;
+  signerName: string | null;
+  publishedAt: string | null;
+  lastSync: string | null;
+  lastError: string | null;
+  /** Connections whose target is new or changed and not confirmed yet. */
+  pendingTargets: number;
+  /** Those connections, one entry each: what the user is asked to confirm. */
+  pendingHosts: PendingHost[];
+  location: ShareLocation | null;
+  publishPath: string | null;
+}
+
+/** A connection of a shared folder whose host is new or changed and not confirmed yet. */
+export interface PendingHost {
+  nodeId: Uuid;
+  name: string;
+  /** `ssh`, `rdp`, `vnc`, `web`, or `local`. */
+  protocol: string;
+  host: string;
+  port: number | null;
+  username: string | null;
+}
+
+export interface SharePreview {
+  previewId: Uuid;
+  name: string;
+  ownerName: string;
+  fingerprint: string;
+  revision: number;
+  folders: number;
+  connections: number;
+  /** Names of the connections that were left out. */
+  skipped: string[];
+  /** Every connection of the share with its target; subscribing confirms all of them. */
+  hosts: PendingHost[];
+}
+
+export interface IdentitySummary {
+  id: Uuid;
+  name: string;
+  fingerprint: string;
+  /** What the user sends to others (public name and key only). */
+  publicCode: string;
+}
+
+/** Message key of the `conflict` raised when a folder that holds shared folders is deleted. */
+export const DELETE_CONTAINS_SHARES = "share.deleteContainsShares";
 
 export type Node = ({ type: "folder" } & Folder) | ({ type: "connection" } & Connection);
 

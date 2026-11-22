@@ -40,19 +40,7 @@ const AUTO_LOCK_TICK: Duration = Duration::from_secs(5);
 /// (the key and every secret are zeroised, the user unlocks again from the file) and the
 /// poison is cleared, so the vault stays usable and, above all, lockable.
 fn lock_vault(state: &AppState) -> Result<MutexGuard<'_, Vault>, AppError> {
-    match state.vault.lock() {
-        Ok(guard) => Ok(guard),
-        Err(poison) => {
-            let mut guard = poison.into_inner();
-            tracing::error!("vault state was poisoned; locking the vault");
-            if let Err(e) = guard.lock() {
-                tracing::error!(error = %e, "could not lock a poisoned vault");
-                return Err(AppError::from(e));
-            }
-            state.vault.clear_poison();
-            Ok(guard)
-        }
-    }
+    crate::state::lock_vault_mutex(&state.vault)
 }
 
 /// Runs `op` on the blocking pool with the vault mutex held.
@@ -175,17 +163,22 @@ pub async fn vault_delete(app: AppHandle, id: Uuid) -> Result<(), AppError> {
 }
 
 fn clear_references(state: &AppState, id: Uuid) -> Result<(), AppError> {
-    with_store(state, |store| Ok(store.clear_credential_references(id)?))
-        .map(|_| ())
-        .map_err(|e| {
-            AppError::new(
-                e.code,
-                format!(
-                    "The credential was deleted, but connections that used it could not be updated: {}",
-                    e.message
-                ),
-            )
-        })
+    with_store(state, |store| {
+        store.clear_credential_references(id)?;
+        // Local choices for shared connections that pointed at it go too.
+        state.shares.forget_credential(store, id)?;
+        Ok(())
+    })
+    .map(|_| ())
+    .map_err(|e| {
+        AppError::new(
+            e.code,
+            format!(
+                "The credential was deleted, but connections that used it could not be updated: {}",
+                e.message
+            ),
+        )
+    })
 }
 
 /// The only command that returns secret material, and only on an explicit user action.

@@ -78,6 +78,18 @@ const EXPECTED_COMMANDS = [
   "menu_set_session_keys",
   "clipboard_read_text",
   "ui_log",
+  "identity_get",
+  "identity_create",
+  "identity_export",
+  "identity_import",
+  "share_publish",
+  "share_republish",
+  "share_preview",
+  "share_subscribe",
+  "share_sync",
+  "share_unsubscribe",
+  "share_set_credential",
+  "share_confirm_targets",
 ];
 
 const noop = () => undefined;
@@ -159,6 +171,18 @@ describe("tauriIpc", () => {
       () => tauriIpc.menuSetSessionKeys(true),
       () => tauriIpc.clipboardReadText(),
       () => tauriIpc.uiLog("info", "m"),
+      () => tauriIpc.identityGet(),
+      () => tauriIpc.identityCreate("Ada"),
+      () => tauriIpc.identityExport("/p", "pw"),
+      () => tauriIpc.identityImport("/p", "pw"),
+      () => tauriIpc.sharePublish("f", "/p"),
+      () => tauriIpc.shareRepublish("l"),
+      () => tauriIpc.sharePreview({ type: "path", value: "/p" }),
+      () => tauriIpc.shareSubscribe("p", null),
+      () => tauriIpc.shareSync(null),
+      () => tauriIpc.shareUnsubscribe("l"),
+      () => tauriIpc.shareSetCredential("n", { type: "none" }),
+      () => tauriIpc.shareConfirmTargets("l", 3),
     ];
     for (const run of calls) await run();
     const used = invokeMock.mock.calls.map((c) => c[0] as string);
@@ -166,6 +190,73 @@ describe("tauriIpc", () => {
     // Every command method of the interface is covered by one of the calls above (the `on…`
     // methods subscribe to events and are not commands).
     expect(Object.keys(tauriIpc).filter((name) => !name.startsWith("on")).length).toBe(calls.length);
+  });
+
+  it("tauri_maps_share_commands_and_read_only_error", async () => {
+    await tauriIpc.sharePreview({ type: "url", value: "https://x.example/s" });
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "share_preview",
+      { location: { type: "url", value: "https://x.example/s" } },
+      undefined,
+    );
+    await tauriIpc.shareSubscribe("p", "f");
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "share_subscribe",
+      { previewId: "p", parentId: "f" },
+      undefined,
+    );
+    await tauriIpc.shareSync(null);
+    expect(invokeMock).toHaveBeenLastCalledWith("share_sync", { linkId: null }, undefined);
+    await tauriIpc.shareSetCredential("n", { type: "id", id: "c" });
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "share_set_credential",
+      { nodeId: "n", credential: { type: "id", id: "c" } },
+      undefined,
+    );
+    // The revision the user saw travels with the confirmation.
+    await tauriIpc.shareConfirmTargets("l", 7);
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "share_confirm_targets",
+      { linkId: "l", revision: 7 },
+      undefined,
+    );
+    await tauriIpc.identityGet();
+    expect(invokeMock).toHaveBeenLastCalledWith("identity_get", undefined, undefined);
+    await tauriIpc.identityCreate("Ada");
+    expect(invokeMock).toHaveBeenLastCalledWith("identity_create", { name: "Ada" }, undefined);
+    await tauriIpc.identityExport("/tmp/id.bak", "pw");
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "identity_export",
+      { path: "/tmp/id.bak", password: "pw" },
+      undefined,
+    );
+    await tauriIpc.identityImport("/tmp/id.bak", "pw");
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "identity_import",
+      { path: "/tmp/id.bak", password: "pw" },
+      undefined,
+    );
+    await tauriIpc.sharePublish("f", "/tmp/s.json");
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "share_publish",
+      { folderId: "f", path: "/tmp/s.json" },
+      undefined,
+    );
+    await tauriIpc.shareRepublish("l");
+    expect(invokeMock).toHaveBeenLastCalledWith("share_republish", { linkId: "l" }, undefined);
+    // Errors of a share command keep their code.
+    for (const code of ["read_only", "conflict"]) {
+      invokeMock.mockRejectedValueOnce({ code, message: "m" });
+      const error = await tauriIpc.shareSubscribe("p", "f").catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(IpcError);
+      expect((error as IpcError).code).toBe(code);
+      invokeMock.mockRejectedValueOnce({ code, message: "m" });
+      const stale = await tauriIpc.shareConfirmTargets("l", 1).catch((e: unknown) => e);
+      expect((stale as IpcError).code).toBe(code);
+      invokeMock.mockRejectedValueOnce({ code, message: "m" });
+      const doc = await tauriIpc.docDeleteNode("n").catch((e: unknown) => e);
+      expect((doc as IpcError).code).toBe(code);
+    }
   });
 
   it("sends the update arguments with camelCase names and streams progress", async () => {
@@ -299,7 +390,9 @@ describe("tauriIpc", () => {
     const stopSettings = fresh.onSettingsMenu(settings);
     const releaseNotes = vi.fn();
     const stopReleaseNotes = fresh.onReleaseNotesMenu(releaseNotes);
-    await vi.waitFor(() => expect(listenMock).toHaveBeenCalledTimes(7));
+    const sharesChanged = vi.fn();
+    const stopShares = fresh.onSharesChanged(sharesChanged);
+    await vi.waitFor(() => expect(listenMock).toHaveBeenCalledTimes(8));
     expect(listenMock.mock.calls.map((c) => c[0])).toEqual([
       "vault-locked",
       "credential-save-failed",
@@ -308,7 +401,10 @@ describe("tauriIpc", () => {
       "menu-close-tab",
       "menu-settings",
       "menu-release-notes",
+      "shares-changed",
     ]);
+    listenMock.mock.calls[7]?.[1]({ payload: null });
+    expect(sharesChanged).toHaveBeenCalledTimes(1);
     listenMock.mock.calls[6]?.[1]({ payload: null });
     expect(releaseNotes).toHaveBeenCalledTimes(1);
     listenMock.mock.calls[5]?.[1]({ payload: null });
@@ -333,7 +429,8 @@ describe("tauriIpc", () => {
     stopCloseTab();
     stopSettings();
     stopReleaseNotes();
-    expect(off).toHaveBeenCalledTimes(7);
+    stopShares();
+    expect(off).toHaveBeenCalledTimes(8);
     vi.doUnmock("@tauri-apps/api/event");
   });
 
