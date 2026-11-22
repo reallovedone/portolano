@@ -63,8 +63,8 @@ describe("tab sizing", () => {
     expect(rule(".tabs")).toContain("min-width: 0");
   });
 
-  it("defines the 96 px minimum and the 200 px maximum", () => {
-    expect(tokens).toMatch(/--tab-min-width:\s*96px/);
-    expect(tokens).toMatch(/--tab-max-width:\s*200px/);
+  it("defines the 112 px minimum and the 240 px maximum", () => {
+    expect(tokens).toMatch(/--tab-min-width:\s*112px/);
+    expect(tokens).toMatch(/--tab-max-width:\s*240px/);
   });
 });

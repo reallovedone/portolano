@@ -159,6 +159,7 @@ export const tauriIpc: Ipc = {
 
   updateSettings: () => call("update_settings"),
   updateSetAutoCheck: (enabled) => call("update_set_auto_check", { enabled }),
+  updateSetIncludePrereleases: (enabled) => call("update_set_include_prereleases", { enabled }),
   updateCheck: (manual) => call("update_check", { manual }),
   updateSkip: (version) => call("update_skip", { version }),
   updateInstall: (onEvent) => {

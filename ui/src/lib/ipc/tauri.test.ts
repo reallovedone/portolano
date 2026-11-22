@@ -67,6 +67,7 @@ const EXPECTED_COMMANDS = [
   "appearance_set",
   "update_settings",
   "update_set_auto_check",
+  "update_set_include_prereleases",
   "update_check",
   "update_skip",
   "update_install",
@@ -160,6 +161,7 @@ describe("tauriIpc", () => {
         tauriIpc.appearanceSet({ theme: "dark", scheme: "nord", accent: "teal", density: "compact", terminalFontSize: 16 }),
       () => tauriIpc.updateSettings(),
       () => tauriIpc.updateSetAutoCheck(false),
+      () => tauriIpc.updateSetIncludePrereleases(true),
       () => tauriIpc.updateCheck(true),
       () => tauriIpc.updateSkip("0.2.0"),
       () => tauriIpc.updateInstall(noop),
@@ -266,6 +268,12 @@ describe("tauriIpc", () => {
     expect(invokeMock).toHaveBeenLastCalledWith(
       "update_set_auto_check",
       { enabled: false },
+      undefined,
+    );
+    await tauriIpc.updateSetIncludePrereleases(true);
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "update_set_include_prereleases",
+      { enabled: true },
       undefined,
     );
     const events: unknown[] = [];

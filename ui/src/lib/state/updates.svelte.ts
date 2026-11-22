@@ -69,6 +69,11 @@ export class UpdateStore {
     return this.settings?.autoCheck ?? true;
   }
 
+  /** "Include pre-releases" on? Off until the backend says otherwise. */
+  get includePrereleases(): boolean {
+    return this.settings?.includePrereleases ?? false;
+  }
+
   get installing(): boolean {
     const phase = this.install?.phase;
     return phase === "downloading" || phase === "installing" || phase === "restarting";
@@ -128,12 +133,29 @@ export class UpdateStore {
       await this.#ipc.updateSetAutoCheck(enabled);
       this.settings = {
         autoCheck: enabled,
+        includePrereleases: this.includePrereleases,
         currentVersion: this.settings?.currentVersion ?? "",
       };
       if (!enabled) this.freshness = "unknown";
       return true;
     } catch (e) {
       this.#notices.error(t("update.autoFailed"), e);
+      return false;
+    }
+  }
+
+  /** Turns "Include pre-releases" on or off. Resolves `false` (and tells the user) on failure. */
+  async setIncludePrereleases(enabled: boolean): Promise<boolean> {
+    try {
+      await this.#ipc.updateSetIncludePrereleases(enabled);
+      this.settings = {
+        autoCheck: this.autoCheck,
+        includePrereleases: enabled,
+        currentVersion: this.settings?.currentVersion ?? "",
+      };
+      return true;
+    } catch (e) {
+      this.#notices.error(t("update.prereleasesFailed"), e);
       return false;
     }
   }

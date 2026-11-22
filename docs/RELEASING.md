@@ -194,6 +194,15 @@ ignores pre-releases, so testers point the app at the candidate's own `latest.js
 4. Use *Check for updates…*, accept the update, and confirm that the app restarts as rc2 and
    shows the "What's new" dialog.
 
+**The easy way for testers.** *Settings → Updates → Include pre-releases* (the
+`includePrereleases` setting, off by default) makes the update check look up the newest
+published release, pre-releases included, through the GitHub releases API
+(`api.github.com/repos/reallovedone/portolano/releases`) and read the `latest.json` of that
+release. The endpoint is built from the validated tag (`vX.Y.Z[-pre]`; drafts and other tags are
+ignored); if the lookup fails the app falls back to the normal endpoint and logs a warning.
+Signature checks and the no-downgrade rule are unchanged. `PORTOLANO_UPDATER_ENDPOINT` still
+takes priority when set, so the procedure above keeps working for pinning an exact candidate.
+
 Do this on both macOS and Windows before the final release.
 
 ### Moving from 0.1.0

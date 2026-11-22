@@ -450,6 +450,8 @@ export const DEFAULT_APPEARANCE: Appearance = {
 export interface UpdateSettings {
   /** "Automatically check for updates". */
   autoCheck: boolean;
+  /** "Include pre-releases": update checks also offer release candidates. */
+  includePrereleases: boolean;
   currentVersion: string;
 }
 

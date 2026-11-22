@@ -27,6 +27,7 @@
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
   import Icon from "../ui/Icon.svelte";
+  import Switch from "../ui/Switch.svelte";
   import IdentitySection from "../shares/IdentitySection.svelte";
   import ChoiceGroup from "./ChoiceGroup.svelte";
 
@@ -47,12 +48,29 @@
 
   const uid = $props.id();
   const headingId = `settings-appearance-${uid}`;
+  const updatesHeadingId = `settings-updates-${uid}`;
   const sizeHintId = `settings-size-hint-${uid}`;
 
   function chooseSize(event: Event & { currentTarget: HTMLInputElement }): void {
     const next = Number(event.currentTarget.value);
     dragging = null;
     void appearance.update({ terminalFontSize: next });
+  }
+
+  // The switches edit the stored settings; a failed save puts the switch back.
+  let auto = $state(updates.autoCheck);
+  let prereleases = $state(updates.includePrereleases);
+  $effect(() => {
+    auto = updates.autoCheck;
+    prereleases = updates.includePrereleases;
+  });
+
+  async function toggleAuto(): Promise<void> {
+    if (!(await updates.setAutoCheck(auto))) auto = updates.autoCheck;
+  }
+
+  async function togglePrereleases(): Promise<void> {
+    if (!(await updates.setIncludePrereleases(prereleases))) prereleases = updates.includePrereleases;
   }
 </script>
 
@@ -179,11 +197,29 @@
 
   <IdentitySection />
 
-  <section class="about" aria-label={t("settings.about")} data-testid="settings-about">
-    {#if updates.settings?.currentVersion}
-      <span class="version">{t("update.currentVersion", { version: updates.settings.currentVersion })}</span>
-    {/if}
-    <Button size="compact" onclick={() => ui.open({ type: "releaseNotes" })}>{t("settings.releaseNotes")}</Button>
+  <section class="page updates" aria-labelledby={updatesHeadingId} data-testid="settings-updates">
+    <header class="page-head">
+      <h3 id={updatesHeadingId}>{t("settings.updates")}</h3>
+      <p>{t("settings.updatesHint")}</p>
+    </header>
+
+    <Switch label={t("update.auto")} hint={t("update.autoHint")} bind:checked={auto} onchange={() => void toggleAuto()} />
+    <Switch
+      label={t("update.prereleases")}
+      hint={t("update.prereleasesHint")}
+      bind:checked={prereleases}
+      onchange={() => void togglePrereleases()}
+    />
+
+    <div class="about">
+      {#if updates.settings?.currentVersion}
+        <span class="version">{t("update.currentVersion", { version: updates.settings.currentVersion })}</span>
+      {/if}
+      <span class="actions">
+        <Button size="compact" onclick={() => ui.open({ type: "releaseNotes" })}>{t("settings.releaseNotes")}</Button>
+        <Button size="compact" onclick={() => ui.open({ type: "updates" })}>{t("update.menu")}</Button>
+      </span>
+    </div>
   </section>
 
   {#snippet footer()}
@@ -215,15 +251,27 @@
     font-size: var(--font-size-sm);
   }
 
-  /* The app version and the way to its release notes, under the last group. */
+  /* Updates: the two switches, then the version with the ways to its notes and to a check. */
+  .updates {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-hairline);
+  }
+  .updates .page-head {
+    margin-bottom: 0;
+  }
+  .actions {
+    display: flex;
+    gap: var(--space-2);
+  }
   .about {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
-    margin-top: var(--space-4);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-hairline);
   }
   .version {
     color: var(--text-secondary);

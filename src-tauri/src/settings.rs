@@ -196,6 +196,8 @@ where
 pub struct Settings {
     /// "Automatically check for updates". On by default.
     pub auto_check_updates: bool,
+    /// "Include pre-releases": update checks also offer release candidates. Off by default.
+    pub include_prereleases: bool,
     /// The version the user chose to skip: not proposed again by an automatic check.
     pub skipped_version: Option<String>,
     /// The highest version that has run on this machine.
@@ -239,6 +241,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             auto_check_updates: true,
+            include_prereleases: false,
             skipped_version: None,
             last_run_version: None,
             auto_lock_minutes: DEFAULT_AUTO_LOCK_MINUTES,
@@ -350,6 +353,28 @@ mod tests {
         );
         assert_eq!(settings.skipped_version, None);
         assert_eq!(settings.last_run_version, None);
+        assert!(!settings.include_prereleases, "pre-releases are opt-in");
+    }
+
+    #[test]
+    fn a_settings_file_without_include_prereleases_loads_as_off() {
+        let dir = scratch("no-prereleases");
+        std::fs::write(
+            dir.join(FILE_NAME),
+            r#"{"autoCheckUpdates":true,"lastRunVersion":"0.3.1","autoLockMinutes":15}"#,
+        )
+        .expect("write the old file");
+        let store = SettingsStore::load(&dir);
+        assert!(!store.get().expect("get").include_prereleases);
+        store
+            .update(|s| s.include_prereleases = true)
+            .expect("update");
+        assert!(
+            SettingsStore::load(&dir)
+                .get()
+                .expect("get")
+                .include_prereleases
+        );
     }
 
     #[test]
