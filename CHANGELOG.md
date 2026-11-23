@@ -15,6 +15,7 @@ attention when you upgrade.
 ### 🐛 Fixed
 
 - Compact list density no longer squeezes a connection's host against the rows around it, the *System* theme preview in Settings is as tall as *Light* and *Dark*, and only one separator line sits above *Updates* in Settings.
+- Saving files copied on a remote desktop no longer leaves the progress notice stuck at 0 after small files have already been saved.
 
 ## [0.4.0] - 2026-11-22
 
