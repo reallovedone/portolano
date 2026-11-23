@@ -1,5 +1,5 @@
 // Quick unlock in the UI: the biometric button/auto attempt in the unlock dialog and the switch
-// in the Security section.
+// in the Security section of Settings.
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -200,22 +200,54 @@ describe("unlock dialog races", () => {
   });
 });
 
-describe("Security: quick unlock switch", () => {
+async function openSettingsWith(mock: ReturnType<typeof createMockIpc>) {
+  const app = createApp(mock);
+  render(App, { props: { app, demo: false } });
+  await waitFor(() => expect(app.doc.status).toBe("ready"));
+  app.ui.open({ type: "settings" });
+  const dialog = await screen.findByRole("dialog", { name: "Settings" });
+  return { app, dialog };
+}
+
+describe("Settings: quick unlock switch", () => {
   async function openSecurity(options: MockOptions = {}) {
     const mock = createMockIpc({ vault: "unlocked", ...options });
+    const { dialog } = await openSettingsWith(mock);
+    return { mock, dialog };
+  }
+
+  it("is no longer in the credentials window", async () => {
+    const mock = createMockIpc({ vault: "unlocked" });
     const app = createApp(mock);
     render(App, { props: { app, demo: false } });
     await waitFor(() => expect(app.vault.status).toBe("unlocked"));
     await fireEvent.click(screen.getByRole("button", { name: "Credentials…" }));
     const dialog = await screen.findByRole("dialog", { name: "Credentials" });
-    await within(dialog).findByRole("combobox", { name: "Lock the vault after inactivity" });
-    return { mock, dialog };
-  }
+    await within(dialog).findByRole("button", { name: "Add credential" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(within(dialog).queryByRole("switch")).toBeNull();
+    expect(within(dialog).queryByRole("combobox")).toBeNull();
+  });
 
   it("is absent when quick unlock is not available", async () => {
     const { dialog } = await openSecurity({ quickUnlockAvailable: false });
     await new Promise((r) => setTimeout(r, 20));
-    expect(within(dialog).queryByRole("switch")).toBeNull();
+    expect(within(dialog).queryByRole("switch", { name: "Unlock with Touch ID" })).toBeNull();
+  });
+
+  it("is absent while the vault is locked, and opening Settings does not ask to unlock", async () => {
+    const mock = createMockIpc({ vault: "locked" });
+    const { app, dialog } = await openSettingsWith(mock);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(app.vault.status).toBe("locked");
+    expect(screen.queryByRole("dialog", { name: "Unlock the vault" })).toBeNull();
+    expect(within(dialog).queryByRole("switch", { name: "Unlock with Touch ID" })).toBeNull();
+  });
+
+  it("is absent when there is no vault", async () => {
+    const { dialog } = await openSettingsWith(createMockIpc({ vault: "notCreated" }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(within(dialog).queryByRole("switch", { name: "Unlock with Touch ID" })).toBeNull();
   });
 
   it("turning it on says it works from the next password unlock", async () => {
@@ -235,11 +267,7 @@ describe("Security: quick unlock switch", () => {
   it("shows the hint when enabled but not ready, on reopening", async () => {
     const mock = createMockIpc({ vault: "unlocked" });
     await mock.vaultSetQuickUnlock(true);
-    const app = createApp(mock);
-    render(App, { props: { app, demo: false } });
-    await waitFor(() => expect(app.vault.status).toBe("unlocked"));
-    await fireEvent.click(screen.getByRole("button", { name: "Credentials…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Credentials" });
+    const { dialog } = await openSettingsWith(mock);
     expect(
       await within(dialog).findByText(/from the next time you unlock with the master password/),
     ).toBeTruthy();
@@ -250,7 +278,9 @@ describe("Security: quick unlock switch", () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => (release = r));
     mock.vaultSetQuickUnlock = async () => gate;
-    const sw = (await within(dialog).findByRole("switch")) as HTMLInputElement;
+    const sw = (await within(dialog).findByRole("switch", {
+      name: "Unlock with Touch ID",
+    })) as HTMLInputElement;
     await fireEvent.click(sw);
     await waitFor(() => expect(sw.disabled).toBe(true));
     release();
@@ -262,22 +292,17 @@ describe("Security: quick unlock switch", () => {
     mock.vaultQuickUnlockInfo = async () => {
       throw new (await import("../ipc")).IpcError("io", "boom");
     };
-    const app = createApp(mock);
-    render(App, { props: { app, demo: false } });
-    await waitFor(() => expect(app.vault.status).toBe("unlocked"));
-    await fireEvent.click(screen.getByRole("button", { name: "Credentials…" }));
+    await openSettingsWith(mock);
     expect(await screen.findByText("Quick unlock status could not be read")).toBeTruthy();
   });
 
   it("turning it off takes effect at once", async () => {
     const mock = createMockIpc({ vault: "unlocked" });
     await mock.vaultSetQuickUnlock(true);
-    const app = createApp(mock);
-    render(App, { props: { app, demo: false } });
-    await waitFor(() => expect(app.vault.status).toBe("unlocked"));
-    await fireEvent.click(screen.getByRole("button", { name: "Credentials…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Credentials" });
-    const sw = (await within(dialog).findByRole("switch")) as HTMLInputElement;
+    const { dialog } = await openSettingsWith(mock);
+    const sw = (await within(dialog).findByRole("switch", {
+      name: "Unlock with Touch ID",
+    })) as HTMLInputElement;
     await waitFor(() => expect(sw.checked).toBe(true));
     await fireEvent.click(sw);
     await waitFor(() => expect(sw.checked).toBe(false));
@@ -289,7 +314,9 @@ describe("Security: quick unlock switch", () => {
     mock.vaultSetQuickUnlock = async () => {
       throw new (await import("../ipc")).IpcError("io", "disk full");
     };
-    const sw = (await within(dialog).findByRole("switch")) as HTMLInputElement;
+    const sw = (await within(dialog).findByRole("switch", {
+      name: "Unlock with Touch ID",
+    })) as HTMLInputElement;
     await fireEvent.click(sw);
     expect(await screen.findByText("Quick unlock could not be changed")).toBeTruthy();
     await waitFor(() => expect(sw.checked).toBe(false));

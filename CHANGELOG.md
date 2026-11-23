@@ -7,8 +7,14 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### 🔄 Changed
+
+- The credentials window is easier to use with many credentials: search, a filter by type, a count, and how many connections use each one; edit and delete moved into a ⋯ menu on each row.
+- The vault *auto-lock* time and the *Unlock with Touch ID* / *Windows Hello* option moved from the credentials window to a new *Security* section in Settings.
+
 ### 🐛 Fixed
 
+- Compact list density no longer squeezes a connection's host against the rows around it, the *System* theme preview in Settings is as tall as *Light* and *Dark*, and only one separator line sits above *Updates* in Settings.
 - Shared folders: a web connection is listed by its address only, a shared folder that no longer exists disappears from the list after you unsubscribe, and deleting a folder that still holds shared folders explains why it asked again.
 
 ## [0.4.0] - 2026-11-22

@@ -989,7 +989,8 @@ mod tests {
         assert_eq!(rfc3339_utc(t(0)), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339_utc(t(1_709_208_000)), "2024-02-29T12:00:00Z");
         assert_eq!(rfc3339_utc(t(1_795_167_000)), "2026-11-20T09:30:00Z");
-        // A clock far in the future still gives a four-digit year.
-        assert_eq!(rfc3339_utc(t(u64::MAX / 2)), "9999-12-31T23:59:59Z");
+        // A clock far in the future (year ~17800, still within Windows' `SystemTime` range)
+        // still gives a four-digit year.
+        assert_eq!(rfc3339_utc(t(500_000_000_000)), "9999-12-31T23:59:59Z");
     }
 }
