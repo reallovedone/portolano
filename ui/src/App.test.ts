@@ -934,7 +934,8 @@ describe("vault UI", () => {
 
       // edit without retyping the secret
       const item = within(dialog).getByText("New one").closest("li") as HTMLElement;
-      await fireEvent.click(within(item).getByRole("button", { name: "Edit" }));
+      await fireEvent.click(within(item).getByRole("button", { name: /^Actions for / }));
+      await fireEvent.click(await screen.findByRole("menuitem", { name: "Edit…" }));
       const edit = await screen.findByRole("dialog", { name: "Edit credential" });
       expect(
         (within(edit).getByLabelText("Password", { selector: "input[type=password]" }) as HTMLInputElement).value,
@@ -949,7 +950,8 @@ describe("vault UI", () => {
 
       // delete with confirmation
       const renamed = within(dialog).getByText("Renamed one").closest("li") as HTMLElement;
-      await fireEvent.click(within(renamed).getByRole("button", { name: "Delete" }));
+      await fireEvent.click(within(renamed).getByRole("button", { name: /^Actions for / }));
+      await fireEvent.click(await screen.findByRole("menuitem", { name: "Delete…" }));
       const confirm = await screen.findByRole("dialog", { name: "Delete credential" });
       await fireEvent.click(within(confirm).getByRole("button", { name: "Delete" }));
       await waitFor(() => expect(within(dialog).queryByText("Renamed one")).toBeNull());
@@ -974,7 +976,8 @@ describe("vault UI", () => {
     it("changes the master password (wrong current password is reported)", async () => {
       const { app } = await mountApp({ vault: "unlocked" });
       const dialog = await openManager();
-      await fireEvent.click(within(dialog).getByRole("button", { name: "Change master password…" }));
+      await fireEvent.click(within(dialog).getByRole("button", { name: "More actions" }));
+      await fireEvent.click(await screen.findByRole("menuitem", { name: "Change master password…" }));
       const change = await screen.findByRole("dialog", { name: "Change master password" });
 
       await typePassword(change, "Current master password", "wrong");

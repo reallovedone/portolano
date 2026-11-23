@@ -33,6 +33,12 @@ async function openManager(): Promise<HTMLElement> {
   return screen.findByRole("dialog", { name: "Credentials" });
 }
 
+/** Opens the row's ⋯ menu and picks an item (Edit… / Delete…). */
+async function rowAction(item: HTMLElement, action: "Edit…" | "Delete…"): Promise<void> {
+  await fireEvent.click(within(item).getByRole("button", { name: /^Actions for / }));
+  await fireEvent.click(await screen.findByRole("menuitem", { name: action }));
+}
+
 beforeEach(() => {
   const data = new Map<string, string>();
   vi.stubGlobal("localStorage", {
@@ -65,7 +71,7 @@ describe("editing a credential keeps its secret without revealing it", () => {
     }));
     const dialog = await openManager();
     const item = within(dialog).getByText("Lab admin").closest("li") as HTMLElement;
-    await fireEvent.click(within(item).getByRole("button", { name: "Edit" }));
+    await rowAction(item, "Edit…");
     const editor = await screen.findByRole("dialog", { name: "Edit credential" });
     await fireEvent.input(within(editor).getByLabelText("Name"), { target: { value: "Lab root" } });
     await fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
@@ -91,7 +97,7 @@ describe("editing a credential keeps its secret without revealing it", () => {
     }));
     const dialog = await openManager();
     const item = within(dialog).getByText("Lab admin").closest("li") as HTMLElement;
-    await fireEvent.click(within(item).getByRole("button", { name: "Edit" }));
+    await rowAction(item, "Edit…");
     const editor = await screen.findByRole("dialog", { name: "Edit credential" });
     await fireEvent.input(
       within(editor).getByLabelText("Password", { selector: "input[type=password]" }),
@@ -131,7 +137,7 @@ describe("delete confirmations say how many connections are affected", () => {
     }
     const dialog = await openManager();
     const item = within(dialog).getByText("Lab admin").closest("li") as HTMLElement;
-    await fireEvent.click(within(item).getByRole("button", { name: "Delete" }));
+    await rowAction(item, "Delete…");
     const confirm = await screen.findByRole("dialog", { name: "Delete credential" });
     expect(confirm.textContent).toContain("4 items use it directly");
     expect(confirm.textContent).toContain("“Lab”, “Alpha”, “Beta”, and 1 more");
@@ -143,7 +149,7 @@ describe("delete confirmations say how many connections are affected", () => {
     const dialog = await openManager();
     const unused = within(dialog).getByText("Deploy key").closest("li") as HTMLElement;
     // The Dev VM connection uses the deploy key directly: one user.
-    await fireEvent.click(within(unused).getByRole("button", { name: "Delete" }));
+    await rowAction(unused, "Delete…");
     const confirm = await screen.findByRole("dialog", { name: "Delete credential" });
     expect(confirm.textContent).toContain("1 item uses it directly (“Dev VM (VNC)”)");
     await fireEvent.click(within(confirm).getByRole("button", { name: "Delete" }));
@@ -162,7 +168,7 @@ describe("delete confirmations say how many connections are affected", () => {
     });
     await fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
     const spare = await within(dialog).findByText("Spare");
-    await fireEvent.click(within(spare.closest("li") as HTMLElement).getByRole("button", { name: "Delete" }));
+    await rowAction(spare.closest("li") as HTMLElement, "Delete…");
     const second = await screen.findByRole("dialog", { name: "Delete credential" });
     expect(second.textContent).not.toContain("use it directly");
     expect(second.textContent).not.toContain("uses it directly");

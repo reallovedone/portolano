@@ -1,11 +1,11 @@
-<!-- Settings window. One page for now, Appearance, in groups of cards: theme, colour scheme,
-     accent colour, list density and terminal font size. Every choice applies at once (no Save
-     button); a failed save puts the previous look back and says so. Opened from the ⋯ menu and,
+<!-- Settings window. One scrolling page: Appearance (groups of cards: theme, colour scheme,
+     accent colour, list density and terminal font size), then Identity, Security (auto-lock and
+     quick unlock) and Updates. Every choice applies at once (no Save
+     button); a failed save puts the previous value back and says so. Opened from the ⋯ menu and,
      on macOS, "Settings…" (⌘,).
 
-     Why a page and not a sidebar: with one section a sidebar would be a lonely item. Another
-     section (Security, Updates) is one more `<section class="page">` below Appearance; when there
-     are two or three, the sidebar of the layout can be added around the same sections.
+     Each section is a `<section class="page">`; if the page grows further, a sidebar can be
+     added around the same sections.
 
      Each group is a radio group (ChoiceGroup): arrow keys move between options, the pictures
      are decoration, the names come from strings.ts. -->
@@ -24,8 +24,10 @@
     type ThemeChoice,
   } from "../ipc";
   import { getApp } from "../state/app";
+  import { detectMac } from "../shortcuts";
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
+  import Select from "../ui/Select.svelte";
   import Icon from "../ui/Icon.svelte";
   import Switch from "../ui/Switch.svelte";
   import IdentitySection from "../shares/IdentitySection.svelte";
@@ -33,7 +35,7 @@
 
   let { onclose }: { onclose: () => void } = $props();
 
-  const { appearance, ui, updates } = getApp();
+  const { appearance, ui, updates, vault, notices } = getApp();
 
   const options = <T extends string>(values: readonly T[], prefix: string): { value: T; label: string }[] =>
     values.map((value) => ({ value, label: t(`${prefix}.${value}` as StringKey) }));
@@ -48,6 +50,7 @@
 
   const uid = $props.id();
   const headingId = `settings-appearance-${uid}`;
+  const securityHeadingId = `settings-security-${uid}`;
   const updatesHeadingId = `settings-updates-${uid}`;
   const sizeHintId = `settings-size-hint-${uid}`;
 
@@ -55,6 +58,81 @@
     const next = Number(event.currentTarget.value);
     dragging = null;
     void appearance.update({ terminalFontSize: next });
+  }
+
+  // Quick unlock (Touch ID / Windows Hello). It belongs to the vault, so it is shown only while the
+  // vault is unlocked and the system offers it. Opening Settings never asks for the password: the
+  // info is read only when the vault is already unlocked, and again when its status changes.
+  const quickPlatform = detectMac() ? "mac" : "windows";
+  let quickAvailable = $state(false);
+  let quickEnabled = $state(false);
+  /** Shown after turning it on: the key can only be captured at a password unlock. */
+  let quickReady = $state(false);
+  let quickBusy = $state(false);
+
+  async function loadQuickInfo(): Promise<void> {
+    const result = await vault.quickUnlockInfo();
+    if (!result.ok) {
+      notices.error(t("security.quickUnlockInfoFailed"), result.error);
+      return;
+    }
+    quickAvailable = result.value.available;
+    quickEnabled = result.value.enabled;
+    quickReady = result.value.ready;
+  }
+
+  $effect(() => {
+    if (vault.status === "unlocked") void loadQuickInfo();
+    else quickAvailable = false;
+  });
+
+  async function changeQuickUnlock(): Promise<void> {
+    const wanted = quickEnabled;
+    quickBusy = true;
+    const result = await vault.setQuickUnlock(wanted);
+    quickBusy = false;
+    if (result.ok) {
+      quickReady = false; // on: needs a password unlock; off: the key is gone
+      return;
+    }
+    quickEnabled = !wanted;
+    notices.error(t("security.quickUnlockFailed"), result.error);
+  }
+
+  // Auto-lock: reading and saving the setting does not need the vault unlocked, so the section is
+  // there whenever a vault exists.
+  const AUTO_LOCK_CHOICES = [0, 5, 15, 30, 60] as const;
+  const autoLockOptions = AUTO_LOCK_CHOICES.map((minutes) => ({
+    value: String(minutes),
+    label: t(`security.autoLock.${minutes}` as StringKey),
+  }));
+  let autoLock = $state<string>("15");
+  /** The value last confirmed by the backend; the choice goes back to it when saving fails. */
+  let savedAutoLock = "15";
+  let hasVault = $derived(vault.status !== "notCreated");
+
+  $effect(() => {
+    if (!hasVault) return;
+    void (async () => {
+      const result = await vault.getAutoLock();
+      if (!result.ok) {
+        notices.error(t("settings.security"), result.error);
+        return;
+      }
+      savedAutoLock = String(result.value);
+      autoLock = savedAutoLock;
+    })();
+  });
+
+  async function changeAutoLock(): Promise<void> {
+    const wanted = autoLock;
+    const result = await vault.setAutoLock(Number(wanted));
+    if (result.ok) {
+      savedAutoLock = wanted;
+      return;
+    }
+    autoLock = savedAutoLock;
+    notices.error(t("security.autoLockFailed"), result.error);
   }
 
   // The switches edit the stored settings; a failed save puts the switch back.
@@ -197,6 +275,31 @@
 
   <IdentitySection />
 
+  {#if hasVault}
+    <section class="page security" aria-labelledby={securityHeadingId} data-testid="settings-security">
+      <header class="page-head">
+        <h3 id={securityHeadingId}>{t("settings.security")}</h3>
+        <p>{t("settings.securityHint")}</p>
+      </header>
+      <Select
+        label={t("security.autoLock")}
+        hint={t("security.autoLockHint")}
+        options={autoLockOptions}
+        bind:value={autoLock}
+        onchange={changeAutoLock}
+      />
+      {#if vault.status === "unlocked" && quickAvailable}
+        <Switch
+          label={t(`security.quickUnlock.${quickPlatform}`)}
+          hint={quickEnabled && !quickReady ? t("security.quickUnlockHint") : undefined}
+          bind:checked={quickEnabled}
+          disabled={quickBusy}
+          onchange={changeQuickUnlock}
+        />
+      {/if}
+    </section>
+  {/if}
+
   <section class="page updates" aria-labelledby={updatesHeadingId} data-testid="settings-updates">
     <header class="page-head">
       <h3 id={updatesHeadingId}>{t("settings.updates")}</h3>
@@ -251,14 +354,25 @@
     font-size: var(--font-size-sm);
   }
 
+  /* Security: the one line between the identity above and the updates below is this section's
+     bottom border (or the identity's own when this section is absent). */
+  .security {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding-bottom: var(--space-4);
+    margin-bottom: var(--space-4);
+    border-bottom: 1px solid var(--border-hairline);
+  }
+  .security .page-head {
+    margin-bottom: 0;
+  }
+
   /* Updates: the two switches, then the version with the ways to its notes and to a check. */
   .updates {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-    margin-top: var(--space-4);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-hairline);
   }
   .updates .page-head {
     margin-bottom: 0;
@@ -305,6 +419,7 @@
   .mini-row {
     display: grid;
     grid-template-columns: 1fr;
+    aspect-ratio: 16 / 10;
     overflow: hidden;
     border: 1px solid var(--border-hairline);
     border-radius: var(--radius-control);
@@ -316,7 +431,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-    aspect-ratio: 16 / 10;
+    height: 100%;
     padding-bottom: var(--space-2);
   }
   .mini.light {

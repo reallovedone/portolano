@@ -1,23 +1,23 @@
 <!-- Credential manager: list, add/edit/delete, explicit reveal/copy with auto-hide. -->
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy } from "svelte";
 
-  import { t, type StringKey } from "../i18n/strings";
+  import { t } from "../i18n/strings";
   import type { CredentialSummary, RevealedSecret, Uuid } from "../ipc";
-  import { detectMac } from "../shortcuts";
   import { getApp } from "../state/app";
   import { credentialUsers } from "../tree/model";
   import Button from "../ui/Button.svelte";
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
   import Dialog from "../ui/Dialog.svelte";
   import EmptyState from "../ui/EmptyState.svelte";
-  import FormSection from "../ui/FormSection.svelte";
+  import ContextMenu from "../ui/ContextMenu.svelte";
   import Icon from "../ui/Icon.svelte";
   import IconButton from "../ui/IconButton.svelte";
   import ListRow from "../ui/ListRow.svelte";
-  import Select from "../ui/Select.svelte";
-  import Switch from "../ui/Switch.svelte";
+  import SegmentedControl from "../ui/SegmentedControl.svelte";
   import TextArea from "../ui/TextArea.svelte";
+  import TextField from "../ui/TextField.svelte";
+  import type { MenuItem } from "../ui/menu";
   import ChangePasswordDialog from "./ChangePasswordDialog.svelte";
   import { CLIPBOARD_CLEAR_SECONDS, copySecret } from "./clipboard";
   import CredentialEditor from "./CredentialEditor.svelte";
@@ -107,68 +107,81 @@
     return `${base}\n\n${detail}`;
   }
 
-  /** Minutes the user can pick for the vault auto-lock (0 = never), as the backend accepts them. */
-  const AUTO_LOCK_CHOICES = [0, 5, 15, 30, 60] as const;
-  const autoLockOptions = AUTO_LOCK_CHOICES.map((minutes) => ({
-    value: String(minutes),
-    label: t(`security.autoLock.${minutes}` as StringKey),
-  }));
-  let autoLock = $state<string>("15");
-  /** The value last confirmed by the backend; the choice goes back to it when saving fails. */
-  let savedAutoLock = "15";
+  let query = $state("");
+  let kindFilter = $state("all");
+  let menu = $state<{ x: number; y: number; items: MenuItem[]; label: string } | null>(null);
 
-  onMount(async () => {
-    const result = await vault.getAutoLock();
-    if (!result.ok) {
-      notices.error(t("security.title"), result.error);
-      return;
-    }
-    savedAutoLock = String(result.value);
-    autoLock = savedAutoLock;
-  });
+  const sorted = $derived(
+    [...vault.credentials].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    ),
+  );
+  const hasPasswords = $derived(sorted.some((c) => c.kind === "password"));
+  const hasKeys = $derived(sorted.some((c) => c.kind === "sshKey"));
+  /** The type filter is offered only when both types exist; otherwise it is ignored. */
+  const kindActive = $derived(hasPasswords && hasKeys ? kindFilter : "all");
+  const needle = $derived(query.trim().toLocaleLowerCase());
+  const visible = $derived(
+    sorted.filter(
+      (c) =>
+        (kindActive === "all" || c.kind === kindActive) &&
+        (needle === "" ||
+          [c.name, c.username, c.domain ?? ""].some((v) => v.toLocaleLowerCase().includes(needle))),
+    ),
+  );
+  const filtered = $derived(needle !== "" || kindActive !== "all");
+  const kindOptions = $derived([
+    { value: "all", label: t("cred.filter.all") },
+    { value: "password", label: t("cred.filter.password") },
+    { value: "sshKey", label: t("cred.filter.sshKey") },
+  ]);
 
-  const quickPlatform = detectMac() ? "mac" : "windows";
-  let quickAvailable = $state(false);
-  let quickEnabled = $state(false);
-  /** Shown after turning it on: the key can only be captured at a password unlock. */
-  let quickReady = $state(false);
-  let quickBusy = $state(false);
-
-  async function loadQuickInfo(): Promise<void> {
-    const result = await vault.quickUnlockInfo();
-    if (!result.ok) {
-      notices.error(t("security.quickUnlockInfoFailed"), result.error);
-      return;
-    }
-    quickAvailable = result.value.available;
-    quickEnabled = result.value.enabled;
-    quickReady = result.value.ready;
+  function usage(credential: CredentialSummary): string {
+    const count = credentialUsers(doc.nodes, credential.id).length;
+    if (count === 0) return t("cred.unused");
+    return t(count === 1 ? "cred.usedBy.one" : "cred.usedBy.other", { count });
   }
 
-  onMount(loadQuickInfo);
-
-  async function changeQuickUnlock(): Promise<void> {
-    const wanted = quickEnabled;
-    quickBusy = true;
-    const result = await vault.setQuickUnlock(wanted);
-    quickBusy = false;
-    if (result.ok) {
-      quickReady = false; // on: needs a password unlock; off: the key is gone
-      return;
-    }
-    quickEnabled = !wanted;
-    notices.error(t("security.quickUnlockFailed"), result.error);
+  function clearFilters(): void {
+    query = "";
+    kindFilter = "all";
   }
 
-  async function changeAutoLock(): Promise<void> {
-    const wanted = autoLock;
-    const result = await vault.setAutoLock(Number(wanted));
-    if (result.ok) {
-      savedAutoLock = wanted;
-      return;
-    }
-    autoLock = savedAutoLock;
-    notices.error(t("security.autoLockFailed"), result.error);
+  function openMenuAt(event: MouseEvent, items: MenuItem[], label: string): void {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    menu = { x: rect.left, y: rect.bottom, items, label };
+  }
+
+  function rowMenu(event: MouseEvent, credential: CredentialSummary): void {
+    openMenuAt(
+      event,
+      [
+        { label: t("cred.edit"), icon: "edit", action: () => (editor = { credential }) },
+        {
+          label: t("cred.delete"),
+          icon: "trash",
+          danger: true,
+          action: () => (deleting = { credential, error: null }),
+        },
+      ],
+      t("cred.rowActions", { name: credential.name }),
+    );
+  }
+
+  function barMenu(event: MouseEvent): void {
+    openMenuAt(
+      event,
+      [
+        { label: t("cred.changePassword"), action: () => (changing = true) },
+        { label: t("vault.lock"), icon: "lock", action: () => void lock() },
+      ],
+      t("cred.moreActions"),
+    );
+  }
+
+  function onRowDoubleClick(event: MouseEvent, credential: CredentialSummary): void {
+    if ((event.target as HTMLElement).closest("button")) return;
+    editor = { credential };
   }
 
   async function lock(): Promise<void> {
@@ -185,19 +198,11 @@
       text={vault.status === "notCreated" ? t("vault.noVaultYet") : t("cred.lockedHint")}
     />
   {:else}
-    <div class="toolbar">
-      {#if vault.credentials.length > 0}
-        <Button variant="primary" onclick={() => (editor = { credential: null })}>
-          {#snippet icon()}<Icon name="plus" />{/snippet}
-          {t("cred.add")}
-        </Button>
-      {/if}
-      <span class="spacer"></span>
-      <Button variant="plain" onclick={() => (changing = true)}>{t("cred.changePassword")}</Button>
-      <Button variant="plain" onclick={lock}>{t("vault.lock")}</Button>
-    </div>
-
     {#if vault.credentials.length === 0}
+      <div class="bar">
+        <span class="spacer"></span>
+        <IconButton icon="more" label={t("cred.moreActions")} onclick={barMenu} />
+      </div>
       <EmptyState icon="key" title={t("cred.emptyTitle")} text={t("cred.emptyText")}>
         {#snippet action()}
           <Button variant="primary" onclick={() => (editor = { credential: null })}>
@@ -207,108 +212,132 @@
         {/snippet}
       </EmptyState>
     {:else}
-      <ul class="list" aria-label={t("cred.title")}>
-        {#each vault.credentials as credential (credential.id)}
-          <li>
-            <ListRow>
-              {#snippet leading()}
-                <span class="type"><Icon name={credential.kind === "sshKey" ? "key" : "lock"} /></span>
-              {/snippet}
-              {credential.name}
-              {#snippet secondary()}
-                {t(`cred.kind.${credential.kind}` as StringKey)} · {credential.domain
-                  ? `${credential.domain}\\`
-                  : ""}{credential.username}
-              {/snippet}
-              {#snippet trailing()}
-                <span class="buttons">
-                  {#if revealed?.id === credential.id}
-                    <IconButton
-                      icon="eye-off"
-                      size="compact"
-                      label={t("cred.hideSecret")}
-                      onclick={hideSecret}
-                    />
-                  {:else}
-                    <IconButton
-                      icon="eye"
-                      size="compact"
-                      label={t("cred.reveal")}
-                      onclick={() => reveal(credential)}
-                    />
-                  {/if}
-                  <IconButton
-                    icon="copy"
-                    size="compact"
-                    label={t("cred.copySecret")}
-                    onclick={() => copy(credential)}
-                  />
-                  <IconButton
-                    icon="edit"
-                    size="compact"
-                    label={t("common.edit")}
-                    onclick={() => (editor = { credential })}
-                  />
-                  <IconButton
-                    icon="trash"
-                    size="compact"
-                    label={t("common.delete")}
-                    onclick={() => (deleting = { credential, error: null })}
-                  />
-                </span>
-              {/snippet}
-            </ListRow>
-            {#if revealed?.id === credential.id}
-              <div class="secret" role="status" data-testid="revealed-secret">
-                <span class="secret-note">
-                  <Icon name="clock" size={14} />
-                  {t("cred.revealWarning", { seconds: REVEAL_SECONDS })}
-                </span>
-                {#if revealed.secret.type === "password"}
-                  <code>{revealed.secret.password}</code>
-                {:else}
-                  <TextArea
-                    readonly
-                    monospace
-                    rows={5}
-                    aria-label={t("cred.privateKey")}
-                    spellcheck="false"
-                    value={revealed.secret.privateKeyPem}
-                  />
-                  {#if revealed.secret.passphrase}
-                    <code>{revealed.secret.passphrase}</code>
-                  {/if}
-                {/if}
-              </div>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    {/if}
+      <div class="bar">
+        <div class="search">
+          <TextField
+            bind:value={query}
+            type="search"
+            placeholder={t("cred.search")}
+            aria-label={t("cred.search")}
+            autocomplete="off"
+            spellcheck="false"
+          >
+            {#snippet prefix()}<Icon name="search" size={14} />{/snippet}
+          </TextField>
+        </div>
+        {#if hasPasswords && hasKeys}
+          <SegmentedControl label={t("cred.filter")} options={kindOptions} bind:value={kindFilter} />
+        {/if}
+        <Button variant="primary" onclick={() => (editor = { credential: null })}>
+          {#snippet icon()}<Icon name="plus" />{/snippet}
+          {t("cred.add")}
+        </Button>
+        <IconButton icon="more" label={t("cred.moreActions")} onclick={barMenu} />
+      </div>
+      <p class="count" data-testid="cred-count">
+        {filtered
+          ? t("cred.countFiltered", { shown: visible.length, total: sorted.length })
+          : t(sorted.length === 1 ? "cred.count.one" : "cred.count.other", { count: sorted.length })}
+      </p>
 
-    <FormSection title={t("security.title")}>
-      <Select
-        label={t("security.autoLock")}
-        hint={t("security.autoLockHint")}
-        options={autoLockOptions}
-        bind:value={autoLock}
-        onchange={changeAutoLock}
-      />
-      {#if quickAvailable}
-        <Switch
-          label={t(`security.quickUnlock.${quickPlatform}`)}
-          hint={quickEnabled && !quickReady ? t("security.quickUnlockHint") : undefined}
-          bind:checked={quickEnabled}
-          disabled={quickBusy}
-          onchange={changeQuickUnlock}
-        />
-      {/if}
-    </FormSection>
+      <div class="scroll">
+        {#if visible.length === 0}
+          <EmptyState icon="search" title={t("cred.noMatch", { query: query.trim() })}>
+            {#snippet action()}
+              <Button onclick={clearFilters}>{t("cred.clearSearch")}</Button>
+            {/snippet}
+          </EmptyState>
+        {:else}
+          <ul class="list" aria-label={t("cred.title")}>
+            {#each visible as credential (credential.id)}
+              <li>
+                <ListRow ondblclick={(e: MouseEvent) => onRowDoubleClick(e, credential)}>
+                  {#snippet leading()}
+                    <span
+                      class="type"
+                      role="img"
+                      aria-label={t(`cred.kind.${credential.kind}`)}
+                      title={t(`cred.kind.${credential.kind}`)}
+                    >
+                      <Icon name={credential.kind === "sshKey" ? "key" : "lock"} />
+                    </span>
+                  {/snippet}
+                  {credential.name}
+                  {#snippet secondary()}
+                    {credential.domain ? `${credential.domain}\\` : ""}{credential.username} · {usage(
+                      credential,
+                    )}
+                  {/snippet}
+                  {#snippet trailing()}
+                    <span class="buttons">
+                      {#if revealed?.id === credential.id}
+                        <IconButton
+                          icon="eye-off"
+                          size="compact"
+                          label={t("cred.hideSecret")}
+                          onclick={hideSecret}
+                        />
+                      {:else}
+                        <IconButton
+                          icon="eye"
+                          size="compact"
+                          label={t("cred.reveal")}
+                          onclick={() => reveal(credential)}
+                        />
+                      {/if}
+                      <IconButton
+                        icon="copy"
+                        size="compact"
+                        label={t("cred.copySecret")}
+                        onclick={() => copy(credential)}
+                      />
+                      <IconButton
+                        icon="more"
+                        size="compact"
+                        label={t("cred.rowActions", { name: credential.name })}
+                        onclick={(e: MouseEvent) => rowMenu(e, credential)}
+                      />
+                    </span>
+                  {/snippet}
+                </ListRow>
+                {#if revealed?.id === credential.id}
+                  <div class="secret" role="status" data-testid="revealed-secret">
+                    <span class="secret-note">
+                      <Icon name="clock" size={14} />
+                      {t("cred.revealWarning", { seconds: REVEAL_SECONDS })}
+                    </span>
+                    {#if revealed.secret.type === "password"}
+                      <code>{revealed.secret.password}</code>
+                    {:else}
+                      <TextArea
+                        readonly
+                        monospace
+                        rows={5}
+                        aria-label={t("cred.privateKey")}
+                        spellcheck="false"
+                        value={revealed.secret.privateKeyPem}
+                      />
+                      {#if revealed.secret.passphrase}
+                        <code>{revealed.secret.passphrase}</code>
+                      {/if}
+                    {/if}
+                  </div>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    {/if}
   {/if}
   {#snippet footer()}
     <Button onclick={onclose}>{t("common.close")}</Button>
   {/snippet}
 </Dialog>
+
+{#if menu}
+  <ContextMenu x={menu.x} y={menu.y} items={menu.items} label={menu.label} onclose={() => (menu = null)} />
+{/if}
 
 {#if editor}
   <CredentialEditor credential={editor.credential} onclose={() => (editor = null)} />
@@ -328,22 +357,36 @@
   <ChangePasswordDialog
     onclose={(changed) => {
       changing = false;
-      if (changed) void loadQuickInfo();
       if (changed) notices.push("info", t("cred.passwordChanged"));
     }}
   />
 {/if}
 
 <style>
-  .toolbar {
+  .bar {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    margin-bottom: var(--space-3);
+  }
+
+  .search {
+    flex: 1;
+    min-width: 0;
   }
 
   .spacer {
     flex: 1;
+  }
+
+  .count {
+    margin: var(--space-2) 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+  }
+
+  .scroll {
+    max-height: min(52vh, 28rem);
+    overflow: auto;
   }
 
   .list {
