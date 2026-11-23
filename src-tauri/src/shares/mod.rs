@@ -1024,6 +1024,17 @@ impl ShareService {
             .map_err(|_| AppError::new(ErrorCode::Io, "The share file could not be written."))
     }
 
+    /// The current content of a file that is about to be overwritten; `None` when it cannot be
+    /// read or is too big to be a share.
+    fn read_previous_share_file(path: &str) -> Option<Vec<u8>> {
+        let path = std::path::Path::new(path);
+        let size = std::fs::metadata(path).ok()?.len();
+        if size > portolano_shares::format::MAX_SHARE_BYTES as u64 {
+            return None;
+        }
+        std::fs::read(path).ok()
+    }
+
     /// First publication of the local folder `folder_id` to `path`.
     pub fn publish(&self, folder_id: Uuid, path: &str) -> Result<ShareSummary, AppError> {
         let path = path.trim();
@@ -1072,6 +1083,12 @@ impl ShareService {
         // shared meanwhile leaves nothing behind.
         let link_id = Uuid::new_v4();
         let existed = std::path::Path::new(path).exists();
+        // What an existing file held, so that a failed save of the link can put it back.
+        let previous = if existed {
+            Self::read_previous_share_file(path)
+        } else {
+            None
+        };
         let summary = self.with_store(|store| {
             check(store.document())?;
             let name = store
@@ -1106,11 +1123,18 @@ impl ShareService {
                 Ok(())
             });
             if let Err(e) = saved {
-                // The link could not be saved: do not leave a file we just created.
+                // The link could not be saved: do not leave the file we just wrote (a new file
+                // is removed, an overwritten one gets its old content back).
                 if !existed {
                     if let Err(rm) = std::fs::remove_file(path) {
                         tracing::warn!(error = %rm, "could not remove an unused share file");
                     }
+                } else if let Some(old) = &previous {
+                    if transport::write_atomic(std::path::Path::new(path), old).is_err() {
+                        tracing::warn!("could not restore the previous share file");
+                    }
+                } else {
+                    tracing::warn!("the overwritten share file could not be read, so not restored");
                 }
                 return Err(e.into());
             }

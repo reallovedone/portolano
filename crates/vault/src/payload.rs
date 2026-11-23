@@ -119,7 +119,7 @@ pub fn encode(
     // The base64 text of each secret key is a plaintext copy too: keep it wiped.
     let secret_texts: Vec<Zeroizing<String>> = identities
         .iter()
-        .map(|i| Zeroizing::new(STANDARD.encode(*i.secret)))
+        .map(|i| Zeroizing::new(STANDARD.encode(i.secret.as_slice())))
         .collect();
     let file = OutFile {
         identities: identities
@@ -168,11 +168,19 @@ pub fn encode(
 pub fn decode(bytes: &[u8]) -> Result<(Vec<Credential>, Vec<Identity>), VaultError> {
     let file: InFile =
         serde_json::from_slice(bytes).map_err(|_| VaultError::Corrupt("payload is not valid"))?;
-    let identities = file
-        .identities
-        .into_iter()
-        .map(decode_identity)
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut identities: Vec<Identity> = Vec::with_capacity(file.identities.len());
+    for decoded in file.identities.into_iter().map(decode_identity) {
+        let identity = decoded?;
+        // Same rules as `add_identity`: an id or a key already present is not loaded twice.
+        let repeated = identities.iter().any(|i| {
+            i.record.id == identity.record.id || i.record.public_key == identity.record.public_key
+        });
+        if repeated {
+            tracing::warn!("an identity repeated in the vault was not loaded twice");
+        } else {
+            identities.push(identity);
+        }
+    }
     let credentials = file
         .credentials
         .into_iter()
@@ -208,7 +216,12 @@ fn decode_identity(i: InIdentity) -> Result<Identity, VaultError> {
             .decode(i.secret_key.expose_secret())
             .map_err(|_| BAD)?,
     );
-    let secret = Zeroizing::new(<[u8; 32]>::try_from(raw.as_slice()).map_err(|_| BAD)?);
+    // Filled in place: building the array first would leave unwiped copies on the stack.
+    let mut secret = Zeroizing::new([0u8; 32]);
+    if raw.len() != secret.len() {
+        return Err(BAD);
+    }
+    secret.copy_from_slice(&raw);
     Ok(Identity {
         record: IdentityRecord {
             id: i.id,
@@ -218,4 +231,35 @@ fn decode_identity(i: InIdentity) -> Result<Identity, VaultError> {
         },
         secret,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn identity(id: u128, name: &str, public: u8) -> Identity {
+        Identity {
+            record: IdentityRecord {
+                id: Uuid::from_u128(id),
+                name: name.into(),
+                public_key: [public; 32],
+                created_at: "2026-01-01T00:00:00Z".into(),
+            },
+            secret: Zeroizing::new([7u8; 32]),
+        }
+    }
+
+    #[test]
+    fn identities_repeated_in_a_payload_are_loaded_once() {
+        let list = [
+            identity(1, "first", 1),
+            identity(1, "same id", 2),
+            identity(3, "same key", 1),
+            identity(4, "other", 4),
+        ];
+        let bytes = encode(&[], &list).expect("encode");
+        let (_, loaded) = decode(&bytes).expect("decode");
+        let names: Vec<&str> = loaded.iter().map(|i| i.record.name.as_str()).collect();
+        assert_eq!(names, ["first", "other"]);
+    }
 }

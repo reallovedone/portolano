@@ -16,7 +16,7 @@ use crate::error::VaultError;
 use crate::format::{cipher, random_array, NONCE_LEN, SALT_LEN};
 use crate::payload::CountingSink;
 use crate::types::{clean_identity_name, MAX_IDENTITY_NAME_LEN};
-use crate::unlock::{KdfParams, MasterPassword, UnlockMethod};
+use crate::unlock::{derive_kek_from_password, KdfParams};
 
 const FORMAT: &str = "portolano-identity";
 const VERSION: u32 = 1;
@@ -87,7 +87,7 @@ pub(crate) fn encrypt_with(
     check_backup_kdf(&kdf)?;
     let salt = random_array::<SALT_LEN>()?;
     let nonce = random_array::<NONCE_LEN>()?;
-    let key = MasterPassword(password.clone()).derive_kek(&kdf, &salt)?;
+    let key = derive_kek_from_password(password, &kdf, &salt)?;
 
     let secret_text = Zeroizing::new(STANDARD.encode(secret));
     let serialize_failed = |_| VaultError::Internal("backup serialization failed".into());
@@ -157,7 +157,7 @@ pub fn decrypt(
     let ciphertext = decode(&file.ciphertext)?;
 
     check_backup_kdf(&file.kdf)?;
-    let key = MasterPassword(password.clone()).derive_kek(&file.kdf, &salt)?;
+    let key = derive_kek_from_password(password, &file.kdf, &salt)?;
     let plaintext = cipher(key.expose_secret())?
         .decrypt(
             &XNonce::from(nonce),
@@ -176,18 +176,23 @@ pub fn decrypt(
             .decode(content.secret_key.expose_secret())
             .map_err(|_| VaultError::Corrupt("backup content is not valid"))?,
     );
-    let secret = <[u8; 32]>::try_from(raw.as_slice())
-        .map_err(|_| VaultError::Corrupt("backup content is not valid"))?;
+    // Filled in place: building the array first would leave unwiped copies on the stack.
+    let mut secret = Zeroizing::new([0u8; 32]);
+    if raw.len() != secret.len() {
+        return Err(VaultError::Corrupt("backup content is not valid"));
+    }
+    secret.copy_from_slice(&raw);
     let name = content.name.trim();
     if name.is_empty() || name.len() > MAX_IDENTITY_NAME_LEN {
         return Err(VaultError::Corrupt("backup content is not valid"));
     }
-    Ok((name.to_owned(), Zeroizing::new(secret)))
+    Ok((name.to_owned(), secret))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::unlock::{MasterPassword, UnlockMethod};
 
     fn tiny() -> KdfParams {
         KdfParams {

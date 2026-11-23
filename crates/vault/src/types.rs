@@ -65,7 +65,8 @@ impl From<&Credential> for CredentialSummary {
 }
 
 /// Input of `vault_upsert`. `id: None` creates a credential. Secrets arrive from the UI as
-/// strings and are wrapped in `SecretString` immediately on deserialization.
+/// strings and are wrapped in `SecretString` when deserialized (the JSON parser may briefly
+/// hold its own copy of the text while it parses, which this crate cannot wipe).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialInput {
