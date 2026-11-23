@@ -80,39 +80,49 @@ impl UnlockMethod for MasterPassword {
     }
 
     fn derive_kek(&self, params: &KdfParams, salt: &[u8; 16]) -> Result<Kek, VaultError> {
-        params.validate()?;
-        let argon_params = Params::new(
-            params.memory_kib,
-            params.iterations,
-            params.parallelism,
-            Some(32),
-        )
-        .map_err(|_| VaultError::Corrupt("key derivation parameters rejected"))?;
-        let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon_params);
-
-        // Own the working memory so it can be wiped afterwards (the library does not do it).
-        let blocks_len = argon.params().block_count();
-        let mut blocks: Vec<Block> = Vec::new();
-        blocks
-            .try_reserve_exact(blocks_len)
-            .map_err(|_| VaultError::Internal("cannot allocate key derivation memory".into()))?;
-        blocks.resize(blocks_len, Block::new());
-
-        let mut kek = SecretBox::<[u8; 32]>::init_with_mut(|_| {});
-        let result = {
-            use secrecy::ExposeSecretMut;
-            argon.hash_password_into_with_memory(
-                self.0.expose_secret().as_bytes(),
-                salt,
-                kek.expose_secret_mut(),
-                &mut blocks,
-            )
-        };
-        blocks.zeroize();
-        // The error text of Argon2 carries no secret, but nothing useful for the caller either.
-        result.map_err(|_| VaultError::Internal("key derivation failed".into()))?;
-        Ok(kek)
+        derive_kek_from_password(&self.0, params, salt)
     }
+}
+
+/// The key derivation behind [`MasterPassword`], for callers that only hold a reference to
+/// the password and should not copy it.
+pub(crate) fn derive_kek_from_password(
+    password: &SecretString,
+    params: &KdfParams,
+    salt: &[u8; 16],
+) -> Result<Kek, VaultError> {
+    params.validate()?;
+    let argon_params = Params::new(
+        params.memory_kib,
+        params.iterations,
+        params.parallelism,
+        Some(32),
+    )
+    .map_err(|_| VaultError::Corrupt("key derivation parameters rejected"))?;
+    let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon_params);
+
+    // Own the working memory so it can be wiped afterwards (the library does not do it).
+    let blocks_len = argon.params().block_count();
+    let mut blocks: Vec<Block> = Vec::new();
+    blocks
+        .try_reserve_exact(blocks_len)
+        .map_err(|_| VaultError::Internal("cannot allocate key derivation memory".into()))?;
+    blocks.resize(blocks_len, Block::new());
+
+    let mut kek = SecretBox::<[u8; 32]>::init_with_mut(|_| {});
+    let result = {
+        use secrecy::ExposeSecretMut;
+        argon.hash_password_into_with_memory(
+            password.expose_secret().as_bytes(),
+            salt,
+            kek.expose_secret_mut(),
+            &mut blocks,
+        )
+    };
+    blocks.zeroize();
+    // The error text of Argon2 carries no secret, but nothing useful for the caller either.
+    result.map_err(|_| VaultError::Internal("key derivation failed".into()))?;
+    Ok(kek)
 }
 
 #[cfg(test)]

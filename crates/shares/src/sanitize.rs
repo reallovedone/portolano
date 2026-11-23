@@ -215,11 +215,19 @@ pub fn sanitize(nodes: Vec<Node>) -> Result<SanitizeOutcome, ShareError> {
             }
         }
     }
-    let remaining: BTreeSet<Uuid> = kept.iter().map(Node::id).collect();
+    // A jump host must be another SSH connection that is still in the share.
+    let ssh_ids: BTreeSet<Uuid> = kept
+        .iter()
+        .filter_map(|n| match n {
+            Node::Connection(c) if matches!(c.options, ConnectionOptions::Ssh { .. }) => Some(c.id),
+            _ => None,
+        })
+        .collect();
     for node in &mut kept {
         if let Node::Connection(c) = node {
+            let own_id = c.id;
             if let ConnectionOptions::Ssh { jump_host, .. } = &mut c.options {
-                if jump_host.is_some_and(|j| !remaining.contains(&j)) {
+                if jump_host.is_some_and(|j| j == own_id || !ssh_ids.contains(&j)) {
                     *jump_host = None;
                 }
             }
@@ -346,6 +354,33 @@ mod tests {
         .expect("ok");
         assert_eq!(out.nodes.len(), 2);
         assert_eq!(out.skipped, vec!["conn 2".to_owned()]);
+    }
+
+    #[test]
+    fn sanitize_drops_self_and_non_ssh_jump_hosts() {
+        let web = ConnectionOptions::Web {
+            url: "https://example.net".into(),
+            isolated_profile: false,
+        };
+        let out = sanitize(vec![
+            folder(1, None),
+            conn(2, Some(1), ssh(Some(2))), // itself
+            conn(3, Some(1), web),
+            conn(4, Some(1), ssh(Some(3))), // a web connection
+            conn(5, Some(1), ssh(None)),
+            conn(6, Some(1), ssh(Some(5))), // a real jump host
+        ])
+        .expect("ok");
+        let jump = |n: usize| match &out.nodes[n] {
+            Node::Connection(c) => match &c.options {
+                ConnectionOptions::Ssh { jump_host, .. } => *jump_host,
+                _ => panic!("ssh"),
+            },
+            Node::Folder(_) => panic!("connection"),
+        };
+        assert_eq!(jump(1), None);
+        assert_eq!(jump(3), None);
+        assert_eq!(jump(5), Some(id(5)));
     }
 
     #[test]
