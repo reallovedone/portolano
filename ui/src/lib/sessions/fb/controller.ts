@@ -297,9 +297,14 @@ export class FbController {
   saveClipboardFiles(): void {
     const { clipboard } = this.#state;
     if (clipboard.offer === null || clipboard.phase.kind === "saving") return;
+    const before = clipboard.phase;
     this.#o.api.clipboardSave().then(
       (started) => {
-        if (started) this.#patch({ clipboard: startSaving(this.#state.clipboard) });
+        // The command answers after the folder dialog, so a small transfer may already have
+        // reported progress or finished: never replace those events with an empty progress.
+        if (started && this.#state.clipboard.phase === before) {
+          this.#patch({ clipboard: startSaving(this.#state.clipboard) });
+        }
       },
       (e: unknown) => {
         this.#o.onError("fb_clipboard_save", e);

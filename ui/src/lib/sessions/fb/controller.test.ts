@@ -468,6 +468,43 @@ describe("shared clipboard", () => {
     expect(calls.filter((c) => c.fn === "clipboardSave")).toHaveLength(1);
   });
 
+  it("keeps a transfer that finished before the save command answered", async () => {
+    let controller: FbController | null = null;
+    const done: FbEvent = { type: "clipboard", event: { type: "done", files: 1, bytes: 11, skipped: 0 } };
+    controller = new FbController({
+      api: {
+        pointer: async () => undefined,
+        key: async () => undefined,
+        resize: async () => undefined,
+        certDecision: async () => undefined,
+        unencryptedDecision: async () => undefined,
+        forgetCertificate: async () => undefined,
+        credential: async () => undefined,
+        credentialCancel: async () => undefined,
+        clipboardSave: async () => {
+          // A small file is saved before the command returns.
+          controller?.handleEvent(done);
+          return true;
+        },
+        clipboardCancel: async () => undefined,
+        setVisible: async () => undefined,
+      },
+      surface: { putImageData: () => undefined },
+      setCanvasSize: () => undefined,
+      onState: () => undefined,
+      onFatal: () => undefined,
+      onError: () => undefined,
+      geometry: () => null,
+    });
+    controller.handleEvent(offer);
+    controller.saveClipboardFiles();
+    await flushPromises();
+    expect(controller.state.clipboard.phase).toEqual({ kind: "done", files: 1, bytes: 11, skipped: 0 });
+    controller.dismissClipboardNotice();
+    expect(controller.state.clipboard.phase.kind).toBe("idle");
+    controller.dispose();
+  });
+
   it("cancels only while saving and reports a refused command without throwing", async () => {
     const { controller, calls, onError } = setup();
     controller.cancelClipboardSave();
