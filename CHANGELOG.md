@@ -7,6 +7,8 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+## [0.4.1] - Unreleased
+
 ### 🔄 Changed
 
 - The credentials window is easier to use with many credentials: search, a filter by type, a count, and how many connections use each one; edit and delete moved into a ⋯ menu on each row.
@@ -115,7 +117,8 @@ First public release.
 - Light and dark themes that follow the system.
 - Apple silicon and Intel Macs, and Windows 10/11 (64-bit).
 
-[Unreleased]: https://github.com/reallovedone/portolano/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/reallovedone/portolano/compare/v0.4.1-rc1...HEAD
+[0.4.1]: https://github.com/reallovedone/portolano/compare/v0.4.0...v0.4.1-rc1
 [0.4.0]: https://github.com/reallovedone/portolano/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/reallovedone/portolano/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/reallovedone/portolano/compare/v0.2.0...v0.3.0
