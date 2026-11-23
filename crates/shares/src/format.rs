@@ -72,13 +72,7 @@ pub struct SignedShare {
     pub payload_sha256: [u8; 32],
 }
 
-#[derive(Serialize, Deserialize)]
-struct Header {
-    format: String,
-    version: u64,
-}
-
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct Envelope {
     format: String,
     version: u64,
@@ -88,6 +82,21 @@ struct Envelope {
     signer: String,
     /// Standard base64 of the Ed25519 signature over the decoded payload bytes.
     signature: String,
+}
+
+/// The envelope as read: only the header is typed, so a file with the right header but missing
+/// or differently shaped fields (another version, a damaged file) is reported as such, not as
+/// "not a share".
+#[derive(Deserialize)]
+struct RawEnvelope {
+    format: String,
+    version: u64,
+    #[serde(default)]
+    payload: serde_json::Value,
+    #[serde(default)]
+    signer: serde_json::Value,
+    #[serde(default)]
+    signature: serde_json::Value,
 }
 
 /// The bytes the owner signs for an editor list; `None` when a key is not a 32-byte base64 key
@@ -141,22 +150,27 @@ pub fn decode(bytes: &[u8]) -> Result<SignedShare, ShareError> {
     if bytes.len() > MAX_SHARE_BYTES {
         return Err(ShareError::TooLarge);
     }
-    let header: Header = serde_json::from_slice(bytes).map_err(|_| ShareError::NotAShare)?;
-    if header.format != FORMAT_ID {
+    let envelope: RawEnvelope = serde_json::from_slice(bytes).map_err(|_| ShareError::NotAShare)?;
+    if envelope.format != FORMAT_ID {
         return Err(ShareError::NotAShare);
     }
-    if header.version != FORMAT_VERSION {
-        return Err(ShareError::UnsupportedVersion(header.version));
+    if envelope.version != FORMAT_VERSION {
+        return Err(ShareError::UnsupportedVersion(envelope.version));
     }
-    let envelope: Envelope = serde_json::from_slice(bytes)
-        .map_err(|_| ShareError::Malformed("the envelope is incomplete".into()))?;
+    let (Some(payload), Some(signer), Some(signature)) = (
+        envelope.payload.as_str(),
+        envelope.signer.as_str(),
+        envelope.signature.as_str(),
+    ) else {
+        return Err(ShareError::Malformed("the envelope is incomplete".into()));
+    };
     let payload_bytes = STANDARD
-        .decode(&envelope.payload)
+        .decode(payload)
         .map_err(|_| ShareError::Malformed("the content is not valid base64".into()))?;
-    let signer = decode_key(&envelope.signer)
+    let signer = decode_key(signer)
         .ok_or_else(|| ShareError::Malformed("the signer key is not valid".into()))?;
     let signature = STANDARD
-        .decode(&envelope.signature)
+        .decode(signature)
         .ok()
         .and_then(|b| Signature::from_slice(&b).ok())
         .ok_or(ShareError::BadSignature)?;
@@ -304,5 +318,30 @@ pub(crate) mod tests {
             ShareError::UnsupportedVersion(2)
         );
         assert_eq!(decode(b"not json").unwrap_err(), ShareError::NotAShare);
+    }
+
+    #[test]
+    fn decode_reports_missing_envelope_fields_as_malformed() {
+        let owner = Identity::generate("Ann").expect("rng");
+        let bytes = encode(&sample(&owner, Uuid::from_u128(7), 1), &owner).expect("encode");
+        let mut value: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+        value.as_object_mut().expect("object").remove("signature");
+        let cut = serde_json::to_vec(&value).expect("json");
+        assert!(matches!(decode(&cut), Err(ShareError::Malformed(_))));
+    }
+
+    #[test]
+    fn decode_reports_a_future_version_even_when_its_fields_change_shape() {
+        let future = br#"{"format":"portolano-share","version":2,"payload":{"a":1},"signer":7}"#;
+        let mut value: serde_json::Value = serde_json::from_slice(future).expect("json");
+        value["format"] = FORMAT_ID.into();
+        let bytes = serde_json::to_vec(&value).expect("json");
+        assert_eq!(
+            decode(&bytes).unwrap_err(),
+            ShareError::UnsupportedVersion(2)
+        );
+        value["version"] = FORMAT_VERSION.into();
+        let bytes = serde_json::to_vec(&value).expect("json");
+        assert!(matches!(decode(&bytes), Err(ShareError::Malformed(_))));
     }
 }

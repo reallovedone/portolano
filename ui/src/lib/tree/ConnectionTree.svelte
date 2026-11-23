@@ -152,11 +152,16 @@
     return null;
   }
 
-  async function confirmDelete(node: Node): Promise<void> {
+  async function confirmDelete(node: Node, afterUnsubscribing = false): Promise<void> {
     const doomed = subtreeIds(doc.nodes, node.id);
     const result = await doc.remove(node.id);
     if (!result.ok && result.error.code === "conflict" && result.error.message === DELETE_CONTAINS_SHARES) {
-      pending = { type: "deleteWithShares", node, error: null };
+      // Asked again right after unsubscribing: say so, instead of showing the same question.
+      pending = {
+        type: "deleteWithShares",
+        node,
+        error: afterUnsubscribing ? t("share.deleteStillContainsShares") : null,
+      };
       return;
     }
     if (!result.ok) {
@@ -188,7 +193,7 @@
       };
       return;
     }
-    await confirmDelete(node);
+    await confirmDelete(node, true);
   }
 
   async function confirmUnsubscribe(node: Node, linkId: Uuid): Promise<void> {

@@ -7,7 +7,7 @@ import { MOCK_SHARE_IDS } from "../ipc/mock-shares";
 import { createApp, type App as AppState } from "../state/app";
 import { createMockFilePicker } from "../transfer/files";
 import { treeSelectOptions } from "../ui/treeSelectTesting";
-import { checkLocation, displayText } from "./display";
+import { checkLocation, displayText, hostLine } from "./display";
 
 vi.mock("@xterm/xterm", async () => ({
   Terminal: (await import("../sessions/term/fakeXterm")).FakeTerminal,
@@ -65,6 +65,20 @@ describe("display helpers", () => {
     expect(displayText("a".repeat(5000), 300)).toHaveLength(301);
     expect(displayText("short")).toBe("short");
     expect(displayText("😀".repeat(200), 10)).toBe(`${"😀".repeat(10)}…`);
+  });
+
+  it("caps_text_on_a_grapheme_boundary", () => {
+    const family = "👨‍👩‍👧";
+    expect(displayText(family.repeat(20), 5)).toBe(`${family.repeat(5)}…`);
+    expect(displayText("e\u0301".repeat(20), 3)).toBe(`${"e\u0301".repeat(3)}…`);
+  });
+
+  it("shows_a_web_connection_by_its_address_and_a_local_shell_by_its_kind", () => {
+    const base = { nodeId: "n", name: "Wiki", protocol: "web", host: "https://wiki.example/x", port: 8443, username: "ada" };
+    expect(hostLine(base)).toBe("Wiki: web https://wiki.example/x");
+    expect(hostLine({ ...base, name: "Shell", protocol: "local", host: "", port: null, username: null })).toBe(
+      "Shell: local",
+    );
   });
 
   it("checks_the_location_field", () => {
@@ -141,6 +155,15 @@ describe("AddRemoteFolderDialog", () => {
     vi.spyOn(ipc, "sharePreview").mockResolvedValue({ ...base, hosts: [{ ...base.hosts[0]!, host }] });
     await previewShare(app);
     expect(screen.getByText(new RegExp(`${host.replace(/\./g, "\\.")}`))).toBeTruthy();
+  });
+
+  it("add_remote_folder_names_the_left_out_connections_and_counts_the_rest", async () => {
+    const { app, ipc } = await start();
+    const base = await ipc.sharePreview({ type: "path", value: "/Volumes/Team/lab.portolano-share" });
+    const skipped = Array.from({ length: 8 }, (_, i) => `Skipped ${i}`);
+    vi.spyOn(ipc, "sharePreview").mockResolvedValue({ ...base, skipped });
+    await previewShare(app);
+    expect(screen.getByText(/Left out \(8\): Skipped 0, Skipped 1, Skipped 2, Skipped 3, Skipped 4 and 3 more/)).toBeTruthy();
   });
 
   it("add_remote_folder_never_truncates_a_long_host_list", async () => {
@@ -292,6 +315,18 @@ describe("ShareFolderDialog", () => {
     await unlockWithPassword();
     await waitFor(() => expect(screen.queryByText("Unlock the vault to see your identity.")).toBeNull());
     expect(screen.queryByLabelText("Your name")).toBeNull();
+  });
+});
+
+describe("document shares", () => {
+  it("unsubscribing_from_a_share_that_is_already_gone_refreshes_the_tree", async () => {
+    const { app, ipc } = await start({ shares: true });
+    expect(app.doc.shares.some((s) => s.id === MOCK_SHARE_IDS.link)).toBe(true);
+    // The backend drops the share behind the UI's back.
+    await ipc.shareUnsubscribe(MOCK_SHARE_IDS.link);
+    const result = await app.doc.unsubscribe(MOCK_SHARE_IDS.link);
+    expect(result.ok).toBe(false);
+    expect(app.doc.shares.some((s) => s.id === MOCK_SHARE_IDS.link)).toBe(false);
   });
 });
 

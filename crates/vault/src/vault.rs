@@ -446,7 +446,7 @@ impl Vault {
         };
         unlocked.identities.push(Identity {
             record: record.clone(),
-            secret: Zeroizing::new(*secret),
+            secret: copy_secret(secret),
         });
         if let Err(err) = save(&self.path, unlocked) {
             unlocked.identities.pop();
@@ -472,11 +472,21 @@ impl Vault {
     }
 }
 
+/// A wiped-on-drop copy of a key, made in place so no temporary array is left on the stack.
+fn copy_secret(secret: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    let mut copy = Zeroizing::new([0u8; 32]);
+    copy.copy_from_slice(secret);
+    copy
+}
+
+/// Latest time shown (`9999-12-31T23:59:59Z`): the year always has four digits.
+const MAX_RFC3339_SECS: u64 = 253_402_300_799;
+
 /// `2026-11-20T09:30:00Z` for a wall-clock time (no date/time dependency needed for this).
 fn rfc3339_utc(time: SystemTime) -> String {
     let secs = time
         .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_secs().min(MAX_RFC3339_SECS))
         .unwrap_or(0);
     let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
     // Civil-from-days (Howard Hinnant's algorithm), valid for the whole u64 range we use.
@@ -979,5 +989,7 @@ mod tests {
         assert_eq!(rfc3339_utc(t(0)), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339_utc(t(1_709_208_000)), "2024-02-29T12:00:00Z");
         assert_eq!(rfc3339_utc(t(1_795_167_000)), "2026-11-20T09:30:00Z");
+        // A clock far in the future still gives a four-digit year.
+        assert_eq!(rfc3339_utc(t(u64::MAX / 2)), "9999-12-31T23:59:59Z");
     }
 }

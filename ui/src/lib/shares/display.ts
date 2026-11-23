@@ -26,19 +26,36 @@ export const SKIPPED_SHOWN = 5;
 export function displayText(value: string | null | undefined, max: number = NAME_MAX): string {
   if (!value) return "";
   const clean = value.replace(BIDI_CONTROLS, "").replace(/[\u0000-\u001f\u007f]/g, " ").trim();
-  const points = Array.from(clean);
-  return points.length <= max ? clean : `${points.slice(0, max).join("").trimEnd()}…`;
+  const units = graphemes(clean);
+  return units.length <= max ? clean : `${units.slice(0, max).join("").trimEnd()}…`;
 }
 
-/** One line for a connection of a share: "name: protocol user@host:port", all cleaned. */
+const segmenter =
+  typeof Intl !== "undefined" && "Segmenter" in Intl
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
+
+/** The visible characters of a text: an emoji with modifiers or an accent counts as one. */
+function graphemes(text: string): string[] {
+  if (segmenter) return Array.from(segmenter.segment(text), (part) => part.segment);
+  return Array.from(text);
+}
+
+/**
+ * One line for a connection of a share: "name: protocol user@host:port", all cleaned. A web
+ * connection shows its address as it is (it has no separate port or user), and a connection
+ * without a host (local shell) shows just its kind.
+ */
 export function hostLine(host: PendingHost): string {
-  const port = host.port === null ? "" : `:${host.port}`;
-  const user = host.username ? `${displayText(host.username)}@` : "";
+  const isWeb = host.protocol === "web";
+  const port = host.port === null || isWeb ? "" : `:${host.port}`;
+  const user = host.username && !isWeb ? `${displayText(host.username)}@` : "";
+  const address = displayText(host.host, 400);
   return t("share.pendingHost", {
     name: displayText(host.name),
     protocol: displayText(host.protocol, 10),
-    target: `${user}${displayText(host.host, 400)}${port}`,
-  });
+    target: address === "" ? "" : `${user}${address}${port}`,
+  }).trimEnd();
 }
 
 export type LocationProblem = "empty" | "file" | "notHttps" | "credentials" | "invalid";

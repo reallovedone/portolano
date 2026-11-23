@@ -85,6 +85,8 @@ export const strings = {
   "share.deleteContainsTitle": "Delete folder with shared folders",
   "share.deleteContainsShares":
     "“{name}” holds {count} shared folder(s). Deleting it unsubscribes from them first. The share files are not touched.",
+  "share.deleteStillContainsShares":
+    "Shared folders are still inside this folder. Try again.",
   "share.deleteContainsConfirm": "Unsubscribe and delete",
   "share.addRemote": "Add Remote Folder…",
   "share.addRemoteTitle": "Add a remote folder",

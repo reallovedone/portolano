@@ -133,10 +133,13 @@ export class DocumentStore {
     return result.ok ? { ok: true, value: undefined } : result;
   }
 
-  /** Removes the mounted copy of a share (the share file stays) and reloads. */
+  /**
+   * Removes the mounted copy of a share (the share file stays) and reloads. A share that is
+   * already gone ("not found") reloads too, so it does not stay in the tree.
+   */
   async unsubscribe(linkId: Uuid): Promise<Result<void>> {
     const result = await attempt(() => this.#ipc.shareUnsubscribe(linkId));
-    if (result.ok) await this.#refresh();
+    if (result.ok || result.error.code === "not_found") await this.#refresh();
     return result;
   }
 

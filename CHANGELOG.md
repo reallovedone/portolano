@@ -7,6 +7,10 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### 🐛 Fixed
+
+- Shared folders: a web connection is listed by its address only, a shared folder that no longer exists disappears from the list after you unsubscribe, and deleting a folder that still holds shared folders explains why it asked again.
+
 ## [0.4.0] - 2026-11-22
 
 ### ⚠️ Breaking changes
