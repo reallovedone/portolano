@@ -1,4 +1,4 @@
-// The "Security" section of the credential manager: the vault auto-lock time.
+// The "Security" section of Settings: the vault auto-lock time.
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,16 +12,18 @@ vi.mock("@xterm/xterm", async () => ({
   Terminal: (await import("../sessions/term/fakeXterm")).FakeTerminal,
 }));
 
-async function openSecurity(mock = createMockIpc({ vault: "unlocked", autoLockMinutes: 30 })) {
+async function openSecurity(
+  mock = createMockIpc({ vault: "unlocked", autoLockMinutes: 30 }),
+) {
   const app = createApp(mock);
   render(App, { props: { app, demo: false } });
-  await waitFor(() => expect(app.vault.status).toBe("unlocked"));
-  await fireEvent.click(screen.getByRole("button", { name: "Credentials…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Credentials" });
+  await waitFor(() => expect(app.doc.status).toBe("ready"));
+  app.ui.open({ type: "settings" });
+  const dialog = await screen.findByRole("dialog", { name: "Settings" });
   const select = (await within(dialog).findByRole("combobox", {
     name: "Lock the vault after inactivity",
   })) as HTMLSelectElement;
-  return { mock, dialog, select };
+  return { app, mock, dialog, select };
 }
 
 beforeEach(() => {
@@ -68,5 +70,31 @@ describe("Security: auto-lock time", () => {
     await waitFor(() => expect(select.value).toBe("30"));
     expect(await screen.findByText("The auto-lock time could not be changed")).toBeTruthy();
     expect(await mock.vaultGetAutoLock()).toBe(30);
+  });
+
+  it("is there with a locked vault, without asking to unlock", async () => {
+    const mock = createMockIpc({ vault: "locked", autoLockMinutes: 5 });
+    const { app, select } = await openSecurity(mock);
+    await waitFor(() => expect(select.value).toBe("5"));
+    expect(app.vault.status).toBe("locked");
+    expect(screen.queryByRole("dialog", { name: "Unlock the vault" })).toBeNull();
+  });
+
+  it("is absent when there is no vault", async () => {
+    const app = createApp(createMockIpc({ vault: "notCreated" }));
+    render(App, { props: { app, demo: false } });
+    await waitFor(() => expect(app.doc.status).toBe("ready"));
+    app.ui.open({ type: "settings" });
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    expect(within(dialog).queryByRole("combobox", { name: "Lock the vault after inactivity" })).toBeNull();
+  });
+
+  it("is no longer in the credentials window", async () => {
+    const app = createApp(createMockIpc({ vault: "unlocked" }));
+    render(App, { props: { app, demo: false } });
+    await waitFor(() => expect(app.vault.status).toBe("unlocked"));
+    await fireEvent.click(screen.getByRole("button", { name: "Credentials…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Credentials" });
+    expect(within(dialog).queryByRole("combobox")).toBeNull();
   });
 });

@@ -1190,7 +1190,7 @@
 :root[data-density="compact"] {
   --row-h-compact: 20px;
   --row-h-regular: 24px;
-  --row-h-comfortable: 28px;
+  --row-h-comfortable: 32px;
   --row-indent: var(--space-3);
   --row-gap: 0px;
 }

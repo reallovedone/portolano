@@ -6,7 +6,8 @@
 
 <p align="center">
   <strong>One window for every remote connection.</strong><br>
-  SSH, RDP, VNC, web consoles and local shells — in tabs, with an encrypted vault.
+  SSH, RDP, VNC, web consoles and local shells — in tabs, with an encrypted vault.<br>
+  <a href="https://portolano.cloud">portolano.cloud</a>
 </p>
 
 <p align="center">
@@ -55,17 +56,25 @@ fix it and send a pull request.
 
 - **SSH and local shells** in a real terminal: password or key authentication,
   jump hosts, host-key verification.
-- **RDP** with Network Level Authentication (Kerberos for domain accounts, NTLM otherwise) and remote cursor.
+- **RDP** with Network Level Authentication (Kerberos for domain accounts, NTLM otherwise),
+  remote cursor, shared clipboard and file transfer (both optional), keep-alive for tabs in
+  the background, and Mac shortcuts (⌘ keys sent as Ctrl).
 - **VNC**, with password authentication, and TLS encryption (VeNCrypt) when the
   server provides a certificate.
 - **Web** consoles in tabs, optionally each with its own isolated cookie store.
-- **A tree of folders and connections**, with search, tags, drag and drop, and
-  credentials inherited from the parent folder.
+- **Tabs** with Reconnect, a Home tab that keeps the welcome screen at hand, and a slim
+  session bar (Reconnect, Duplicate, Close, Ctrl+Alt+Del, host and connection protection).
+- **A tree of folders and connections**, with search, tags, drag and drop, your own
+  order, an icon and a colour for each item, and credentials inherited from the parent folder.
+- **Shared folders** for a team: publish a folder once, and your colleagues see it in their
+  own tree and stay up to date. See [below](#shared-folders).
 - **An encrypted vault** for credentials — optional: with no credential assigned,
-  Portolano simply asks when you connect.
+  Portolano simply asks when you connect. Credentials can be searched and filtered, and the
+  vault can reopen with Touch ID or Windows Hello.
 - **Import** from OpenSSH config, `.rdp` files, MobaXterm, mRemoteNG and CSV;
   **export** to JSON and `.rdp`.
-- Light and dark themes that follow the system.
+- **Settings:** system, light or dark theme; colour themes (Portolano, Nord, Solarized, Rosé
+  Pine); accent colour; compact density; terminal font size.
 
 <p align="center">
   <picture>
@@ -82,6 +91,44 @@ fix it and send a pull request.
   </picture>
 </p>
 
+## Shared folders
+
+An IT team usually keeps its list of servers in a spreadsheet, a wiki page, or in everyone's
+head. With Portolano, one person keeps a folder of connections up to date and the others
+subscribe to it: the folder appears in their tree, read-only, and follows every change.
+No Git, no server software, no account.
+
+**Publishing.** Right-click a folder and choose *Share…*. Portolano writes it as a single
+`.portolano-share` file wherever your team already shares files: a network drive, a OneDrive
+or Nextcloud folder, or the folder an internal web server publishes. The file is signed with
+your *identity*, a key pair kept in your vault and shown to others as a name and a short
+fingerprint (`7F3A-91C2-0B4D-E6A8`) you can compare on the phone. *Settings → Identity*
+creates it, and exports an encrypted backup to move it to another computer. When you change
+the folder, publish again.
+
+**Subscribing.** *Add Remote Folder…* takes a file path or an `https://` address, shows who
+signed it, its fingerprint and every host it contains, and asks where to place it in your
+tree. The folder is checked at startup, every 15 minutes and with *Sync now*.
+
+**What subscribers can do.** Connect, and choose their own credentials: each connection
+inherits them from the local folder you place the share in, or you set one with
+*Credential…*. Nothing else in a shared folder can be changed, moved or deleted; *Unsubscribe…*
+removes it. *Share info…* shows the owner, the revision, when it was last synced and why an
+update was refused, if one was.
+
+**Why you can trust what arrives.**
+
+- The file never contains passwords or credentials, only connections and folders.
+- An update is accepted only if it is signed by the same owner you accepted the first time,
+  and is newer than the copy you have: an older file cannot be slipped back in. If the
+  owner's key changes, Portolano refuses the update instead of asking.
+- A refused update changes nothing: you keep the last valid copy and a dot on the folder
+  tells you something is wrong.
+- Whatever the file says is cleaned before it reaches your tree (details under
+  [Security](#security)), and a connection whose host, port or user changed, or that is new,
+  gets no credential until you confirm it in *Share info…*: a saved password never follows a
+  host you have not seen.
+
 ## Security
 
 A tool that holds the keys to your servers has to earn trust. Portolano is written in Rust on
@@ -92,6 +139,7 @@ established open-source implementations, with no home-made cryptography:
 | SSH | [`russh`](https://github.com/Eugeny/russh), a pure-Rust SSH client |
 | RDP | [IronRDP](https://github.com/Devolutions/IronRDP) by Devolutions |
 | TLS and vault | [`rustls`](https://github.com/rustls/rustls); [RustCrypto](https://github.com/RustCrypto) `argon2` and `chacha20poly1305` |
+| Shared-folder signatures | [`ed25519-dalek`](https://github.com/dalek-cryptography/curve25519-dalek) (Ed25519) |
 
 **How the vault is encrypted.** Your master password is never stored. It is stretched with
 **Argon2id** (64 MiB of memory, 3 passes for new vaults) into a key that exists only in
@@ -101,9 +149,9 @@ vault file tampered with, even by a single bit, is rejected rather than decrypte
 changing the master password creates a new data key and encrypts the vault again (a copy
 made before the change still opens with the old password). Every save uses a fresh nonce and
 replaces the file atomically. The vault locks after a chosen period of inactivity (15 minutes
-by default; 5, 30 or 60 minutes, or never, can be set in the Security section of the
-credentials window), counting time spent asleep, and when the application quits. Keys and
-decrypted secrets are zeroed on lock. Optionally, quick unlock reopens the vault with Touch ID
+by default; 5, 30 or 60 minutes, or never, can be set in *Settings → Security*), counting
+time spent asleep, and when the application quits. Keys and decrypted secrets are zeroed on
+lock. Optionally (also in *Settings → Security*), quick unlock reopens the vault with Touch ID
 (macOS) or Windows Hello (Windows) after you have unlocked it once with the master password,
 which always works too. Quick unlock keeps the vault key in Portolano's memory while the app
 is open; quit the app to require the master password again.
@@ -116,6 +164,12 @@ is open; quit the app to require the master password again.
 - Imports never bring passwords in: every imported entry starts with no credential, the
   certificate check on and NLA required, and local-shell entries naming a program are not
   imported. The preview lists what was changed. Exports never contain passwords.
+- Shared folders are signed with Ed25519 and checked on every update (see
+  [Shared folders](#shared-folders)). Their content is cleaned like an import, even when the
+  signature is valid: certificate and NLA checks are switched back on, RDP clipboard sharing
+  and the Kerberos KDC are cleared, local-shell entries are left out (a shared connection can
+  never run a program on your computer), and jump hosts outside the share are dropped. Web
+  addresses must use `https://`; files are limited to 5 MB.
 - SSH host keys and RDP/VNC certificates are confirmed on first use (certificates are pinned
   by SHA-256 fingerprint, and the server must prove it owns its certificate). If one
   **changes**, Portolano refuses until you remove the stored one: no "connect anyway".
@@ -167,7 +221,9 @@ time. Check the file against `SHA256SUMS.txt` if you want to be sure.
 
 **Updates.** From 0.2.0 Portolano checks GitHub for a newer release and, only if you agree,
 downloads, verifies and installs it, then restarts (*Check for updates…* does it on demand;
-the automatic check can be switched off in the settings). Updates are verified with a signing
+the automatic check can be switched off in the settings). *Settings → Updates* also has an
+opt-in *Include pre-releases* for test versions, and *Help → Release Notes…* (on macOS;
+otherwise Settings) lists what changed in every version. Updates are verified with a signing
 key of the project, which is separate from the system code signing: the builds stay unsigned,
 but updated copies do not bring the first-launch warning back. If you have 0.1.0, install
 0.2.0 by hand once. What changed in each version is in the [changelog](CHANGELOG.md).
@@ -191,6 +247,9 @@ The repository vendors one patched third-party crate (`vendor/sspi`); see
 
 Your data is stored in the operating system's application-data folder
 (`~/Library/Application Support/portolano` on macOS), never inside the repository.
+
+To keep development data apart from your real data, set `PORTOLANO_DATA_DIR` to a folder of
+your choice (`pnpm dev` honours it).
 
 To work on the interface without a backend, `pnpm dev:mock` serves it with demo data.
 

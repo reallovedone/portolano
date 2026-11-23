@@ -86,6 +86,11 @@
   .comfortable {
     min-height: var(--row-h-comfortable);
   }
+  /* Compact density: name and second line (host) must fit the shorter row without touching the
+     rows around them, so their lines get the tight line height. */
+  :global(:root[data-density="compact"]) .comfortable .main {
+    line-height: var(--line-height-tight);
+  }
   .row:hover:not(.disabled),
   .force-hover {
     background: var(--surface-hover);
