@@ -8,6 +8,7 @@ import { createApp, type App as AppState } from "../state/app";
 import { createMockFilePicker } from "../transfer/files";
 import { treeSelectOptions } from "../ui/treeSelectTesting";
 import { checkLocation, displayText, hostLine } from "./display";
+import { shareIndicator, shareTooltip } from "./status";
 
 vi.mock("@xterm/xterm", async () => ({
   Terminal: (await import("../sessions/term/fakeXterm")).FakeTerminal,
@@ -371,6 +372,75 @@ describe("ShareInfoDialog", () => {
     expect(screen.getByText("/tmp/lab.portolano-share")).toBeTruthy();
     await fireEvent.click(screen.getByRole("button", { name: "Publish update" }));
     await waitFor(() => expect(app.doc.shares.find((s) => s.id === link.id)?.revision).toBe(2));
+  });
+});
+
+describe("share status", () => {
+  const base = { role: "subscriber" as const, status: "ok" as const, pendingTargets: 0, lastError: null, lastSync: null };
+
+  it("a_failure_wins_over_hosts_waiting_for_confirmation", () => {
+    expect(shareIndicator({ ...base, pendingTargets: 2 }).kind).toBe("pending");
+    expect(shareIndicator({ ...base, pendingTargets: 2, status: "offline" }).kind).toBe("offline");
+    expect(shareIndicator({ ...base, status: "rejected" }).tone).toBe("warning");
+    expect(shareIndicator({ ...base, status: "error" }).tone).toBe("danger");
+    expect(shareIndicator({ ...base, role: "owner" }).kind).toBe("owned");
+  });
+
+  it("the_tooltip_says_the_state_the_reason_and_the_last_update", () => {
+    const offline = shareTooltip({ ...base, status: "offline", lastError: "unreachable\u202e host" });
+    expect(offline.split("\n")).toEqual([
+      "Offline: showing the last copy received",
+      "unreachable host",
+      "Last updated: Never",
+    ]);
+    expect(shareTooltip({ ...base, pendingTargets: 3 })).toContain("3 connections wait");
+    expect(shareTooltip({ ...base, role: "owner" })).toBe("Shared by you");
+  });
+});
+
+describe("share status in the tree", () => {
+  const statusOf = (): string | null | undefined =>
+    document
+      .querySelector(`[data-node-id="${MOCK_SHARE_IDS.root}"] [data-share-status]`)
+      ?.getAttribute("data-share-status");
+
+  it("the_share_root_shows_one_icon_per_state", async () => {
+    const { app, ipc } = await start({ shares: true });
+    await waitFor(() => expect(statusOf()).toBe("pending"));
+    ipc.simulate.shareStatus(MOCK_SHARE_IDS.link, "offline", "The source cannot be reached.");
+    await waitFor(() => expect(statusOf()).toBe("offline"));
+    const icon = document.querySelector(`[data-node-id="${MOCK_SHARE_IDS.root}"] [data-share-status]`)!;
+    expect(icon.getAttribute("title")).toContain("The source cannot be reached.");
+    ipc.simulate.shareStatus(MOCK_SHARE_IDS.link, "rejected", "Bad signature.");
+    await waitFor(() => expect(statusOf()).toBe("rejected"));
+    expect(app.doc.shares[0]?.status).toBe("rejected");
+  });
+
+  it("a_share_with_no_copy_stays_listed_and_can_be_unsubscribed", async () => {
+    const { app, ipc } = await start({ shares: true });
+    ipc.simulate.shareStatus(MOCK_SHARE_IDS.link, "offline", "The source cannot be reached.", true);
+    const list = await screen.findByRole("list", { name: "Shared folders not available" });
+    const row = within(list).getByRole("listitem", { name: /Team lab/ });
+    expect(row.querySelector("[data-share-status]")?.getAttribute("data-share-status")).toBe("offline");
+
+    await fireEvent.click(within(row).getByRole("button", { name: "More actions" }));
+    await fireEvent.click(await screen.findByRole("menuitem", { name: /Unsubscribe/ }));
+    const dialog = await screen.findByRole("dialog", { name: /Unsubscribe/ });
+    await fireEvent.click(within(dialog).getByRole("button", { name: /Unsubscribe/ }));
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Shared folders not available" })).toBeNull());
+    expect(app.doc.shares.some((s) => s.id === MOCK_SHARE_IDS.link)).toBe(false);
+  });
+
+  it("share_info_shows_the_status_and_syncs_now", async () => {
+    const { app, ipc } = await start({ shares: true });
+    ipc.simulate.shareStatus(MOCK_SHARE_IDS.link, "offline", "The source cannot be reached.");
+    await waitFor(() => expect(app.doc.shares[0]?.status).toBe("offline"));
+    const sync = vi.spyOn(ipc, "shareSync");
+    app.ui.open({ type: "shareInfo", linkId: MOCK_SHARE_IDS.link });
+    const dialog = await screen.findByRole("dialog", { name: "Shared folder “Team lab”" });
+    expect(within(dialog).getByText("Offline: showing the last copy received")).toBeTruthy();
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Sync now" }));
+    await waitFor(() => expect(sync).toHaveBeenCalledWith(MOCK_SHARE_IDS.link));
   });
 });
 

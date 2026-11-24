@@ -330,6 +330,7 @@ describe("shared folders", () => {
     publishedAt: null,
     lastSync: null,
     lastError: null,
+    status: "ok",
     pendingTargets: 0,
     pendingHosts: [],
     location: null,

@@ -2,7 +2,7 @@
   import { tick } from "svelte";
 
   import { t, type StringKey } from "../i18n/strings";
-  import { DELETE_CONTAINS_SHARES, type Node, type Uuid } from "../ipc";
+  import { DELETE_CONTAINS_SHARES, type Node, type ShareSummary, type Uuid } from "../ipc";
   import { detectMac, shortcutLabel } from "../shortcuts";
   import { getApp } from "../state/app";
   import Badge from "../ui/Badge.svelte";
@@ -24,6 +24,7 @@
   import TextField from "../ui/TextField.svelte";
   import MoveDialog from "./MoveDialog.svelte";
   import { ERROR_MAX, displayText } from "../shares/display";
+  import { shareIndicator, shareTooltip } from "../shares/status";
   import RemoteCredentialDialog from "./RemoteCredentialDialog.svelte";
   import SidebarHeader from "./SidebarHeader.svelte";
   import {
@@ -62,6 +63,9 @@
   const filter = $derived(filterNodes(doc.nodes, query));
   const roots = $derived(buildTree(doc.nodes, doc.remoteNodes));
   const rows = $derived(flattenTree(roots, doc.expanded, filter));
+  // Subscribed folders with no usable copy have no node to show: they get a placeholder row
+  // below the tree so they can still be synced, inspected or unsubscribed.
+  const unavailable = $derived(doc.shares.filter((s) => s.role === "subscriber" && s.rootNodeId === null));
   const focusId = $derived(
     ui.selectedId !== null && rows.some((r) => r.node.id === ui.selectedId)
       ? ui.selectedId
@@ -73,12 +77,13 @@
     | { type: "delete"; node: Node; error: string | null }
     // Deleting a folder that holds shared folders: unsubscribe from them first.
     | { type: "deleteWithShares"; node: Node; error: string | null }
-    | { type: "unsubscribe"; node: Node; linkId: Uuid; error: string | null }
+    // `rootId` is null for a share with no copy on this computer (nothing in the tree to remove).
+    | { type: "unsubscribe"; name: string; linkId: Uuid; rootId: Uuid | null; error: string | null }
     | { type: "credential"; node: Node }
     | { type: "move"; node: Node }
     | { type: "newFolder"; parentId: Uuid | null };
   let pending = $state<Pending | null>(null);
-  let menu = $state<{ x: number; y: number; node: Node | null; kind?: "more" } | null>(null);
+  let menu = $state<{ x: number; y: number; node: Node | null; kind?: "more"; linkId?: Uuid } | null>(null);
   let draggingId = $state<Uuid | null>(null);
   let dropTarget = $state<Uuid | "root" | null>(null);
   let dropLine = $state<{ id: Uuid; edge: DropEdge } | null>(null);
@@ -196,16 +201,44 @@
     await confirmDelete(node, true);
   }
 
-  async function confirmUnsubscribe(node: Node, linkId: Uuid): Promise<void> {
-    const doomed = subtreeIds(doc.nodes, node.id);
+  async function confirmUnsubscribe(name: string, linkId: Uuid, rootId: Uuid | null): Promise<void> {
+    const doomed = rootId === null ? new Set<Uuid>() : subtreeIds(doc.nodes, rootId);
     const result = await doc.unsubscribe(linkId);
     if (!result.ok) {
-      pending = { type: "unsubscribe", node, linkId, error: `${result.error.message} (${result.error.code})` };
+      const error = `${result.error.message} (${result.error.code})`;
+      pending = { type: "unsubscribe", name, linkId, rootId, error };
       return;
     }
     pending = null;
     await tabs.closeForConnections(doomed);
     if (ui.selectedId !== null && doomed.has(ui.selectedId)) ui.selectedId = null;
+  }
+
+  /** The share whose state shows next to this node: a subscribed root or an owned folder. */
+  function shareStatusOf(id: Uuid): ShareSummary | undefined {
+    if (isRemote(doc, id) && !isShareRoot(doc, id)) return undefined;
+    return shareOf(doc, id);
+  }
+
+  function askUnsubscribe(name: string, linkId: Uuid, rootId: Uuid | null): void {
+    pending = { type: "unsubscribe", name, linkId, rootId, error: null };
+  }
+
+  /** Menu of a placeholder row: a subscribed folder with no copy on this computer. */
+  function unavailableMenu(linkId: Uuid): MenuItem[] {
+    const share = doc.shares.find((s) => s.id === linkId);
+    if (!share) return [];
+    return [
+      { label: t("share.syncNow"), action: () => void syncNow(share.id), icon: "refresh" },
+      { label: t("share.info"), action: () => ui.open({ type: "shareInfo", linkId: share.id }), icon: "info" },
+      {
+        label: t("share.unsubscribe"),
+        action: () => askUnsubscribe(share.name, share.id, null),
+        danger: true,
+        separatorBefore: true,
+        icon: "trash",
+      },
+    ];
   }
 
   async function syncNow(linkId: Uuid): Promise<void> {
@@ -355,7 +388,7 @@
           },
           {
             label: t("share.unsubscribe"),
-            action: () => (pending = { type: "unsubscribe", node, linkId: share.id, error: null }),
+            action: () => askUnsubscribe(node.name, share.id, node.id),
             danger: true,
             separatorBefore: true,
             icon: "trash",
@@ -535,6 +568,31 @@
     menu = { x: event.clientX, y: event.clientY, node };
   }
 
+  function openUnavailableMenu(event: MouseEvent | KeyboardEvent, linkId: Uuid): void {
+    event.preventDefault();
+    event.stopPropagation();
+    let x: number;
+    let y: number;
+    if (event instanceof MouseEvent && event.clientX + event.clientY > 0) {
+      x = event.clientX;
+      y = event.clientY;
+    } else {
+      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      x = rect.left;
+      y = rect.bottom;
+    }
+    menu = { x, y, node: null, linkId };
+  }
+
+  function onUnavailableKeydown(event: KeyboardEvent, name: string, linkId: Uuid): void {
+    if (event.key === "Enter" || event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      openUnavailableMenu(event, linkId);
+    } else if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      askUnsubscribe(name, linkId, null);
+    }
+  }
+
   function openMenuForRow(row: TreeRow): void {
     const el = treeEl?.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(row.node.id)}"]`);
     const rect = el?.getBoundingClientRect();
@@ -592,7 +650,7 @@
       case "Delete": {
         event.preventDefault();
         const share = isShareRoot(doc, row.node.id) ? shareOf(doc, row.node.id) : undefined;
-        if (share) pending = { type: "unsubscribe", node: row.node, linkId: share.id, error: null };
+        if (share) askUnsubscribe(row.node.name, share.id, row.node.id);
         else if (!isRemote(doc, row.node.id)) pending = { type: "delete", node: row.node, error: null };
         break;
       }
@@ -793,7 +851,7 @@
         <Button onclick={() => doc.load()}>{t("app.retry")}</Button>
       </div>
     {:else}
-      {#if rows.length === 0}
+      {#if rows.length === 0 && (filter || unavailable.length === 0)}
         <div class="above">
           {#if filter}
             <EmptyState icon="search" title={t("tree.noMatchesTitle")} text={t("tree.noMatches")} />
@@ -813,6 +871,43 @@
               {/snippet}
             </EmptyState>
           {/if}
+        </div>
+      {/if}
+      {#if unavailable.length > 0 && !filter}
+        <div class="unavailable" role="list" aria-label={t("share.unavailableTitle")}>
+          {#each unavailable as share (share.id)}
+            {@const status = shareIndicator(share)}
+            <ListRow
+              role="listitem"
+              density="comfortable"
+              tabindex={0}
+              title={shareTooltip(share)}
+              data-share-id={share.id}
+              aria-label={`${share.name}: ${status.label}`}
+              oncontextmenu={(e) => openUnavailableMenu(e, share.id)}
+              ondblclick={(e) => openUnavailableMenu(e, share.id)}
+              onkeydown={(e) => onUnavailableKeydown(e, share.name, share.id)}
+            >
+              {#snippet leading()}
+                <span class="lead"><NodeIcon kind="folder" size={20} /></span>
+              {/snippet}
+              <span class="name-line">
+                <span class="name unavailable-name">{share.name}</span>
+                <span class="share-status tone-{status.tone}" data-share-status={status.kind}>
+                  <Icon name={status.icon} size={14} />
+                </span>
+              </span>
+              {#snippet secondary()}<span class="host">{t("share.unavailableHint")}</span>{/snippet}
+              {#snippet trailing()}
+                <IconButton
+                  icon="more"
+                  size="compact"
+                  label={t("tree.more")}
+                  onclick={(e) => openUnavailableMenu(e, share.id)}
+                />
+              {/snippet}
+            </ListRow>
+          {/each}
         </div>
       {/if}
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -884,21 +979,19 @@
             <span class="name-line">
               <span class="name" title={node.name}>{node.name}</span>
               <NodeDot color={node.color} />
-              {#if isShareRoot(doc, node.id)}
-                {@const link = shareOf(doc, node.id)}
-                <span class="share-badge" title={t("share.badge")}>
-                  <Icon name="link" size={14} />
-                  {#if link && (link.lastError || link.pendingTargets > 0)}
-                    <span class="share-dot" title={t("share.badgeAttention")}></span>
-                  {/if}
+              {#if shareStatusOf(node.id)}
+                {@const link = shareStatusOf(node.id)!}
+                {@const status = shareIndicator(link)}
+                <span
+                  class="share-status tone-{status.tone}"
+                  title={shareTooltip(link)}
+                  data-share-status={status.kind}
+                >
+                  <Icon name={status.icon} size={14} />
                 </span>
               {:else if isRemote(doc, node.id)}
-                <span class="share-lock" title={t("share.lockedItem")}>
+                <span class="share-status tone-quiet" title={t("share.lockedItem")}>
                   <Icon name="lock" size={14} />
-                </span>
-              {:else if shareOf(doc, node.id)}
-                <span class="share-badge" title={t("share.badgeOwned")}>
-                  <Icon name="link" size={14} />
                 </span>
               {/if}
             </span>
@@ -925,7 +1018,13 @@
     x={menu.x}
     y={menu.y}
     label={t("tree.label")}
-    items={menu.kind === "more" ? moreMenu() : menu.node ? nodeMenu(menu.node) : blankMenu()}
+    items={menu.kind === "more"
+      ? moreMenu()
+      : menu.linkId
+        ? unavailableMenu(menu.linkId)
+        : menu.node
+          ? nodeMenu(menu.node)
+          : blankMenu()}
     onclose={() => (menu = null)}
   />
 {/if}
@@ -970,14 +1069,13 @@
     oncancel={() => (pending = null)}
   />
 {:else if pending?.type === "unsubscribe"}
-  {@const target = pending.node}
-  {@const linkId = pending.linkId}
+  {@const { name, linkId, rootId } = pending}
   <ConfirmDialog
     title={t("share.unsubscribeTitle")}
-    message={t("share.unsubscribeBody", { name: target.name })}
+    message={t("share.unsubscribeBody", { name })}
     confirmLabel={t("share.unsubscribeConfirm")}
     error={pending.error}
-    onconfirm={() => confirmUnsubscribe(target, linkId)}
+    onconfirm={() => confirmUnsubscribe(name, linkId, rootId)}
     oncancel={() => (pending = null)}
   />
 {:else if pending?.type === "credential"}
@@ -1088,21 +1186,29 @@
     font-size: var(--font-size-sm);
   }
 
-  .share-badge,
-  .share-lock {
-    position: relative;
+  .unavailable {
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--border-hairline);
+  }
+  .unavailable-name {
+    color: var(--text-secondary);
+  }
+
+  .share-status {
     display: inline-flex;
     flex: none;
+  }
+  .tone-quiet {
     color: var(--text-tertiary);
   }
-  .share-dot {
-    position: absolute;
-    top: calc(-1 * var(--space-1) / 2);
-    right: calc(-1 * var(--space-1) / 2);
-    width: var(--space-2);
-    height: var(--space-2);
-    border-radius: var(--radius-full);
-    background: var(--warning-text);
+  .tone-muted {
+    color: var(--text-secondary);
+  }
+  .tone-warning {
+    color: var(--warning-text);
+  }
+  .tone-danger {
+    color: var(--danger-text);
   }
 
   .tags {

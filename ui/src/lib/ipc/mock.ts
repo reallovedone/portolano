@@ -37,6 +37,7 @@ import type {
   QuitReply,
   RevealedSecret,
   SecretInput,
+  ShareStatus,
   TermEvent,
   Uuid,
   VaultStatus,
@@ -538,6 +539,8 @@ export interface MockIpc extends Ipc {
     sharesChanged(): void;
     /** A share moves to its next revision without the UI hearing of it (for conflict tests). */
     bumpShareRevision(linkId: Uuid): void;
+    /** A share ends up offline, refused or broken (see `MockShares.setStatus`), then the UI hears of it. */
+    shareStatus(linkId: Uuid, status: ShareStatus, lastError: string | null, dropCopy?: boolean): void;
   };
   /** Every `menuSetSessionKeys` call, in order. */
   readonly sessionKeyCaptures: readonly boolean[];
@@ -699,6 +702,10 @@ export function createMockIpc(options: MockOptions = {}): MockIpc {
       },
       sharesChanged: () => shares.notifyChanged(),
       bumpShareRevision: (linkId) => shares.bumpRevision(linkId),
+      shareStatus(linkId, status, lastError, dropCopy) {
+        shares.setStatus(linkId, status, lastError, dropCopy);
+        shares.notifyChanged();
+      },
     },
     quitReplies,
     sessionKeyCaptures,

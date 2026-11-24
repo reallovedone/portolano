@@ -72,6 +72,22 @@ pub fn read_only() -> AppError {
     )
 }
 
+/// Why a share needs attention, for the icon next to it in the tree. Host confirmations are
+/// counted apart (`pending_targets`): they are not a failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShareStatus {
+    Ok,
+    /// The file could not be reached or read: the last good copy stays in use.
+    Offline,
+    /// The file was read but refused by a check (signature, owner, revision, content).
+    Rejected,
+    /// Anything else that went wrong (the copy on this computer, writing the file).
+    Error,
+    /// The owner's local folder was deleted.
+    FolderDeleted,
+}
+
 /// What the UI shows about one share.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,6 +105,7 @@ pub struct ShareSummary {
     pub published_at: Option<String>,
     pub last_sync: Option<String>,
     pub last_error: Option<String>,
+    pub status: ShareStatus,
     /// Connections whose target is new or changed and not confirmed yet.
     pub pending_targets: u32,
     /// Those connections, one entry each (what the user is asked to confirm).
@@ -164,6 +181,12 @@ struct Inner {
     validators: BTreeMap<Uuid, Validator>,
     /// When a link was last checked without a change (shown as its last sync).
     checked: BTreeMap<Uuid, String>,
+    /// What kind of failure `last_error` is (not kept across restarts: a remembered error
+    /// counts as [`ShareStatus::Error`] until the next sync says more).
+    error_kinds: BTreeMap<Uuid, ShareStatus>,
+    /// One gate per link, so a share is never synced twice at once while a slow or dead
+    /// source does not hold up the others.
+    sync_gates: BTreeMap<Uuid, Arc<tokio::sync::Mutex<()>>>,
     previews: VecDeque<Preview>,
 }
 
@@ -186,7 +209,6 @@ pub struct ShareService {
     notifier: Arc<Notifier>,
     inner: Mutex<Inner>,
     /// One sync at a time: the periodic one and the ones asked for by the user.
-    sync_gate: tokio::sync::Mutex<()>,
     /// One publication at a time (signing needs the vault, which is never locked under the
     /// store): together with the re-check in the final critical section it keeps a folder from
     /// getting two owner links.
@@ -335,7 +357,6 @@ impl ShareService {
             vault,
             notifier,
             inner: Mutex::new(Inner::default()),
-            sync_gate: tokio::sync::Mutex::new(()),
             publish_gate: Mutex::new(()),
             stop: tokio::sync::Notify::new(),
         }
@@ -417,6 +438,9 @@ impl ShareService {
                 }
                 Err(text) => failed.push((link.id, text)),
             }
+        }
+        for (id, _) in &failed {
+            inner.error_kinds.insert(*id, ShareStatus::Error);
         }
         drop(inner);
         if failed.is_empty() {
@@ -541,6 +565,17 @@ impl ShareService {
                 } else {
                     link.last_error.clone()
                 };
+                let status = if folder_gone {
+                    ShareStatus::FolderDeleted
+                } else if last_error.is_some() {
+                    inner
+                        .error_kinds
+                        .get(&link.id)
+                        .copied()
+                        .unwrap_or(ShareStatus::Error)
+                } else {
+                    ShareStatus::Ok
+                };
                 let (signer_name, published_at) = match (link.role, loaded) {
                     (ShareRole::Owner, _) => {
                         (Some(link.owner_name.clone()), link.last_sync.clone())
@@ -567,6 +602,7 @@ impl ShareService {
                     published_at,
                     last_sync,
                     last_error,
+                    status,
                     pending_targets: merged.pending.get(&link.id).copied().unwrap_or(0),
                     pending_hosts: merged
                         .pending_hosts
@@ -953,6 +989,8 @@ impl ShareService {
             inner.mounts.remove(&link_id);
             inner.validators.remove(&link_id);
             inner.checked.remove(&link_id);
+            inner.error_kinds.remove(&link_id);
+            inner.sync_gates.remove(&link_id);
             Ok(())
         })?;
         self.remove_cache(link_id);
@@ -1188,10 +1226,11 @@ impl ShareService {
                 }
                 Ok(())
             })?;
+            self.inner()?.error_kinds.remove(&link_id);
             Ok(())
         })?;
         if let Err(e) = Self::write_share_file(&path, &bytes) {
-            self.set_error(link_id, &e.message);
+            self.set_error(link_id, ShareStatus::Error, &e.message);
             return Err(e);
         }
         self.with_store(|store| self.summary_of(store.document(), link_id))
@@ -1202,8 +1241,10 @@ impl ShareService {
     /// Syncs one subscribed share (`Some`) or all of them (`None`). A share that cannot be
     /// reached or fails a check keeps what it had and gets a `last_error`; that is not an
     /// error of this call. Returns the summaries of the shares that were synced.
-    pub async fn sync(&self, link_id: Option<Uuid>) -> Result<Vec<ShareSummary>, AppError> {
-        let _gate = self.sync_gate.lock().await;
+    pub async fn sync(
+        self: &Arc<Self>,
+        link_id: Option<Uuid>,
+    ) -> Result<Vec<ShareSummary>, AppError> {
         let ids = self.with_store(|store| {
             let links = &store.document().shares;
             match link_id {
@@ -1223,13 +1264,20 @@ impl ShareService {
                     .collect()),
             }
         })?;
+        // All at once: a share on a server that does not answer only delays itself.
+        let mut tasks = tokio::task::JoinSet::new();
+        for id in ids.iter().copied() {
+            let service = Arc::clone(self);
+            tasks.spawn(async move { service.sync_gated(id).await });
+        }
         let mut changed = false;
-        for id in &ids {
-            match self.sync_one(*id).await {
-                Ok(c) => changed |= c,
-                Err(e) => {
+        while let Some(joined) = tasks.join_next().await {
+            match joined {
+                Ok(Ok(c)) => changed |= c,
+                Ok(Err(e)) => {
                     tracing::warn!(code = e.code.as_str(), "share sync failed: {}", e.message)
                 }
+                Err(e) => tracing::warn!("share sync task ended abnormally: {e}"),
             }
         }
         if changed {
@@ -1239,6 +1287,13 @@ impl ShareService {
             let all = self.summaries(store.document())?;
             Ok(all.into_iter().filter(|s| ids.contains(&s.id)).collect())
         })
+    }
+
+    /// `sync_one` behind the link's gate (a manual sync waits for the periodic one).
+    async fn sync_gated(&self, id: Uuid) -> Result<bool, AppError> {
+        let gate = Arc::clone(self.inner()?.sync_gates.entry(id).or_default());
+        let _held = gate.lock().await;
+        self.sync_one(id).await
     }
 
     /// Whether anything the UI shows changed.
@@ -1264,7 +1319,14 @@ impl ShareService {
         };
         let fetched = match transport::fetch(&location, &previous).await {
             Ok(fetched) => fetched,
-            Err(e) => return self.record_error(id, &e.to_string()),
+            Err(e) => {
+                let kind = if e.is_offline() {
+                    ShareStatus::Offline
+                } else {
+                    ShareStatus::Error
+                };
+                return self.record_error(id, kind, &e.to_string());
+            }
         };
         let (data, validator) = match fetched {
             Fetched::NotModified => {
@@ -1279,7 +1341,7 @@ impl ShareService {
             None
         };
         match check_update(&link, &data, has_mount, cached_hash) {
-            Err(text) => self.record_error(id, &text),
+            Err(text) => self.record_error(id, ShareStatus::Rejected, &text),
             Ok(Checked::Same) => self.record_same(id, validator, link.last_error.is_some()),
             Ok(Checked::New(update)) => self.apply_update(id, *update, validator),
         }
@@ -1301,6 +1363,7 @@ impl ShareService {
             let mut inner = self.inner()?;
             inner.validators.insert(id, validator);
             inner.checked.insert(id, now_rfc3339());
+            inner.error_kinds.remove(&id);
         }
         if !had_error {
             return Ok(false);
@@ -1318,8 +1381,12 @@ impl ShareService {
     }
 
     /// Keeps the cache and the mounted tree, remembers why the sync failed.
-    fn record_error(&self, id: Uuid, text: &str) -> Result<bool, AppError> {
-        self.inner()?.validators.remove(&id);
+    fn record_error(&self, id: Uuid, kind: ShareStatus, text: &str) -> Result<bool, AppError> {
+        let kind_changed = {
+            let mut inner = self.inner()?;
+            inner.validators.remove(&id);
+            inner.error_kinds.insert(id, kind) != Some(kind)
+        };
         self.with_store(|store| {
             let current = store
                 .document()
@@ -1327,8 +1394,11 @@ impl ShareService {
                 .iter()
                 .find(|l| l.id == id)
                 .map(|l| l.last_error.clone());
-            if current.is_none_or(|e| e.as_deref() == Some(text)) {
+            let Some(current) = current else {
                 return Ok(false);
+            };
+            if current.as_deref() == Some(text) {
+                return Ok(kind_changed);
             }
             store.apply_batch(|doc| {
                 if let Some(link) = doc.shares.iter_mut().find(|l| l.id == id) {
@@ -1341,8 +1411,8 @@ impl ShareService {
     }
 
     /// Best effort `record_error` for paths that already return their own error.
-    fn set_error(&self, id: Uuid, text: &str) {
-        if let Err(e) = self.record_error(id, text) {
+    fn set_error(&self, id: Uuid, kind: ShareStatus, text: &str) {
+        if let Err(e) = self.record_error(id, kind, text) {
             tracing::warn!(code = e.code.as_str(), "could not record a share error");
         }
     }
@@ -1356,7 +1426,11 @@ impl ShareService {
         let payload = &update.share.payload;
         // The cached copy first: if it cannot be saved, nothing else changes.
         if write_private_atomic(&self.cache_path(id), &update.share.raw).is_err() {
-            return self.record_error(id, "The new version could not be saved on this computer.");
+            return self.record_error(
+                id,
+                ShareStatus::Error,
+                "The new version could not be saved on this computer.",
+            );
         }
         let kept: BTreeSet<Uuid> = update.outcome.nodes.iter().map(Node::id).collect();
         let name = root_name(&update.outcome);
@@ -1389,6 +1463,7 @@ impl ShareService {
             );
             inner.validators.insert(id, validator);
             inner.checked.remove(&id);
+            inner.error_kinds.remove(&id);
             Ok(true)
         })?;
         if !applied {

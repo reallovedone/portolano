@@ -8,13 +8,16 @@
   import Banner from "../ui/Banner.svelte";
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
+  import Icon from "../ui/Icon.svelte";
   import { ERROR_MAX, displayText, hostLine } from "./display";
+  import { shareIndicator } from "./status";
 
   let { linkId, onclose }: { linkId: string; onclose: () => void } = $props();
 
   const { doc, ipc, vault, notices } = getApp();
 
   const share = $derived(doc.shares.find((s) => s.id === linkId));
+  const status = $derived(share ? shareIndicator(share) : null);
   let busy = $state(false);
   let error = $state<string | null>(null);
   let note = $state<string | null>(null);
@@ -43,6 +46,23 @@
       }
     } finally {
       busy = false;
+    }
+  }
+
+  async function sync(): Promise<void> {
+    if (!share || busy) return;
+    busy = true;
+    error = null;
+    note = null;
+    const result = await doc.syncShare(linkId);
+    busy = false;
+    if (!result.ok) {
+      error = `${t("share.syncFailed")}: ${result.error.message} (${result.error.code})`;
+      return;
+    }
+    // A failed fetch is not an IPC error: the new state and its reason show in the facts below.
+    if (!doc.shares.find((s) => s.id === linkId)?.lastError) {
+      notices.push("info", t("share.synced"), t("share.syncedDetail", { name: displayText(share.name) }));
     }
   }
 
@@ -82,6 +102,13 @@
     {/if}
 
     <dl class="facts">
+      {#if status}
+        <dt>{t("share.infoStatus")}</dt>
+        <dd class="status tone-{status.tone}" data-share-status={status.kind}>
+          <Icon name={status.icon} size={14} />
+          <span>{status.label}</span>
+        </dd>
+      {/if}
       <dt>{t("share.infoOwner")}</dt>
       <dd class="clip" title={displayText(share.ownerName)}>{displayText(share.ownerName)}</dd>
       <dt>{t("share.infoFingerprint")}</dt>
@@ -129,6 +156,8 @@
   {#snippet footer()}
     {#if share?.role === "owner"}
       <Button disabled={busy} onclick={publish}>{t("share.publishUpdate")}</Button>
+    {:else if share}
+      <Button disabled={busy} onclick={sync}>{t("share.syncNow")}</Button>
     {/if}
     <Button variant="primary" data-autofocus onclick={onclose}>{t("common.close")}</Button>
   {/snippet}
@@ -153,6 +182,26 @@
   }
   dd {
     min-width: 0;
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .status span {
+    color: var(--text-primary);
+  }
+  .tone-quiet {
+    color: var(--text-tertiary);
+  }
+  .tone-muted {
+    color: var(--text-secondary);
+  }
+  .tone-warning {
+    color: var(--warning-text);
+  }
+  .tone-danger {
+    color: var(--danger-text);
   }
   .clip {
     overflow: hidden;

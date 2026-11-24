@@ -60,6 +60,9 @@ export interface RemoteNodeInfo {
 
 export type ShareRole = "subscriber" | "owner";
 
+/** Why a share needs attention (hosts to confirm are counted apart, in `pendingTargets`). */
+export type ShareStatus = "ok" | "offline" | "rejected" | "error" | "folderDeleted";
+
 export type ShareLocation = { type: "path"; value: string } | { type: "url"; value: string };
 
 export interface ShareSummary {
@@ -76,6 +79,7 @@ export interface ShareSummary {
   publishedAt: string | null;
   lastSync: string | null;
   lastError: string | null;
+  status: ShareStatus;
   /** Connections whose target is new or changed and not confirmed yet. */
   pendingTargets: number;
   /** Those connections, one entry each: what the user is asked to confirm. */
