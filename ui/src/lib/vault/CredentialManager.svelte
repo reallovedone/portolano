@@ -384,9 +384,15 @@
     font-size: var(--font-size-sm);
   }
 
+  /* Framed and inset (as in the import preview) so the list reads as one box, not as rows that
+     stop in the middle of the window. */
   .scroll {
     max-height: min(52vh, 28rem);
     overflow: auto;
+    padding: var(--space-1);
+    background: var(--surface-inset);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-control);
   }
 
   .list {
@@ -418,7 +424,7 @@
     gap: var(--space-2);
     margin: var(--space-1) var(--space-2) var(--space-2);
     padding: var(--space-2) var(--space-3);
-    background: var(--surface-inset);
+    background: var(--surface-field);
     border: 1px solid var(--border-hairline);
     border-radius: var(--radius-control);
   }

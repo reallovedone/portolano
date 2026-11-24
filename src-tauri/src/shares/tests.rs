@@ -132,6 +132,7 @@ async fn republish_increments_revision() {
     let synced = w.sub.shares.sync(None).await.expect("sync");
     assert_eq!(synced[0].revision, 3);
     assert_eq!(synced[0].last_error, None);
+    assert_eq!(synced[0].status, ShareStatus::Ok);
 }
 
 #[tokio::test]
@@ -202,6 +203,7 @@ async fn sync_keeps_cache_on_bad_signature_and_sets_last_error() {
     fs::write(&w.file, &tampered).expect("tamper");
     let synced = w.sub.shares.sync(Some(summary.id)).await.expect("sync");
     assert!(synced[0].last_error.is_some());
+    assert_eq!(synced[0].status, ShareStatus::Rejected);
     assert_eq!(
         fs::read(&cache).expect("cache"),
         cached,
@@ -221,6 +223,7 @@ async fn sync_keeps_cache_on_bad_signature_and_sets_last_error() {
     w.owner.shares.republish(w.link).expect("republish");
     let synced = w.sub.shares.sync(Some(summary.id)).await.expect("sync");
     assert_eq!(synced[0].last_error, None);
+    assert_eq!(synced[0].status, ShareStatus::Ok);
     assert_eq!(synced[0].revision, 2);
 }
 
@@ -290,12 +293,17 @@ async fn sync_keeps_cache_when_path_missing() {
     let synced = w.sub.shares.sync(None).await.expect("sync");
     let error = synced[0].last_error.clone().expect("error");
     assert!(error.contains("could not be found"), "{error}");
+    assert_eq!(synced[0].status, ShareStatus::Offline);
     assert!(
         !error.contains(&*w.file.to_string_lossy()),
         "no paths in errors"
     );
     assert!(w.sub.shares.cache_path(summary.id).exists());
     assert!(find(&w.sub, "web").is_some());
+    assert!(
+        synced[0].root_node_id.is_some(),
+        "still mounted from the copy"
+    );
 }
 
 #[tokio::test]
@@ -437,11 +445,35 @@ async fn unusable_cached_copy_is_dropped_with_an_error() {
     assert!(!cache.exists(), "the bad copy is removed");
     let shown = &summaries(&restarted)[0];
     assert!(shown.last_error.is_some());
+    assert_eq!(shown.status, ShareStatus::Error);
+    assert_eq!(
+        shown.root_node_id, None,
+        "nothing to mount until the next sync"
+    );
     // The next sync brings the share back (the file is still there).
     let synced = restarted.shares.sync(None).await.expect("sync");
     assert_eq!(synced[0].last_error, None);
     assert!(find(&restarted, "web").is_some());
     assert!(cache.exists());
+}
+
+#[tokio::test]
+async fn no_usable_copy_and_source_offline_is_offline_without_a_root() {
+    let w = world();
+    let summary = subscribe(&w).await;
+    fs::write(w.sub.shares.cache_path(summary.id), b"garbage").expect("corrupt");
+    fs::remove_file(&w.file).expect("remove");
+    let restarted = AppState::new(w._sub_dir.path().to_path_buf());
+    let synced = restarted.shares.sync(None).await.expect("sync");
+    assert_eq!(synced[0].status, ShareStatus::Offline);
+    assert_eq!(synced[0].root_node_id, None);
+    // Still listed, so the UI can offer to sync or unsubscribe it.
+    assert_eq!(summaries(&restarted).len(), 1);
+    restarted
+        .shares
+        .unsubscribe(summary.id)
+        .expect("unsubscribe");
+    assert!(summaries(&restarted).is_empty());
 }
 
 #[tokio::test]
@@ -467,6 +499,7 @@ async fn deleted_owner_folder_shows_folder_deleted() {
         .expect("delete");
     let shown = &summaries(&w.owner)[0];
     assert_eq!(shown.last_error.as_deref(), Some("folder deleted"));
+    assert_eq!(shown.status, ShareStatus::FolderDeleted);
     assert_eq!(
         w.owner.shares.republish(w.link).expect_err("gone").code,
         ErrorCode::NotFound

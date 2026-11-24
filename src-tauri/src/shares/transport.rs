@@ -13,6 +13,8 @@ use portolano_shares::ShareError;
 
 /// How long one request may take, connecting and reading included.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long a read from a file path (often a network folder) may take.
+const PATH_TIMEOUT: Duration = Duration::from_secs(30);
 /// Redirects followed before giving up (each one must stay on `https://`).
 const MAX_REDIRECTS: usize = 5;
 
@@ -61,6 +63,21 @@ pub enum TransportError {
     Interrupted,
 }
 
+impl TransportError {
+    /// The source could not be reached or read right now (as opposed to a refused address
+    /// or file): the share is offline and keeps its last good copy.
+    pub fn is_offline(&self) -> bool {
+        matches!(
+            self,
+            Self::FileUnavailable
+                | Self::Timeout
+                | Self::Unreachable
+                | Self::Http(_)
+                | Self::Interrupted
+        )
+    }
+}
+
 impl From<ShareError> for TransportError {
     fn from(e: ShareError) -> Self {
         match e {
@@ -80,8 +97,12 @@ pub async fn fetch(
         ShareLocation::Path { value } => {
             let path = PathBuf::from(value);
             let previous = previous.clone();
-            tokio::task::spawn_blocking(move || fetch_path(&path, &previous))
+            // A network folder that stops answering can block a read for minutes; the sync
+            // gives up after a while (the blocked read ends on its own later).
+            let read = tokio::task::spawn_blocking(move || fetch_path(&path, &previous));
+            tokio::time::timeout(PATH_TIMEOUT, read)
                 .await
+                .map_err(|_| TransportError::Timeout)?
                 .map_err(|_| TransportError::FileUnavailable)?
         }
         ShareLocation::Url { value } => fetch_url(value, previous).await,

@@ -78,20 +78,22 @@
       aria-describedby={describedBy(inputId, hint, error)}
     />
     {#if suffix}
-      <span class="affix">
+      <span class="affix end">
         {#if typeof suffix === "string"}{suffix}{:else}{@render suffix()}{/if}
       </span>
     {/if}
     {#if isPassword}
-      <IconButton
-        icon={revealed ? "eye-off" : "eye"}
-        label={revealed ? hideLabel : showLabel}
-        size="compact"
-        pressed={revealed}
-        tooltip=""
-        {disabled}
-        onclick={() => (revealed = !revealed)}
-      />
+      <span class="affix end">
+        <IconButton
+          icon={revealed ? "eye-off" : "eye"}
+          label={revealed ? hideLabel : showLabel}
+          size="compact"
+          pressed={revealed}
+          tooltip=""
+          {disabled}
+          onclick={() => (revealed = !revealed)}
+        />
+      </span>
     {/if}
   </div>
 </FieldShell>
@@ -169,5 +171,35 @@
     align-items: center;
     flex: none;
     color: var(--text-secondary);
+  }
+  /* Buttons at the end of the field are part of it: full height and flush with its right edge,
+     like a segment of the control, instead of a smaller button floating inside it. */
+  .control:has(> .end:last-child :global(button)) {
+    padding-right: 0;
+  }
+  .end {
+    align-self: stretch;
+    align-items: stretch;
+  }
+  .end :global(:is(.btn-ui, .icon-btn)) {
+    height: auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .end :global(.icon-btn) {
+    width: auto;
+    aspect-ratio: 1;
+  }
+  .end :global(.btn-ui) {
+    padding: 0 var(--space-3);
+    border-left: 1px solid var(--border-strong);
+  }
+  .end:last-child :global(:is(.btn-ui, .icon-btn)) {
+    border-top-right-radius: calc(var(--radius-control) - 1px);
+    border-bottom-right-radius: calc(var(--radius-control) - 1px);
+  }
+  .control.disabled .end :global(.btn-ui) {
+    border-left-color: var(--border-hairline);
   }
 </style>

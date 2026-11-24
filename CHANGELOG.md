@@ -19,6 +19,9 @@ attention when you upgrade.
 - Compact list density no longer squeezes a connection's host against the rows around it, the *System* theme preview in Settings is as tall as *Light* and *Dark*, and only one separator line sits above *Updates* in Settings.
 - Saving files copied on a remote desktop no longer leaves the progress notice stuck at 0 after small files have already been saved.
 - Shared folders: a web connection is listed by its address only, a shared folder that no longer exists disappears from the list after you unsubscribe, and deleting a folder that still holds shared folders explains why it asked again.
+- Shared folders show their state with one clear icon next to the name (up to date, offline, update refused, error, or hosts to confirm), with the reason and the last update in its tooltip and in *Share info…*, which now also has *Sync now*.
+- A shared folder whose source has never been reachable on this computer stays listed with *Sync now*, *Share info…* and *Unsubscribe…* instead of disappearing, and one slow or unreachable source no longer holds up the others.
+- Buttons inside text fields, such as *Browse…* and the eye that shows a password, now fit the field's edges, and the list in the credentials window has a frame of its own.
 
 ## [0.4.0] - 2026-11-22
 

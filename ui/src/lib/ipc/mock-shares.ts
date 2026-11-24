@@ -12,6 +12,7 @@ import type {
   RemoteNodeInfo,
   ShareLocation,
   SharePreview,
+  ShareStatus,
   ShareSummary,
   Uuid,
 } from "./types";
@@ -48,6 +49,11 @@ export interface MockShares {
   setParent(rootId: Uuid, parentId: Uuid | null): void;
   /** The share moves to the next revision without telling the UI (a sync it has not seen yet). */
   bumpRevision(linkId: Uuid): void;
+  /**
+   * A sync outcome without a real source: the share gets a status and an error text, and with
+   * `dropCopy` loses its mounted copy (as when the copy on disk was unusable).
+   */
+  setStatus(linkId: Uuid, status: ShareStatus, lastError: string | null, dropCopy?: boolean): void;
   /** Tells the subscribed UI that the shares changed (a sync would do this). */
   notifyChanged(): void;
   onChanged(handler: () => void): () => void;
@@ -89,6 +95,7 @@ function seedLink(): Link {
       publishedAt: "2026-11-02T09:30:00Z",
       lastSync: "2026-11-20T08:00:00Z",
       lastError: null,
+      status: "ok",
       pendingTargets: 1,
       pendingHosts: [
         {
@@ -223,6 +230,7 @@ export function createMockShares(seed: boolean): MockShares {
           publishedAt: nowIso(),
           lastSync: null,
           lastError: null,
+          status: "ok",
           pendingTargets: 0,
           pendingHosts: [],
           location: null,
@@ -295,6 +303,7 @@ export function createMockShares(seed: boolean): MockShares {
           publishedAt: nowIso(),
           lastSync: nowIso(),
           lastError: null,
+          status: "ok",
           pendingTargets: 0,
           pendingHosts: [],
           location: preview.location,
@@ -363,6 +372,14 @@ export function createMockShares(seed: boolean): MockShares {
     setParent(rootId, parentId) {
       const link = links.find((l) => l.summary.rootNodeId === rootId && l.nodes.length > 0);
       if (link) link.parentId = parentId;
+    },
+    setStatus(linkId, status, lastError, dropCopy = false) {
+      const link = linkOf(linkId);
+      link.summary = { ...link.summary, status, lastError };
+      if (dropCopy) {
+        link.summary = { ...link.summary, rootNodeId: null, pendingTargets: 0, pendingHosts: [] };
+        link.nodes = [];
+      }
     },
     bumpRevision(linkId) {
       const link = linkOf(linkId);
