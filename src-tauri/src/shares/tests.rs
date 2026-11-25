@@ -568,3 +568,31 @@ async fn publishing_a_shared_folder_again_is_a_conflict() {
         .count();
     assert_eq!(owners, 1);
 }
+
+#[test]
+fn a_folder_edited_while_signing_is_not_published_with_old_content() {
+    let w = world();
+    let (signed, mut edited) = w
+        .owner
+        .shares
+        .with_store(|store| {
+            let doc = store.document();
+            let signed = prepare_for_publish(doc, w.team).map_err(|e| share_error(&e))?;
+            Ok((signed, doc.clone()))
+        })
+        .expect("snapshot");
+    ShareService::unchanged_since_signing(&edited, w.team, &signed).expect("same content");
+
+    let renamed = edited
+        .nodes
+        .iter_mut()
+        .find(|n| n.id() == w.web)
+        .expect("web connection");
+    let Node::Connection(c) = renamed else {
+        panic!("connection")
+    };
+    c.name = "renamed while signing".into();
+    let err = ShareService::unchanged_since_signing(&edited, w.team, &signed)
+        .expect_err("changed content");
+    assert_eq!(err.code, ErrorCode::Conflict);
+}

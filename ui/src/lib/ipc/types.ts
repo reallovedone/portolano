@@ -109,6 +109,9 @@ export interface SharePreview {
   connections: number;
   /** Names of the connections that were left out. */
   skipped: string[];
+  /** Names of the connections whose unsafe settings were switched off (certificate check, NLA,
+   * clipboard sharing, Kerberos KDC). */
+  adjusted: string[];
   /** Every connection of the share with its target; subscribing confirms all of them. */
   hosts: PendingHost[];
 }

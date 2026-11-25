@@ -8,11 +8,13 @@ use portolano_core_model::{
 };
 use uuid::Uuid;
 
+use crate::sanitize::SanitizedNodes;
+
 /// A share's sanitised nodes (source ids) together with the link that mounts them.
 #[derive(Debug, Clone)]
 pub struct Mount {
     pub link: ShareLink,
-    pub nodes: Vec<Node>,
+    pub nodes: SanitizedNodes,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +188,13 @@ pub fn merge(local: &Document, mounts: &[Mount]) -> MergedView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mount(link: ShareLink, nodes: Vec<Node>) -> Mount {
+        Mount {
+            link,
+            nodes: SanitizedNodes::unchecked(nodes),
+        }
+    }
     use portolano_core_model::{Folder, ShareRole};
 
     fn id(n: u128) -> Uuid {
@@ -290,7 +299,7 @@ mod tests {
         l.confirmed_targets.insert(id(2), stale);
         l.overrides.insert(id(2), CredentialRef::Id { id: id(77) });
         l.overrides.insert(id(3), CredentialRef::Id { id: id(78) });
-        let view = merge(&Document::default(), &[Mount { link: l, nodes }]);
+        let view = merge(&Document::default(), &[mount(l, nodes)]);
         assert_eq!(credential_of(&view, 2), CredentialRef::None);
         assert_eq!(credential_of(&view, 3), CredentialRef::None);
         assert_eq!(view.pending.get(&id(500)), Some(&2));
@@ -309,7 +318,7 @@ mod tests {
         }
         l.overrides.insert(id(2), CredentialRef::Id { id: id(77) });
         l.overrides.insert(id(1), CredentialRef::Id { id: id(78) });
-        let view = merge(&Document::default(), &[Mount { link: l, nodes }]);
+        let view = merge(&Document::default(), &[mount(l, nodes)]);
         assert_eq!(credential_of(&view, 2), CredentialRef::Id { id: id(77) });
         assert_eq!(credential_of(&view, 3), CredentialRef::Inherit);
         assert_eq!(credential_of(&view, 1), CredentialRef::Id { id: id(78) });
@@ -331,13 +340,7 @@ mod tests {
             ..Document::default()
         };
         let root = derive_id(id(500), id(1));
-        let under = merge(
-            &local,
-            &[Mount {
-                link: link(Some(10)),
-                nodes: remote_nodes(),
-            }],
-        );
+        let under = merge(&local, &[mount(link(Some(10)), remote_nodes())]);
         assert_eq!(
             under.document.node(root).expect("root").parent_id(),
             Some(id(10))
@@ -346,26 +349,14 @@ mod tests {
         assert!(!under.remote[&derive_id(id(500), id(2))].is_root);
         assert_eq!(under.document.nodes.len(), 4);
 
-        let missing = merge(
-            &local,
-            &[Mount {
-                link: link(Some(404)),
-                nodes: remote_nodes(),
-            }],
-        );
+        let missing = merge(&local, &[mount(link(Some(404)), remote_nodes())]);
         assert_eq!(missing.document.node(root).expect("root").parent_id(), None);
         // A connection is not a mount point either.
         let local = Document {
             nodes: vec![conn(10, None, "h", ssh(None))],
             ..Document::default()
         };
-        let on_conn = merge(
-            &local,
-            &[Mount {
-                link: link(Some(10)),
-                nodes: remote_nodes(),
-            }],
-        );
+        let on_conn = merge(&local, &[mount(link(Some(10)), remote_nodes())]);
         assert_eq!(on_conn.document.node(root).expect("root").parent_id(), None);
     }
 
@@ -400,26 +391,14 @@ mod tests {
         ];
         let l = confirmed_for(&before);
         // Unchanged: nothing pending.
-        let same = merge(
-            &Document::default(),
-            &[Mount {
-                link: l.clone(),
-                nodes: before.clone(),
-            }],
-        );
+        let same = merge(&Document::default(), &[mount(l.clone(), before.clone())]);
         assert!(same.pending.is_empty());
         // The owner reroutes connection 2 through another jump host (4) and moves 5 to a
         // different domain.
         let mut after = before;
         after[1] = conn(2, Some(1), "a", ssh(Some(4)));
         after[4] = conn(5, Some(1), "r", rdp_with("OTHER"));
-        let view = merge(
-            &Document::default(),
-            &[Mount {
-                link: l,
-                nodes: after,
-            }],
-        );
+        let view = merge(&Document::default(), &[mount(l, after)]);
         assert_eq!(view.pending.get(&id(500)), Some(&2));
         let hosts = &view.pending_hosts[&id(500)];
         assert_eq!(hosts.len(), 2);

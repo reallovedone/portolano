@@ -1,4 +1,7 @@
-//! Plaintext payload: the credentials as JSON. Only ever lives in `Zeroizing` buffers.
+//! Plaintext payload: the credentials as JSON. The whole text only ever lives in `Zeroizing`
+//! buffers and each parsed secret goes straight into a `SecretString`. The JSON parser may keep
+//! short-lived copies of a string while it reads it (to undo escapes), which this crate cannot
+//! wipe.
 
 use std::io;
 

@@ -42,7 +42,7 @@
     return effective.kind === "id" && !effective.source.own ? effective.source.folderName : null;
   });
 
-  function skippedNames(names: readonly string[]): string {
+  function nameList(names: readonly string[]): string {
     const shown = names.slice(0, SKIPPED_SHOWN).map((n) => displayText(n));
     const more = names.length - shown.length;
     return more > 0 ? `${shown.join(", ")} ${t("share.skippedMore", { count: more })}` : shown.join(", ");
@@ -156,7 +156,15 @@
         <Banner variant="warning">
           {t("share.previewSkipped", {
             count: preview.skipped.length,
-            names: skippedNames(preview.skipped),
+            names: nameList(preview.skipped),
+          })}
+        </Banner>
+      {/if}
+      {#if preview.adjusted.length > 0}
+        <Banner variant="info">
+          {t("share.previewAdjusted", {
+            count: preview.adjusted.length,
+            names: nameList(preview.adjusted),
           })}
         </Banner>
       {/if}

@@ -167,6 +167,12 @@ describe("AddRemoteFolderDialog", () => {
     expect(screen.getByText(/Left out \(8\): Skipped 0, Skipped 1, Skipped 2, Skipped 3, Skipped 4 and 3 more/)).toBeTruthy();
   });
 
+  it("add_remote_folder_names_the_connections_with_unsafe_options_turned_off", async () => {
+    const { app } = await start();
+    await previewShare(app);
+    expect(screen.getByText("Unsafe options turned off (1): Desk")).toBeTruthy();
+  });
+
   it("add_remote_folder_never_truncates_a_long_host_list", async () => {
     const { app, ipc } = await start();
     const base = await ipc.sharePreview({ type: "path", value: "/Volumes/Team/lab.portolano-share" });
