@@ -36,7 +36,7 @@ use portolano_shares::format::{
     decode, encode, sign_editors, EditorList, KeyEntry, SharePayload, SignedShare,
 };
 use portolano_shares::identity::{decode_key, fingerprint, Identity};
-use portolano_shares::sanitize::{prepare_for_publish, sanitize, SanitizeOutcome};
+use portolano_shares::sanitize::{prepare_for_publish, sanitize, SanitizeOutcome, SanitizedNodes};
 use portolano_shares::view::{
     derive_id, merge, pending_host, target_of, MergedView, Mount, PendingHost, RemoteNode,
 };
@@ -152,6 +152,9 @@ pub struct SharePreview {
     pub connections: u32,
     /// Names of the connections that were left out (local shells and the like).
     pub skipped: Vec<String>,
+    /// Names of the connections whose unsafe settings were switched off (certificate check,
+    /// NLA, clipboard sharing, Kerberos KDC).
+    pub adjusted: Vec<String>,
     /// Every connection the share holds, with its target: subscribing confirms all of them, so
     /// the user must have seen them. `node_id` is the id inside the share.
     pub hosts: Vec<PendingHost>,
@@ -159,7 +162,7 @@ pub struct SharePreview {
 
 /// A sanitised share kept in memory, with what the summary needs.
 struct Loaded {
-    nodes: Vec<Node>,
+    nodes: SanitizedNodes,
     signer_name: String,
     published_at: String,
 }
@@ -847,6 +850,7 @@ impl ShareService {
             folders,
             connections,
             skipped: outcome.skipped.clone(),
+            adjusted: outcome.adjusted.clone(),
             hosts: outcome
                 .nodes
                 .iter()
@@ -1073,6 +1077,23 @@ impl ShareService {
         std::fs::read(path).ok()
     }
 
+    /// Fails when the folder no longer holds what was signed (it was edited while the vault was
+    /// signing): publishing the old content would silently drop that edit.
+    fn unchanged_since_signing(
+        doc: &Document,
+        folder_id: Uuid,
+        signed: &[Node],
+    ) -> Result<(), AppError> {
+        let current = prepare_for_publish(doc, folder_id).map_err(|e| share_error(&e))?;
+        if current != signed {
+            return Err(AppError::new(
+                ErrorCode::Conflict,
+                "The folder changed while it was being published. Try again.",
+            ));
+        }
+        Ok(())
+    }
+
     /// First publication of the local folder `folder_id` to `path`.
     pub fn publish(&self, folder_id: Uuid, path: &str) -> Result<ShareSummary, AppError> {
         let path = path.trim();
@@ -1112,6 +1133,8 @@ impl ShareService {
             prepare_for_publish(doc, folder_id).map_err(|e| share_error(&e))
         })?;
         let share_id = Uuid::new_v4();
+        // Signing runs without the store lock: what was signed is compared again under it.
+        let signed = nodes.clone();
         let (bytes, record) = self.sign_share(None, share_id, 1, 1, nodes)?;
         let owner_key = portolano_shares::identity::encode_key(
             &VerifyingKey::from_bytes(&record.public_key)
@@ -1129,6 +1152,7 @@ impl ShareService {
         };
         let summary = self.with_store(|store| {
             check(store.document())?;
+            Self::unchanged_since_signing(store.document(), folder_id, &signed)?;
             let name = store
                 .document()
                 .node(folder_id)
@@ -1206,6 +1230,7 @@ impl ShareService {
             .last_revision
             .checked_add(1)
             .ok_or_else(|| AppError::internal("the revision cannot grow any more"))?;
+        let signed = nodes.clone();
         let (bytes, record) = self.sign_share(
             Some(owned.identity_id),
             link.share_id,
@@ -1217,6 +1242,7 @@ impl ShareService {
         // which is harmless, while a file with a revision the link does not know could be
         // published twice with different content.
         self.with_store(|store| {
+            Self::unchanged_since_signing(store.document(), owned.folder_id, &signed)?;
             store.apply_batch(|doc| {
                 if let Some(l) = doc.shares.iter_mut().find(|l| l.id == link_id) {
                     l.last_revision = revision;

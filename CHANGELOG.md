@@ -22,6 +22,7 @@ attention when you upgrade.
 - Shared folders show their state with one clear icon next to the name (up to date, offline, update refused, error, or hosts to confirm), with the reason and the last update in its tooltip and in *Share info…*, which now also has *Sync now*.
 - A shared folder whose source has never been reachable on this computer stays listed with *Sync now*, *Share info…* and *Unsubscribe…* instead of disappearing, and one slow or unreachable source no longer holds up the others.
 - Buttons inside text fields, such as *Browse…* and the eye that shows a password, now fit the field's edges, and the list in the credentials window has a frame of its own.
+- Before you add a shared folder, its preview now also names the connections whose unsafe options (skipping the certificate check, connecting without NLA, clipboard sharing, a custom Kerberos KDC) were turned off, and a folder edited while it is being published is no longer published with its old content.
 
 ## [0.4.0] - 2026-11-22
 

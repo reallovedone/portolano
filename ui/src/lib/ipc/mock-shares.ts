@@ -264,6 +264,7 @@ export function createMockShares(seed: boolean): MockShares {
         folders: 1,
         connections: 2,
         skipped: [],
+        adjusted: ["Desk"],
         hosts: [
           { nodeId: crypto.randomUUID(), name: "Gateway", protocol: "ssh", host: "gw.team.example", port: null, username: "ops" },
           { nodeId: crypto.randomUUID(), name: "Desk", protocol: "rdp", host: "10.0.0.5", port: 3390, username: null },

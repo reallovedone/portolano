@@ -178,11 +178,15 @@ fn map_request_error(e: &reqwest::Error) -> TransportError {
 
 async fn fetch_url(text: &str, previous: &Validator) -> Result<Fetched, TransportError> {
     let url = parse_https(text)?;
-    // The platform certificate verifier is what reqwest's `rustls` feature uses. The initial
-    // address was checked above; the policy refuses any redirect that leaves https, with an
-    // error of the redirect kind so it is reported as such.
-    let client = reqwest::Client::builder()
-        .https_only(true)
+    fetch_with(&client(true)?, url, previous).await
+}
+
+/// The HTTP client. The platform certificate verifier is what reqwest's `rustls` feature uses.
+/// The policy refuses any redirect that leaves https, with an error of the redirect kind so it
+/// is reported as such. `https_only` is false only in tests, which cannot serve https.
+fn client(https_only: bool) -> Result<reqwest::Client, TransportError> {
+    reqwest::Client::builder()
+        .https_only(https_only)
         .timeout(REQUEST_TIMEOUT)
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if !redirect_allowed(attempt.url()) {
@@ -195,7 +199,14 @@ async fn fetch_url(text: &str, previous: &Validator) -> Result<Fetched, Transpor
         }))
         .user_agent(concat!("Portolano/", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|_| TransportError::Unreachable)?;
+        .map_err(|_| TransportError::Unreachable)
+}
+
+async fn fetch_with(
+    client: &reqwest::Client,
+    url: reqwest::Url,
+    previous: &Validator,
+) -> Result<Fetched, TransportError> {
     let mut request = client.get(url);
     if let Validator::ETag(tag) = previous {
         request = request.header(reqwest::header::IF_NONE_MATCH, tag.as_str());
@@ -301,6 +312,37 @@ mod tests {
         assert_eq!(
             TransportError::InsecureRedirect.to_string(),
             "The server redirected to an address that is not https://."
+        );
+    }
+
+    /// Answers one request on a local port with a redirect to `location`.
+    fn redirecting_server(location: &'static str) -> String {
+        use std::io::Read;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("address");
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut request = [0u8; 1024];
+                let _read = stream.read(&mut request);
+                let response = format!(
+                    "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                let _sent = stream.write_all(response.as_bytes());
+            }
+        });
+        format!("http://{address}/team.portolano-share")
+    }
+
+    #[tokio::test]
+    async fn a_redirect_to_http_is_refused_end_to_end() {
+        // The test server cannot speak https, so the first hop is plain http: what is checked
+        // is the redirect policy of the real client and how its error is reported.
+        let start = redirecting_server("http://127.0.0.1:9/elsewhere");
+        let url = reqwest::Url::parse(&start).expect("url");
+        let client = client(false).expect("client");
+        assert_eq!(
+            fetch_with(&client, url, &Validator::None).await,
+            Err(TransportError::InsecureRedirect)
         );
     }
 

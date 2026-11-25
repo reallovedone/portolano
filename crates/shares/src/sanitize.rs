@@ -2,6 +2,7 @@
 //! carry credentials, switch off certificate or NLA checks, or run a local program.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Deref;
 
 use portolano_core_model::appearance::{is_valid_color, is_valid_icon};
 use portolano_core_model::{host_is_storable, ConnectionOptions, CredentialRef, Document, Node};
@@ -9,13 +10,50 @@ use uuid::Uuid;
 
 use crate::error::ShareError;
 
+/// Nodes that went through [`sanitize`]. It is the only way to build one, so whatever holds
+/// this type (a mounted share) cannot carry unchecked remote content.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SanitizedNodes(Vec<Node>);
+
+impl SanitizedNodes {
+    pub fn into_vec(self) -> Vec<Node> {
+        self.0
+    }
+
+    /// Wraps nodes without checking them: only for tests that build a view by hand.
+    #[cfg(test)]
+    pub(crate) fn unchecked(nodes: Vec<Node>) -> Self {
+        Self(nodes)
+    }
+}
+
+impl<'a> IntoIterator for &'a SanitizedNodes {
+    type Item = &'a Node;
+    type IntoIter = std::slice::Iter<'a, Node>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl Deref for SanitizedNodes {
+    type Target = [Node];
+
+    fn deref(&self) -> &[Node] {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SanitizeOutcome {
-    pub nodes: Vec<Node>,
+    pub nodes: SanitizedNodes,
     /// The id of the single root folder.
     pub root: Uuid,
     /// Names of the connections that were left out (never their content).
     pub skipped: Vec<String>,
+    /// Names of the connections that are kept but had unsafe settings switched off (certificate
+    /// check, NLA, clipboard sharing, Kerberos KDC).
+    pub adjusted: Vec<String>,
 }
 
 const MAX_NAME_CHARS: usize = 200;
@@ -103,7 +141,7 @@ pub fn prepare_for_publish(doc: &Document, folder_id: Uuid) -> Result<Vec<Node>,
             n
         })
         .collect();
-    Ok(sanitize(nodes)?.nodes)
+    Ok(sanitize(nodes)?.nodes.into_vec())
 }
 
 /// Validates the shape of the tree (one root folder, every node below it, no duplicate ids, no
@@ -161,6 +199,7 @@ pub fn sanitize(nodes: Vec<Node>) -> Result<SanitizeOutcome, ShareError> {
     }
 
     let mut skipped = Vec::new();
+    let mut adjusted = Vec::new();
     let mut kept: Vec<Node> = Vec::with_capacity(nodes.len());
     for node in nodes {
         match node {
@@ -206,6 +245,13 @@ pub fn sanitize(nodes: Vec<Node>) -> Result<SanitizeOutcome, ShareError> {
                     ..
                 } = &mut c.options
                 {
+                    if *ignore_cert
+                        || *allow_without_nla
+                        || *share_clipboard
+                        || kerberos_kdc.is_some()
+                    {
+                        adjusted.push(c.name.clone());
+                    }
                     *ignore_cert = false;
                     *allow_without_nla = false;
                     *share_clipboard = false;
@@ -234,9 +280,10 @@ pub fn sanitize(nodes: Vec<Node>) -> Result<SanitizeOutcome, ShareError> {
         }
     }
     Ok(SanitizeOutcome {
-        nodes: kept,
+        nodes: SanitizedNodes(kept),
         root,
         skipped,
+        adjusted,
     })
 }
 
@@ -342,6 +389,24 @@ mod tests {
         };
         assert!(!ignore_cert && !allow_without_nla && !share_clipboard);
         assert_eq!(*kerberos_kdc, None);
+        assert_eq!(out.adjusted, vec!["conn 2".to_owned()]);
+        assert!(out.skipped.is_empty());
+    }
+
+    #[test]
+    fn sanitize_does_not_report_rdp_settings_that_were_already_safe() {
+        let safe = ConnectionOptions::Rdp {
+            width: None,
+            height: None,
+            domain: None,
+            ignore_cert: false,
+            allow_without_nla: false,
+            kerberos_kdc: None,
+            share_clipboard: false,
+            mac_shortcuts: true,
+        };
+        let out = sanitize(vec![folder(1, None), conn(2, Some(1), safe)]).expect("ok");
+        assert!(out.adjusted.is_empty());
     }
 
     #[test]

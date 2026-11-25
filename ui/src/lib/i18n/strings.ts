@@ -122,6 +122,7 @@ export const strings = {
   "share.previewCredentialWarning":
     "Connections in this shared folder will use the credential of “{folder}” unless you set one. Check the hosts above.",
   "share.previewSkipped": "Left out ({count}): {names}",
+  "share.previewAdjusted": "Unsafe options turned off ({count}): {names}",
   "share.destination": "Add under",
   "share.destinationRoot": "Top level",
   "share.subscribe": "Subscribe",

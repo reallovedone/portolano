@@ -53,7 +53,8 @@ impl Clock for SystemClock {
 }
 
 /// Everything that exists only while the vault is unlocked. Dropping it zeroizes the DEK and
-/// every secret string (`SecretBox` / `SecretString` wipe themselves on drop).
+/// every secret this struct owns (`SecretBox` / `SecretString` / `Zeroizing` wipe themselves on
+/// drop); copies made elsewhere, such as by the JSON parser, are not covered.
 struct Unlocked {
     dek: Dek,
     header: Header,
@@ -298,6 +299,13 @@ impl Vault {
         Ok(u)
     }
 
+    /// Like [`Vault::unlocked`], for a change: the unlocked state with the path it is saved to.
+    fn unlocked_mut(&mut self) -> Result<(&Path, &mut Unlocked), VaultError> {
+        self.touch();
+        let u = self.unlocked.as_mut().ok_or(VaultError::Locked)?;
+        Ok((&self.path, u))
+    }
+
     pub fn list(&self) -> Result<Vec<CredentialSummary>, VaultError> {
         Ok(self
             .unlocked()?
@@ -334,9 +342,7 @@ impl Vault {
         let summary = CredentialSummary::from(&credential);
         let id = credential.id;
 
-        let Some(unlocked) = self.unlocked.as_mut() else {
-            return Err(VaultError::Locked);
-        };
+        let (path, unlocked) = self.unlocked_mut()?;
         let index = unlocked.credentials.iter().position(|c| c.id == id);
         if index.is_none() && unlocked.credentials.len() >= MAX_CREDENTIALS {
             return Err(VaultError::InvalidInput("too many credentials".into()));
@@ -348,7 +354,7 @@ impl Vault {
                 None
             }
         };
-        if let Err(err) = save(&self.path, unlocked) {
+        if let Err(err) = save(path, unlocked) {
             match (index, previous) {
                 (Some(i), Some(prev)) => unlocked.credentials[i] = prev,
                 _ => {
@@ -361,17 +367,14 @@ impl Vault {
     }
 
     pub fn delete(&mut self, id: Uuid) -> Result<(), VaultError> {
-        self.unlocked()?;
-        let Some(unlocked) = self.unlocked.as_mut() else {
-            return Err(VaultError::Locked);
-        };
+        let (path, unlocked) = self.unlocked_mut()?;
         let index = unlocked
             .credentials
             .iter()
             .position(|c| c.id == id)
             .ok_or_else(|| VaultError::NotFound(id.to_string()))?;
         let removed = unlocked.credentials.remove(index);
-        if let Err(err) = save(&self.path, unlocked) {
+        if let Err(err) = save(path, unlocked) {
             unlocked.credentials.insert(index, removed);
             return Err(err);
         }
@@ -422,9 +425,7 @@ impl Vault {
         let name = clean_identity_name(name)?;
         let public_key = SigningKey::from_bytes(secret).verifying_key().to_bytes();
         let created_at = rfc3339_utc(self.clock.wall());
-        let Some(unlocked) = self.unlocked.as_mut() else {
-            return Err(VaultError::Locked);
-        };
+        let (path, unlocked) = self.unlocked_mut()?;
         if unlocked.identities.iter().any(|i| i.record.id == id) {
             return Err(VaultError::InvalidInput("duplicate identity id".into()));
         }
@@ -448,7 +449,7 @@ impl Vault {
             record: record.clone(),
             secret: copy_secret(secret),
         });
-        if let Err(err) = save(&self.path, unlocked) {
+        if let Err(err) = save(path, unlocked) {
             unlocked.identities.pop();
             return Err(err);
         }
