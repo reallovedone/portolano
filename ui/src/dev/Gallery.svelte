@@ -29,6 +29,7 @@
   import EmptyState from "../lib/ui/EmptyState.svelte";
   import FormRow from "../lib/ui/FormRow.svelte";
   import FormSection from "../lib/ui/FormSection.svelte";
+  import Hint from "../lib/ui/Hint.svelte";
   import Icon from "../lib/ui/Icon.svelte";
   import IconButton from "../lib/ui/IconButton.svelte";
   import Kbd from "../lib/ui/Kbd.svelte";
@@ -348,7 +349,7 @@
 
     <!-- ======================== Buttons ======================== -->
     <Section id="buttons" title="Buttons" note="Rows: variants. Columns: default, hover (forced), focus (forced), disabled, loading.">
-      {#each ["primary", "secondary", "plain", "destructive"] as const as variant (variant)}
+      {#each ["primary", "secondary", "plain", "destructive", "link"] as const as variant (variant)}
         <div class="row-wrap">
           <span class="row-label">{variant}</span>
           <Button {variant}>Default</Button>
@@ -535,6 +536,11 @@
         <Banner variant="success">Saved.</Banner>
         <Banner variant="info" ondismiss={() => (toolbarNote = "Banner dismissed")}>A dismissible banner.</Banner>
       </div>
+      <h3 class="group">Hints</h3>
+      <div class="stack">
+        <Hint>Secondary text under a field or heading: a hint, or a short note.</Hint>
+        <Hint role="status">A note that announces itself after an action.</Hint>
+      </div>
       <h3 class="group">Badges</h3>
       <div class="row-wrap">
         {#each ["neutral", "accent", "danger", "warning", "success", "info"] as const as variant (variant)}
@@ -544,7 +550,7 @@
       </div>
       <h3 class="group">Spinner and separators</h3>
       <div class="row-wrap">
-        <Spinner size={14} /><Spinner size={16} /><Spinner size={20} label="Loading" />
+        <Spinner size={14} /><Spinner size={16} /><Spinner size={20} label="Loading" /><Spinner size={14}>Reading the file…</Spinner>
         <div class="sep-demo"><span>Left</span><Separator orientation="vertical" /><span>Right</span></div>
       </div>
       <Separator />

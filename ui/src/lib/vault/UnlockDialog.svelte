@@ -6,6 +6,7 @@
   import Button from "../ui/Button.svelte";
   import ChartBackdrop from "../ui/ChartBackdrop.svelte";
   import Dialog from "../ui/Dialog.svelte";
+  import Hint from "../ui/Hint.svelte";
   import Icon from "../ui/Icon.svelte";
   import TextField from "../ui/TextField.svelte";
 
@@ -132,7 +133,7 @@
         <Button variant="plain" onclick={useQuickUnlock} disabled={quickBusy}>
           {t(`vault.useBiometric.${platform}`)}
         </Button>
-        {#if quickNote}<p class="note" role="status">{quickNote}</p>{/if}
+        {#if quickNote}<Hint role="status">{quickNote}</Hint>{/if}
       </div>
     {/if}
   </form>
@@ -190,11 +191,6 @@
     flex-direction: column;
     align-items: center;
     gap: var(--space-1);
-  }
-
-  .note {
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm, inherit);
     text-align: center;
   }
 

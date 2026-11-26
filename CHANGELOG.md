@@ -7,6 +7,10 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### 🔄 Changed
+
+- Windows and lists that scroll without a frame now fade at the edge where more content is hidden, so they no longer look cut off.
+
 ### 🐛 Fixed
 
 - Opening Portolano while it is already running now brings the open window forward instead of starting a second copy, which could overwrite your latest changes to connections.

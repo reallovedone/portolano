@@ -9,6 +9,7 @@
   import { getApp } from "../state/app";
   import Banner from "../ui/Banner.svelte";
   import Button from "../ui/Button.svelte";
+  import Hint from "../ui/Hint.svelte";
   import TextField from "../ui/TextField.svelte";
   import BackupForm from "./BackupForm.svelte";
   import { displayText } from "./display";
@@ -172,7 +173,7 @@
 
 <section class="group" aria-labelledby={headingId}>
   <h4 id={headingId}>{t("share.identityTitle")}</h4>
-  <p class="hint">{t("share.identityHint")}</p>
+  <Hint>{t("share.identityHint")}</Hint>
 
   {#if error}
     <Banner variant="danger">{error}</Banner>
@@ -185,12 +186,12 @@
   {:else if !loaded}
     <!-- Nothing until the identity is known, so the buttons do not jump. -->
   {:else if vault.status === "notCreated"}
-    <p class="hint">{t("share.identityNoVault")}</p>
+    <Hint>{t("share.identityNoVault")}</Hint>
     <div class="row">
       <Button size="compact" onclick={unlock}>{t("share.identityCreateVault")}</Button>
     </div>
   {:else if vault.status !== "unlocked"}
-    <p class="hint">{t("share.identityLockedSection")}</p>
+    <Hint>{t("share.identityLockedSection")}</Hint>
     <div class="row">
       <Button size="compact" onclick={unlock}>{t("share.identityUnlock")}</Button>
     </div>
@@ -224,7 +225,7 @@
       </div>
     </form>
   {:else}
-    <p class="hint">{t("share.identityNone")}</p>
+    <Hint>{t("share.identityNone")}</Hint>
     <form class="form" onsubmit={create} novalidate>
       <TextField label={t("share.identityName")} maxlength={100} bind:value={name} />
       <div class="row">
@@ -249,10 +250,6 @@
   h4 {
     font-size: var(--font-size-md);
     font-weight: var(--font-weight-semibold);
-  }
-  .hint {
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
   }
   .who {
     display: flex;

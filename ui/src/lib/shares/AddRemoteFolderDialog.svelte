@@ -9,6 +9,7 @@
   import Banner from "../ui/Banner.svelte";
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
+  import Hint from "../ui/Hint.svelte";
   import TextField from "../ui/TextField.svelte";
   import TreeSelect, { type TreeSelectOption } from "../ui/TreeSelect.svelte";
   import { SKIPPED_SHOWN, checkLocation, displayText, hostLine } from "./display";
@@ -113,7 +114,7 @@
 
 <Dialog title={t("share.addRemoteTitle")} {onclose} width={520}>
   <form id="{uid}-form" class="form" onsubmit={runPreview} novalidate>
-    <p class="hint">{t("share.addRemoteHint")}</p>
+    <Hint>{t("share.addRemoteHint")}</Hint>
     <TextField
       label={t("share.locationLabel")}
       placeholder={t("share.locationPlaceholder")}
@@ -192,10 +193,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-  }
-  .hint {
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
   }
   .preview {
     display: flex;

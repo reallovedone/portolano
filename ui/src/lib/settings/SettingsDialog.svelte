@@ -27,6 +27,7 @@
   import { detectMac } from "../shortcuts";
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
+  import Hint from "../ui/Hint.svelte";
   import Select from "../ui/Select.svelte";
   import Icon from "../ui/Icon.svelte";
   import Switch from "../ui/Switch.svelte";
@@ -161,7 +162,7 @@
 
     <div class="group">
       <h4>{t("appearance.theme")}</h4>
-      <p class="hint">{t("appearance.themeHint")}</p>
+      <div class="lift"><Hint>{t("appearance.themeHint")}</Hint></div>
       <ChoiceGroup
         label={t("appearance.theme")}
         options={themeOptions}
@@ -180,7 +181,7 @@
 
     <div class="group">
       <h4>{t("appearance.scheme")}</h4>
-      <p class="hint">{t("appearance.schemeHint")}</p>
+      <div class="lift"><Hint>{t("appearance.schemeHint")}</Hint></div>
       <ChoiceGroup
         label={t("appearance.scheme")}
         options={schemeOptions}
@@ -197,7 +198,7 @@
                 <span class="scheme-text">ls</span>
               </span>
               <span class="scheme-line">
-                <span class="scheme-text muted"></span>
+                <span class="scheme-text scheme-bar"></span>
               </span>
               <span class="scheme-dots">
                 {#each ["red", "green", "yellow", "blue", "magenta", "cyan"] as ansi (ansi)}
@@ -212,7 +213,7 @@
 
     <div class="group">
       <h4>{t("appearance.accent")}</h4>
-      <p class="hint">{t("appearance.accentHint")}</p>
+      <div class="lift"><Hint>{t("appearance.accentHint")}</Hint></div>
       <ChoiceGroup
         label={t("appearance.accent")}
         variant="swatch"
@@ -230,7 +231,7 @@
 
     <div class="group">
       <h4>{t("appearance.density")}</h4>
-      <p class="hint">{t("appearance.densityHint")}</p>
+      <div class="lift"><Hint>{t("appearance.densityHint")}</Hint></div>
       <ChoiceGroup
         label={t("appearance.density")}
         options={densityOptions}
@@ -250,7 +251,7 @@
 
     <div class="group">
       <h4>{t("appearance.terminalFontSize")}</h4>
-      <p class="hint" id={sizeHintId}>{t("appearance.terminalFontSizeHint")}</p>
+      <div class="lift"><Hint id={sizeHintId}>{t("appearance.terminalFontSizeHint")}</Hint></div>
       <div class="size">
         <input
           class="slider"
@@ -409,10 +410,8 @@
     font-size: var(--font-size-md);
     font-weight: var(--font-weight-semibold);
   }
-  .hint {
+  .lift {
     margin-top: calc(-1 * var(--space-1));
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
   }
 
   /* ---- Theme: a mini window per option; System shows the two looks side by side ---- */
@@ -506,7 +505,7 @@
   .scheme-text {
     color: var(--text-primary);
   }
-  .scheme-text.muted {
+  .scheme-text.scheme-bar {
     width: 60%;
     height: var(--space-1);
     margin-block: var(--space-1);

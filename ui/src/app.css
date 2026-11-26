@@ -137,6 +137,31 @@ samp {
   background-clip: content-box;
 }
 
+/* Unframed scroll boxes (the fadeEdges action): fade the edge that has hidden content. The scroll
+   padding keeps a focused field clear of the fade when the browser scrolls it into view. */
+[data-fade-top],
+[data-fade-bottom] {
+  scroll-padding-block: var(--space-6);
+}
+
+[data-fade-top] {
+  mask-image: linear-gradient(to bottom, transparent, black var(--space-6));
+}
+
+[data-fade-bottom] {
+  mask-image: linear-gradient(to top, transparent, black var(--space-6));
+}
+
+[data-fade-top][data-fade-bottom] {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black var(--space-6),
+    black calc(100% - var(--space-6)),
+    transparent
+  );
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

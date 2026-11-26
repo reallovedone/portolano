@@ -12,6 +12,7 @@ import EmptyState from "./EmptyState.svelte";
 import FormRow from "./FormRow.svelte";
 import FormSection from "./FormSection.svelte";
 import HelpDisclosure from "./HelpDisclosure.svelte";
+import Hint from "./Hint.svelte";
 import Icon from "./Icon.svelte";
 import IconButton from "./IconButton.svelte";
 import Kbd from "./Kbd.svelte";
@@ -79,6 +80,13 @@ describe("Button", () => {
     expect(b.getAttribute("type")).toBe("submit");
     expect(b.getAttribute("form")).toBe("f1");
     expect(b.hasAttribute("data-autofocus")).toBe(true);
+  });
+
+  it("link variant is an inline text button, a real button for the keyboard", () => {
+    render(Button, { children: text("More"), variant: "link" });
+    const b = screen.getByRole("button", { name: "More" });
+    expect(b.classList.contains("link")).toBe(true);
+    expect(b.getAttribute("type")).toBe("button");
   });
 });
 
@@ -455,6 +463,11 @@ describe("Banner, Badge, EmptyState, Spinner, Separator, Kbd", () => {
     expect(screen.getByRole("status", { name: "Loading" })).toBeTruthy();
   });
 
+  it("Spinner with text: a status row that shows the text beside the ring", () => {
+    render(Spinner, { children: text("Reading the file") });
+    expect(screen.getByRole("status").textContent?.trim()).toBe("Reading the file");
+  });
+
   it("Separator: decorative by default, semantic on request", () => {
     const { container, unmount } = render(Separator, {});
     expect(container.querySelector("[role=none]")).not.toBeNull();
@@ -466,6 +479,21 @@ describe("Banner, Badge, EmptyState, Spinner, Separator, Kbd", () => {
   it("Kbd renders a kbd element", () => {
     const { container } = render(Kbd, { children: text("⌘N") });
     expect(container.querySelector("kbd")?.textContent).toBe("⌘N");
+  });
+});
+
+describe("Hint", () => {
+  it("is a secondary paragraph; role and id pass through", () => {
+    render(Hint, { children: text("Shown under the field"), role: "status", id: "hint-1" });
+    const hint = screen.getByRole("status");
+    expect(hint.tagName).toBe("P");
+    expect(hint.id).toBe("hint-1");
+    expect(hint.textContent).toBe("Shown under the field");
+  });
+
+  it("has no role unless asked", () => {
+    const { container } = render(Hint, { children: text("Plain") });
+    expect(container.querySelector("p")?.hasAttribute("role")).toBe(false);
   });
 });
 

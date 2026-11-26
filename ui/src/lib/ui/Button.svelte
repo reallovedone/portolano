@@ -7,7 +7,7 @@
   import Spinner from "./Spinner.svelte";
 
   type Props = Omit<HTMLButtonAttributes, "children" | "class"> & {
-    variant?: "primary" | "secondary" | "plain" | "destructive";
+    variant?: "primary" | "secondary" | "plain" | "destructive" | "link";
     size?: "compact" | "regular" | "large";
     loading?: boolean;
     /** Leading icon (an <Icon> usually). Replaced by a spinner while loading. */
@@ -179,6 +179,22 @@
   }
   .plain:disabled {
     background: transparent;
+  }
+
+  /* link: underlined text in the sentence around it; takes its font and wrapping from that sentence */
+  .link {
+    height: auto;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-link);
+    font: inherit;
+    white-space: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .link:disabled {
+    background: none;
   }
 
   .btn-ui:focus-visible,
