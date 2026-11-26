@@ -7,21 +7,13 @@ attention when you upgrade.
 
 ## [Unreleased]
 
-### 🔄 Changed
-
-- Windows and lists that scroll without a frame now fade at the edge where more content is hidden, so they no longer look cut off.
-
-### 🐛 Fixed
-
-- Opening Portolano while it is already running now brings the open window forward instead of starting a second copy, which could overwrite your latest changes to connections.
-- Publishing a shared folder to a slow network folder no longer freezes the rest of the app while the file is written, and two updates of the same shared folder sent at once no longer get the same version number.
-
-## [0.4.1] - Unreleased
+## [0.4.1] - 2026-11-26
 
 ### 🔄 Changed
 
 - The credentials window is easier to use with many credentials: search, a filter by type, a count, and how many connections use each one; edit and delete moved into a ⋯ menu on each row.
 - The vault *auto-lock* time and the *Unlock with Touch ID* / *Windows Hello* option moved from the credentials window to a new *Security* section in Settings.
+- Windows and lists that scroll without a frame now fade at the edge where more content is hidden, so they no longer look cut off.
 
 ### 🐛 Fixed
 
@@ -32,6 +24,8 @@ attention when you upgrade.
 - A shared folder whose source has never been reachable on this computer stays listed with *Sync now*, *Share info…* and *Unsubscribe…* instead of disappearing, and one slow or unreachable source no longer holds up the others.
 - Buttons inside text fields, such as *Browse…* and the eye that shows a password, now fit the field's edges, and the list in the credentials window has a frame of its own.
 - Before you add a shared folder, its preview now also names the connections whose unsafe options (skipping the certificate check, connecting without NLA, clipboard sharing, a custom Kerberos KDC) were turned off, and a folder edited while it is being published is no longer published with its old content.
+- Opening Portolano while it is already running now brings the open window forward instead of starting a second copy, which could overwrite your latest changes to connections.
+- Publishing a shared folder to a slow network folder no longer freezes the rest of the app while the file is written, and two updates of the same shared folder sent at once no longer get the same version number.
 
 ## [0.4.0] - 2026-11-22
 
@@ -130,8 +124,8 @@ First public release.
 - Light and dark themes that follow the system.
 - Apple silicon and Intel Macs, and Windows 10/11 (64-bit).
 
-[Unreleased]: https://github.com/reallovedone/portolano/compare/v0.4.1-rc1...HEAD
-[0.4.1]: https://github.com/reallovedone/portolano/compare/v0.4.0...v0.4.1-rc1
+[Unreleased]: https://github.com/reallovedone/portolano/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/reallovedone/portolano/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/reallovedone/portolano/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/reallovedone/portolano/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/reallovedone/portolano/compare/v0.2.0...v0.3.0
