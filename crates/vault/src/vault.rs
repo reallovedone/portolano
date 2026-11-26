@@ -484,7 +484,7 @@ fn copy_secret(secret: &[u8; 32]) -> Zeroizing<[u8; 32]> {
 const MAX_RFC3339_SECS: u64 = 253_402_300_799;
 
 /// `2026-11-20T09:30:00Z` for a wall-clock time (no date/time dependency needed for this).
-fn rfc3339_utc(time: SystemTime) -> String {
+pub fn rfc3339_utc(time: SystemTime) -> String {
     let secs = time
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs().min(MAX_RFC3339_SECS))

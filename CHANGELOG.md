@@ -7,6 +7,10 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### 🐛 Fixed
+
+- Publishing a shared folder to a slow network folder no longer freezes the rest of the app while the file is written, and two updates of the same shared folder sent at once no longer get the same version number.
+
 ## [0.4.1] - Unreleased
 
 ### 🔄 Changed

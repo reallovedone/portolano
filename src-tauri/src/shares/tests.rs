@@ -596,3 +596,39 @@ fn a_folder_edited_while_signing_is_not_published_with_old_content() {
         .expect_err("changed content");
     assert_eq!(err.code, ErrorCode::Conflict);
 }
+
+#[test]
+fn overlapping_republishes_get_distinct_revisions() {
+    let w = world();
+    let shares = &w.owner.shares;
+    let mut revisions: Vec<u64> = std::thread::scope(|s| {
+        let a = s.spawn(|| shares.republish(w.link));
+        let b = s.spawn(|| shares.republish(w.link));
+        [a, b]
+            .map(|h| h.join().expect("thread").expect("republish").revision)
+            .into()
+    });
+    revisions.sort_unstable();
+    assert_eq!(revisions, vec![2, 3]);
+    let share = decode(&fs::read(&w.file).expect("file")).expect("decode");
+    assert_eq!(share.payload.revision, 3);
+}
+
+#[test]
+fn a_publish_that_cannot_write_the_file_leaves_no_link() {
+    let dir = scratch();
+    let state = state_with_vault(dir.path(), true);
+    let (team, _) = team_folder(&state);
+    let file = dir.path().join("missing").join("x.portolano-share");
+    let err = state
+        .shares
+        .publish(team, &file.to_string_lossy())
+        .expect_err("no folder");
+    assert_eq!(err.code, ErrorCode::Io);
+    assert!(summaries(&state).is_empty());
+    let file = dir.path().join("x.portolano-share");
+    state
+        .shares
+        .publish(team, &file.to_string_lossy())
+        .expect("publish after the failure");
+}
