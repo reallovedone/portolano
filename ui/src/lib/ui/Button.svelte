@@ -193,6 +193,9 @@
     text-decoration: underline;
     cursor: pointer;
   }
+  .link:disabled {
+    background: none;
+  }
 
   .btn-ui:focus-visible,
   .force-focus {
