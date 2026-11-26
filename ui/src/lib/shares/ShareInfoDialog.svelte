@@ -8,6 +8,8 @@
   import Banner from "../ui/Banner.svelte";
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
+  import { fadeEdges } from "../ui/fadeEdges";
+  import Hint from "../ui/Hint.svelte";
   import Icon from "../ui/Icon.svelte";
   import { ERROR_MAX, displayText, hostLine } from "./display";
   import { shareIndicator } from "./status";
@@ -98,7 +100,7 @@
     {/if}
 
     {#if share.role === "owner"}
-      <p class="hint">{t("share.infoRoleOwner")}</p>
+      <div class="gap"><Hint>{t("share.infoRoleOwner")}</Hint></div>
     {/if}
 
     <dl class="facts">
@@ -143,7 +145,7 @@
       <section class="pending" aria-label={t("share.pendingTitle")}>
         <h4>{t("share.pendingTitle")}</h4>
         <p>{t("share.pendingBody", { count: share.pendingTargets })}</p>
-        <ul class="hosts">
+        <ul class="hosts" use:fadeEdges>
           {#each share.pendingHosts as host (host.nodeId)}
             <li class="wrap">{hostLine(host)}</li>
           {/each}
@@ -166,11 +168,6 @@
 <style>
   .gap {
     margin-bottom: var(--space-3);
-  }
-  .hint {
-    margin-bottom: var(--space-3);
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
   }
   .facts {
     display: grid;

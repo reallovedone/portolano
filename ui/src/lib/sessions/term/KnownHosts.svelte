@@ -7,6 +7,7 @@
   import { getApp } from "../../state/app";
   import Badge from "../../ui/Badge.svelte";
   import ConfirmDialog from "../../ui/ConfirmDialog.svelte";
+  import { fadeEdges } from "../../ui/fadeEdges";
   import Icon from "../../ui/Icon.svelte";
   import IconButton from "../../ui/IconButton.svelte";
   import ListRow from "../../ui/ListRow.svelte";
@@ -77,7 +78,7 @@
     <p class="muted">{t("knownHosts.empty")}</p>
   {/if}
   {#if sorted.length > 0}
-    <ul class="list">
+    <ul class="list" use:fadeEdges>
       {#each sorted as entry (`${entry.host}:${entry.port}:${entry.algorithm}:${entry.fingerprint}`)}
         <li class="entry" class:match={isThis(entry)} data-testid="known-host">
           <ListRow density="compact">

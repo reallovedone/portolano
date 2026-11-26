@@ -10,6 +10,7 @@
   import Banner from "../ui/Banner.svelte";
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
+  import Hint from "../ui/Hint.svelte";
   import TextField from "../ui/TextField.svelte";
   import BackupForm from "./BackupForm.svelte";
   import { displayText, shareFileName } from "./display";
@@ -107,24 +108,24 @@
 
 {#if step === "backup"}
   <Dialog title={t("share.backupTitle")} {onclose} width={460}>
-    <p class="hint">{t("share.backupHint")}</p>
+    <div class="gap"><Hint>{t("share.backupHint")}</Hint></div>
     <BackupForm ondone={() => onclose()} cancelLabel={t("share.backupSkip")} />
   </Dialog>
 {:else}
   <Dialog title={t("share.shareTitle", { name: folderName })} {onclose} width={500}>
     <form id="{uid}-form" class="form" onsubmit={submit} novalidate>
-      <p class="hint">{t("share.shareHint")}</p>
+      <Hint>{t("share.shareHint")}</Hint>
       {#if error}
         <Banner variant="danger">{error}</Banner>
       {/if}
       {#if loaded && locked}
-        <p class="hint">{t("share.identityLocked")}</p>
+        <Hint>{t("share.identityLocked")}</Hint>
         <div><Button onclick={load}>{t("share.identityUnlock")}</Button></div>
       {:else if loaded && !readFailed}
         {#if identity}
-          <p class="hint">
+          <Hint>
             {t("share.identityAs", { name: displayText(identity.name), fingerprint: identity.fingerprint })}
-          </p>
+          </Hint>
         {:else}
           <TextField
             label={t("share.identityName")}
@@ -156,12 +157,7 @@
     flex-direction: column;
     gap: var(--space-3);
   }
-  .hint {
+  .gap {
     margin-bottom: var(--space-3);
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
-  }
-  .form .hint {
-    margin-bottom: 0;
   }
 </style>

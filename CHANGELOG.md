@@ -7,6 +7,10 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### 🔄 Changed
+
+- Windows and lists that scroll without a frame now fade at the edge where more content is hidden, so they no longer look cut off.
+
 ## [0.4.1] - Unreleased
 
 ### 🔄 Changed

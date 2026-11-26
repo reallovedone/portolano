@@ -3,6 +3,7 @@
 <script lang="ts">
   import { t } from "../i18n/strings";
   import type { ReleaseSection } from "../ipc";
+  import Button from "../ui/Button.svelte";
   import ReleaseVersion from "./ReleaseVersion.svelte";
   import { useResolvedTheme } from "./resolvedTheme.svelte";
 
@@ -45,7 +46,7 @@
   {#if truncated}
     <p class="more" data-testid="{testid}-more">
       {moreText}
-      <button type="button" class="link" onclick={onmore}>{moreLabel}</button>
+      <Button variant="link" onclick={onmore}>{moreLabel}</Button>
     </p>
   {/if}
 </div>
@@ -62,15 +63,5 @@
   .more {
     margin: var(--space-4) 0 0;
     color: var(--text-secondary);
-  }
-
-  .link {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--text-link);
-    font: inherit;
-    text-decoration: underline;
-    cursor: pointer;
   }
 </style>

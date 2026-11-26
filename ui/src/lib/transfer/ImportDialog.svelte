@@ -14,6 +14,7 @@
   import Dialog from "../ui/Dialog.svelte";
   import EmptyState from "../ui/EmptyState.svelte";
   import FormSection from "../ui/FormSection.svelte";
+  import Hint from "../ui/Hint.svelte";
   import KindIcon from "../ui/KindIcon.svelte";
   import ListRow from "../ui/ListRow.svelte";
   import Select, { type SelectOption } from "../ui/Select.svelte";
@@ -136,10 +137,7 @@
     {/if}
 
     {#if loading}
-      <div class="loading" role="status">
-        <Spinner size={14} />
-        <span>{t("import.loading")}</span>
-      </div>
+      <Spinner size={14}>{t("import.loading")}</Spinner>
     {:else if preview && warnings}
       {#if preview.nodes.length === 0}
         <EmptyState icon="info" title={t("import.nothing")} />
@@ -174,7 +172,7 @@
             {/each}
           </ul>
           {#if rows.length > MAX_ROWS}
-            <p class="note">{t("import.more", { count: rows.length - MAX_ROWS })}</p>
+            <Hint>{t("import.more", { count: rows.length - MAX_ROWS })}</Hint>
           {/if}
         </FormSection>
       {/if}
@@ -236,13 +234,6 @@
     white-space: nowrap;
   }
 
-  .loading {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    color: var(--text-secondary);
-  }
-
   .counts {
     display: flex;
     flex-wrap: wrap;
@@ -286,10 +277,5 @@
   .message {
     min-width: 0;
     overflow-wrap: anywhere;
-  }
-
-  .note {
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
   }
 </style>

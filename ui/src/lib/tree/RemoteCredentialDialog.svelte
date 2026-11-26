@@ -9,6 +9,7 @@
   import Banner from "../ui/Banner.svelte";
   import Button from "../ui/Button.svelte";
   import Dialog from "../ui/Dialog.svelte";
+  import Hint from "../ui/Hint.svelte";
 
   let { node, onclose }: { node: Node; onclose: () => void } = $props();
 
@@ -45,7 +46,7 @@
     {#if saveError}
       <div class="banner"><Banner variant="danger" role="alert">{saveError}</Banner></div>
     {/if}
-    <p class="hint">{t("share.credentialHint")}</p>
+    <div class="gap"><Hint>{t("share.credentialHint")}</Hint></div>
     <CredentialField bind:value={draft} nodes={doc.nodes} parentId={node.parentId} {error} idPrefix={uid} />
   </form>
 
@@ -62,9 +63,7 @@
     margin-bottom: var(--space-3);
   }
 
-  .hint {
+  .gap {
     margin-bottom: var(--space-3);
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
   }
 </style>

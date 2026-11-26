@@ -57,6 +57,7 @@
 
   import { t } from "../i18n/strings";
   import { getApp } from "../state/app";
+  import { fadeEdges } from "./fadeEdges";
   import IconButton from "./IconButton.svelte";
 
   let {
@@ -161,7 +162,7 @@
       <IconButton icon="close" label={t("common.close")} size="compact" tooltip="" onclick={onclose} />
     </header>
     {#if hero}<div class="hero">{@render hero()}</div>{/if}
-    <div class="body">{@render children()}</div>
+    <div class="body" use:fadeEdges>{@render children()}</div>
     {#if footer}
       <footer>{@render footer()}</footer>
     {/if}

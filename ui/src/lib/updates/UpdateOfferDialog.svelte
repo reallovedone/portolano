@@ -70,14 +70,13 @@
         </div>
       {/if}
       <p class="notes-link">
-        <button
-          type="button"
-          class="link"
+        <Button
+          variant="link"
           data-version={info.version}
           onclick={() => void updates.openReleasePage(info.version)}
         >
           {t("update.releaseNotesLink")}
-        </button>
+        </Button>
       </p>
       {#if tabs.connectionTabs.length > 0}
         <div class="gap"><Banner variant="warning" role="note">{t("update.sessionsWarning")}</Banner></div>
@@ -112,16 +111,6 @@
 
   .notes-link {
     margin: 0 0 var(--space-3);
-  }
-
-  .link {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--text-link);
-    font: inherit;
-    text-decoration: underline;
-    cursor: pointer;
   }
 
   .gap {
