@@ -11,6 +11,11 @@ attention when you upgrade.
 
 - Windows and lists that scroll without a frame now fade at the edge where more content is hidden, so they no longer look cut off.
 
+### 🐛 Fixed
+
+- Opening Portolano while it is already running now brings the open window forward instead of starting a second copy, which could overwrite your latest changes to connections.
+- Publishing a shared folder to a slow network folder no longer freezes the rest of the app while the file is written, and two updates of the same shared folder sent at once no longer get the same version number.
+
 ## [0.4.1] - Unreleased
 
 ### 🔄 Changed
