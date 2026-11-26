@@ -322,29 +322,8 @@ fn count_kinds(nodes: &[Node]) -> (u32, u32) {
     )
 }
 
-/// `2026-11-20T09:30:00Z` for the current time.
 fn now_rfc3339() -> String {
-    let secs = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let (days, rem) = (i64::try_from(secs / 86_400).unwrap_or(0), secs % 86_400);
-    // Civil-from-days (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-        rem / 3_600,
-        rem % 3_600 / 60,
-        rem % 60
-    )
+    portolano_vault::rfc3339_utc(SystemTime::now())
 }
 
 impl ShareService {
@@ -1066,17 +1045,6 @@ impl ShareService {
             .map_err(|_| AppError::new(ErrorCode::Io, "The share file could not be written."))
     }
 
-    /// The current content of a file that is about to be overwritten; `None` when it cannot be
-    /// read or is too big to be a share.
-    fn read_previous_share_file(path: &str) -> Option<Vec<u8>> {
-        let path = std::path::Path::new(path);
-        let size = std::fs::metadata(path).ok()?.len();
-        if size > portolano_shares::format::MAX_SHARE_BYTES as u64 {
-            return None;
-        }
-        std::fs::read(path).ok()
-    }
-
     /// Fails when the folder no longer holds what was signed (it was edited while the vault was
     /// signing): publishing the old content would silently drop that edit.
     fn unchanged_since_signing(
@@ -1140,17 +1108,11 @@ impl ShareService {
             &VerifyingKey::from_bytes(&record.public_key)
                 .map_err(|_| AppError::internal("the identity key is not valid"))?,
         );
-        // Re-check and insert under one lock, before the file exists: a folder deleted or
-        // shared meanwhile leaves nothing behind.
+        // Re-check and insert under one lock: a folder deleted or shared meanwhile leaves
+        // nothing behind. The file is written after, without the lock (a slow network folder
+        // must not block the app); the gate keeps other publications out until then.
         let link_id = Uuid::new_v4();
-        let existed = std::path::Path::new(path).exists();
-        // What an existing file held, so that a failed save of the link can put it back.
-        let previous = if existed {
-            Self::read_previous_share_file(path)
-        } else {
-            None
-        };
-        let summary = self.with_store(|store| {
+        self.with_store(|store| {
             check(store.document())?;
             Self::unchanged_since_signing(store.document(), folder_id, &signed)?;
             let name = store
@@ -1158,7 +1120,6 @@ impl ShareService {
                 .node(folder_id)
                 .map(|n| n.name().to_owned())
                 .unwrap_or_default();
-            Self::write_share_file(path, &bytes)?;
             let link = ShareLink {
                 id: link_id,
                 share_id,
@@ -1180,33 +1141,33 @@ impl ShareService {
                     identity_id: record.id,
                 }),
             };
-            let saved = store.apply_batch(|doc| {
+            store.apply_batch(|doc| {
                 doc.shares.push(link);
                 Ok(())
-            });
-            if let Err(e) = saved {
-                // The link could not be saved: do not leave the file we just wrote (a new file
-                // is removed, an overwritten one gets its old content back).
-                if !existed {
-                    if let Err(rm) = std::fs::remove_file(path) {
-                        tracing::warn!(error = %rm, "could not remove an unused share file");
-                    }
-                } else if let Some(old) = &previous {
-                    if transport::write_atomic(std::path::Path::new(path), old).is_err() {
-                        tracing::warn!("could not restore the previous share file");
-                    }
-                } else {
-                    tracing::warn!("the overwritten share file could not be read, so not restored");
-                }
-                return Err(e.into());
-            }
-            self.summary_of(store.document(), link_id)
+            })?;
+            Ok(())
         })?;
-        Ok(summary)
+        if let Err(e) = Self::write_share_file(path, &bytes) {
+            // No file, no link: the folder can be published again.
+            let removed = self.with_store(|store| {
+                store.apply_batch(|doc| {
+                    doc.shares.retain(|l| l.id != link_id);
+                    Ok(())
+                })?;
+                Ok(())
+            });
+            if removed.is_err() {
+                self.set_error(link_id, ShareStatus::Error, &e.message);
+            }
+            return Err(e);
+        }
+        self.with_store(|store| self.summary_of(store.document(), link_id))
     }
 
     /// Publishes the current content of an owned folder again: revision + 1, same path.
     pub fn republish(&self, link_id: Uuid) -> Result<ShareSummary, AppError> {
+        // Two republications at once would sign the same revision number.
+        let _one_at_a_time = self.publish_gate.lock().map_err(poisoned)?;
         let (link, owned, path, nodes) = self.with_store(|store| {
             let doc = store.document();
             let link = doc
@@ -1243,6 +1204,18 @@ impl ShareService {
         // published twice with different content.
         self.with_store(|store| {
             Self::unchanged_since_signing(store.document(), owned.folder_id, &signed)?;
+            let current = store
+                .document()
+                .shares
+                .iter()
+                .find(|l| l.id == link_id)
+                .map(|l| l.last_revision);
+            if current != Some(link.last_revision) {
+                return Err(AppError::new(
+                    ErrorCode::Conflict,
+                    "The shared folder changed while it was being published. Try again.",
+                ));
+            }
             store.apply_batch(|doc| {
                 if let Some(l) = doc.shares.iter_mut().find(|l| l.id == link_id) {
                     l.last_revision = revision;

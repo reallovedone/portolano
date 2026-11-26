@@ -17,4 +17,4 @@ pub use types::{
     IdentityRecord, RevealedSecret, Secret, SecretInput, VaultStatus,
 };
 pub use unlock::{KdfParams, Kek, MasterPassword, UnlockMethod};
-pub use vault::{Clock, SystemClock, Vault, DEFAULT_AUTO_LOCK};
+pub use vault::{rfc3339_utc, Clock, SystemClock, Vault, DEFAULT_AUTO_LOCK};
