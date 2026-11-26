@@ -5,7 +5,7 @@
 `vendor/sspi/` is the published `sspi` 0.23.0 crate, unchanged except for a backport of the
 upstream fix for the Kerberos `mechListMIC` sequence number. It is wired in through
 `[patch.crates-io]` in the root `Cargo.toml`, and excluded from the workspace (`exclude`), so it
-is not formatted, linted or tested with our crates. `Cargo.lock` still reports version 0.23.0.
+is not formatted, linted or tested with our crates (CI runs its Kerberos tests separately). `Cargo.lock` still reports version 0.23.0.
 
 ### Why
 
@@ -38,7 +38,11 @@ vendored copy:
 - `src/kerberos/tests.rs`: two tests added (initiator accepts a MIC with sequence number 0,
   acceptor rejects it).
 
-`Cargo.toml`, `Cargo.toml.orig`, licences and every other file are as published. To review the
+Not compiled here, so removed: the upstream `.github/`, `tools/`, `examples/` and the
+integration tests in `tests/`, with their `[[example]]` and `[[test]]` entries in `Cargo.toml`.
+`Cargo.toml.orig`, licences and every other file are as published. CI runs the library's Kerberos
+and PKU2U unit tests (`cargo test --manifest-path vendor/sspi/Cargo.toml --locked --lib --
+kerberos pku2u`). To review the
 exact change: `diff -ru ~/.cargo/registry/src/*/sspi-0.23.0 vendor/sspi` (with the 0.23.0
 crate downloaded), or compare against the upstream PR.
 
