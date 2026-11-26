@@ -7,6 +7,10 @@ attention when you upgrade.
 
 ## [Unreleased]
 
+### 🐛 Fixed
+
+- Opening Portolano while it is already running now brings the open window forward instead of starting a second copy, which could overwrite your latest changes to connections.
+
 ## [0.4.1] - Unreleased
 
 ### 🔄 Changed
