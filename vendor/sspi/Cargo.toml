@@ -73,23 +73,6 @@ tsssp = [
 name = "sspi"
 path = "src/lib.rs"
 
-[[example]]
-name = "client"
-path = "examples/client.rs"
-
-[[example]]
-name = "kerberos"
-path = "examples/kerberos.rs"
-required-features = ["network_client"]
-
-[[example]]
-name = "server"
-path = "examples/server.rs"
-
-[[test]]
-name = "sspi"
-path = "tests/sspi/main.rs"
-
 [dependencies.async-recursion]
 version = "1.1"
 
