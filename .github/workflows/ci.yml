@@ -124,6 +124,11 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --locked
 
+      # vendor/sspi is outside the workspace: run the tests of the backported fix
+      # (docs/VENDORED.md) with its own lockfile.
+      - name: cargo test (vendor/sspi, Kerberos and PKU2U)
+        run: cargo test --manifest-path vendor/sspi/Cargo.toml --locked --lib -- kerberos pku2u
+
   macos:
     name: macOS (clippy, tests, UI build)
     runs-on: macos-latest
