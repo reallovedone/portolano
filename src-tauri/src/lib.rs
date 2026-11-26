@@ -88,7 +88,23 @@ pub fn run() {
         tracing::debug!("a process-level TLS provider was already installed");
     }
 
-    let builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default();
+    // One process per data folder: a second one would overwrite the first one's saves. A
+    // second launch brings the open window forward instead. It goes first, before any setup.
+    // A dev build with its own data folder (`PORTOLANO_DATA_DIR`) may run beside the app.
+    if !cfg!(debug_assertions) || std::env::var_os(portolano_core_model::DATA_DIR_ENV).is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_window("main") {
+                if let Err(e) = window
+                    .unminimize()
+                    .and_then(|()| window.show())
+                    .and_then(|()| window.set_focus())
+                {
+                    tracing::debug!(error = %e, "could not bring the window forward");
+                }
+            }
+        }));
+    }
     // macOS only: the default menu bar plus "Check for Updates…". Elsewhere there is no menu bar.
     #[cfg(target_os = "macos")]
     let builder = builder

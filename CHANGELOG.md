@@ -9,6 +9,7 @@ attention when you upgrade.
 
 ### 🐛 Fixed
 
+- Opening Portolano while it is already running now brings the open window forward instead of starting a second copy, which could overwrite your latest changes to connections.
 - Publishing a shared folder to a slow network folder no longer freezes the rest of the app while the file is written, and two updates of the same shared folder sent at once no longer get the same version number.
 
 ## [0.4.1] - Unreleased
